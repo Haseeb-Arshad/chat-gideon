@@ -1,15 +1,15 @@
 # GIDEON
 
-GIDEON is a localhost-first, voice-forward conversational companion. You can type or talk, watch the reply stream in, and hear the finished reply through Fish Audio.
+GIDEON is a localhost-first, voice-forward conversational presence. Its expressive eyes listen, focus, think, speak, and smile while the latest exchange appears as live captions rather than chat bubbles.
 
 ## What it uses
 
-- **Conversation:** `google/gemma-4-26b-a4b-it:free` on OpenRouter
+- **Conversation:** `nvidia/nemotron-3.5-lightning:free` on OpenRouter, with `minimax/minimax-m3:free` fallback
 - **Voice output:** `fish-audio/s2.1-pro-free:free` on OpenRouter
 - **Voice input:** the browser Speech Recognition API (Chrome or Edge recommended)
 - **App:** TanStack Start, React 19, TypeScript, Tailwind CSS 4
 
-The chat model reports reasoning off by default in OpenRouter's live catalog, and GIDEON also sends `reasoning.effort: "none"` so replies start quickly. Both configured OpenRouter models are free variants intended for local testing. Free endpoints may still be rate-limited or temporarily unavailable.
+GIDEON sends `reasoning.effort: "none"` and excludes reasoning output so replies begin quickly. The primary model produced a live non-reasoning response in about one second during the verification pass. Every configured model is a free variant intended for local testing, so an upstream free pool may still be rate-limited.
 
 ## Run locally
 
@@ -32,15 +32,16 @@ The chat model reports reasoning off by default in OpenRouter's live catalog, an
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in Chrome or Edge. Allow microphone access when you use **Talk**.
+4. Open [http://localhost:3000](http://localhost:3000) in Chrome or Edge. Voice mode starts enabled and asks for microphone access automatically.
 
 Never rename the key to a `VITE_` variable. Vite exposes `VITE_` variables to browser code; GIDEON keeps this credential exclusively in server routes.
 
 ## Conversation controls
 
+- Voice mode listens, sends a final utterance, speaks the answer, and then returns to listening automatically.
+- Thirty seconds without speech pauses the microphone. Select **Resume voice** to continue.
+- Select the rounded **Voice live** control to mute listening and playback at any time.
 - Type and press **Enter** to send; use **Shift + Enter** for a new line.
-- Select **Talk** to start live transcription. Select **Finish** to submit what was heard.
-- Use **Voice on/off** to control automatic Fish Audio playback.
 - The square stop control interrupts a streamed answer or active playback.
 - **New conversation** clears the local transcript.
 
@@ -51,7 +52,8 @@ Conversation history is saved only in the current browser's local storage. The s
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | required | Server-only OpenRouter bearer token |
-| `OPENROUTER_CHAT_MODEL` | `google/gemma-4-26b-a4b-it:free` | Fast, free text model |
+| `OPENROUTER_CHAT_MODEL` | `nvidia/nemotron-3.5-lightning:free` | Fast, free text model |
+| `OPENROUTER_CHAT_FALLBACK_MODEL` | `minimax/minimax-m3:free` | Free non-reasoning fallback |
 | `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro-free:free` | Free Fish Audio speech model |
 | `OPENROUTER_SITE_URL` | `http://localhost:3000` | OpenRouter app attribution URL |
 

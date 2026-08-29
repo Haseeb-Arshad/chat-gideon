@@ -3,28 +3,29 @@ import {
   ArrowUp,
   AudioLines,
   Mic,
+  MicOff,
+  Play,
   RotateCcw,
+  Sparkles,
   Square,
-  Trash2,
-  Volume2,
-  VolumeX,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ApiErrorBody, ChatRole } from '../lib/openrouter'
 
 export const Route = createFileRoute('/')({
   component: HomePage,
 })
 
-type Phase = 'idle' | 'listening' | 'thinking' | 'speaking'
+type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'paused'
+type VoiceMode = 'active' | 'paused' | 'muted'
+type Emotion = 'neutral' | 'curious' | 'focused' | 'happy' | 'concerned'
 
 interface Message {
   id: string
   role: ChatRole
   content: string
   createdAt: string
-  pending?: boolean
 }
 
 interface PublicConfig {
@@ -68,31 +69,18 @@ declare global {
   }
 }
 
-const STORAGE_KEY = 'gideon-conversation-v1'
+const STORAGE_KEY = 'gideon-conversation-v2'
+const SILENCE_LIMIT_MS = 30_000
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
   role: 'assistant',
-  content:
-    "I'm here. Talk to me, type a thought, or choose a starting point below. What is on your mind?",
-  createdAt: 'Ready now',
+  content: "Hey, I'm GIDEON. I'm listening.",
+  createdAt: 'now',
 }
-
-const STARTERS = [
-  'Help me untangle a decision',
-  'Teach me something surprising',
-  'Plan the rest of my day',
-]
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function timeLabel() {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date())
 }
 
 function isStoredMessage(value: unknown): value is Message {
@@ -106,12 +94,26 @@ function isStoredMessage(value: unknown): value is Message {
   )
 }
 
+function deriveEmotion(text: string): Emotion {
+  const value = text.toLowerCase()
+  if (/\b(ha|haha|hehe|lol|love|lovely|delight|wonderful|amazing|awesome|great|good|glad|happy|funny|joy|joke|laugh|smile|flattered)\b/.test(value)) {
+    return 'happy'
+  }
+  if (/\b(sorry|sad|hurt|hard|difficult|afraid|worried|loss|unfortunately)\b/.test(value)) {
+    return 'concerned'
+  }
+  if (value.includes('?') || /\b(why|how|wonder|curious|maybe)\b/.test(value)) {
+    return 'curious'
+  }
+  return 'neutral'
+}
+
 async function readError(response: Response) {
   try {
     const body = (await response.json()) as ApiErrorBody
-    return body.error?.message || 'The request could not be completed.'
+    return body.error?.message || 'That connection did not complete.'
   } catch {
-    return 'The request could not be completed.'
+    return 'That connection did not complete.'
   }
 }
 
@@ -121,16 +123,14 @@ function deltaText(data: unknown) {
   if (!Array.isArray(choices)) return ''
   const content = choices[0]?.delta?.content
   if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        part && typeof part === 'object' && 'text' in part
-          ? String((part as { text: unknown }).text)
-          : '',
-      )
-      .join('')
-  }
-  return ''
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) =>
+      part && typeof part === 'object' && 'text' in part
+        ? String((part as { text: unknown }).text)
+        : '',
+    )
+    .join('')
 }
 
 async function consumeOpenRouterStream(
@@ -156,7 +156,7 @@ async function consumeOpenRouterStream(
         onDelta(delta)
       }
     } catch {
-      // Non-JSON provider metadata is safe to ignore.
+      // Provider comments and metadata are not part of the visible response.
     }
     return false
   }
@@ -166,7 +166,6 @@ async function consumeOpenRouterStream(
     buffer += decoder.decode(value, { stream: !done })
     const lines = buffer.split(/\r?\n/)
     buffer = lines.pop() || ''
-
     for (const line of lines) {
       if (processLine(line)) return completeText
     }
@@ -177,21 +176,35 @@ async function consumeOpenRouterStream(
   return completeText
 }
 
-function VoiceAperture({ phase }: { phase: Phase }) {
+function LivingEyes({ phase, emotion }: { phase: Phase; emotion: Emotion }) {
   return (
-    <div className="voice-aperture" data-phase={phase} aria-hidden="true">
-      <div className="aperture-halo" />
-      <div className="aperture-ring aperture-ring-outer" />
-      <div className="aperture-ring aperture-ring-inner" />
-      <div className="aperture-core">
-        {Array.from({ length: 17 }, (_, index) => (
-          <span
-            className="aperture-bar"
-            key={index}
-            style={{ '--bar-index': index } as React.CSSProperties}
-          />
-        ))}
+    <div className="living-eyes" data-phase={phase} data-emotion={emotion} aria-hidden="true">
+      <div className="eye eye-left">
+        <div className="eye-surface">
+          <div className="iris">
+            <div className="iris-light" />
+            <div className="pupil" />
+            <div className="eye-glint" />
+          </div>
+          <div className="upper-lid" />
+        </div>
+        <div className="happy-arc" />
+        <div className="brow" />
       </div>
+      <div className="eye eye-right">
+        <div className="eye-surface">
+          <div className="iris">
+            <div className="iris-light" />
+            <div className="pupil" />
+            <div className="eye-glint" />
+          </div>
+          <div className="upper-lid" />
+        </div>
+        <div className="happy-arc" />
+        <div className="brow" />
+      </div>
+      <div className="laugh-mark laugh-mark-left">✦</div>
+      <div className="laugh-mark laugh-mark-right">✦</div>
     </div>
   )
 }
@@ -199,83 +212,52 @@ function VoiceAperture({ phase }: { phase: Phase }) {
 function HomePage() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [draft, setDraft] = useState('')
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [voiceEnabled, setVoiceEnabled] = useState(true)
-  const [speechSupported, setSpeechSupported] = useState(true)
+  const [phase, setPhaseState] = useState<Phase>('idle')
+  const [voiceMode, setVoiceModeState] = useState<VoiceMode>('active')
+  const [emotion, setEmotion] = useState<Emotion>('neutral')
+  const [liveTranscript, setLiveTranscript] = useState('')
+  const [assistantCaption, setAssistantCaption] = useState(WELCOME_MESSAGE.content)
+  const [userCaption, setUserCaption] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [retryText, setRetryText] = useState<string | null>(null)
-  const [liveTranscript, setLiveTranscript] = useState('')
   const [config, setConfig] = useState<PublicConfig | null>(null)
-  const [lastLatency, setLastLatency] = useState<number | null>(null)
+  const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
 
-  const transcriptRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const phaseRef = useRef<Phase>('idle')
+  const voiceModeRef = useRef<VoiceMode>('active')
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const suppressRecognitionRestartRef = useRef(false)
+  const silenceDeadlineRef = useRef(0)
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioUrlRef = useRef<string | null>(null)
+  const startListeningRef = useRef<(preserveDeadline?: boolean) => void>(() => undefined)
 
-  const isWorking = phase === 'thinking' || phase === 'listening'
-  const visibleModel = useMemo(
-    () => config?.chatModel.split('/').at(-1)?.replace(':free', '') || 'checking',
-    [config],
-  )
+  function setPhase(next: Phase) {
+    phaseRef.current = next
+    setPhaseState(next)
+  }
 
-  useEffect(() => {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    setSpeechSupported(Boolean(Recognition))
+  function setVoiceMode(next: VoiceMode) {
+    voiceModeRef.current = next
+    setVoiceModeState(next)
+  }
 
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length && parsed.every(isStoredMessage)) {
-          setMessages(parsed.slice(-40))
-        }
-      }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY)
-    }
-    setHydrated(true)
+  function clearSilenceTimer() {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    silenceTimerRef.current = null
+  }
 
-    void fetch('/api/config')
-      .then((response) => response.json())
-      .then((data: PublicConfig) => setConfig(data))
-      .catch(() => setConfig(null))
-  }, [])
-
-  useEffect(() => {
-    if (!hydrated) return
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(messages.filter((message) => !message.pending).slice(-40)),
-    )
-  }, [hydrated, messages])
-
-  useEffect(() => {
-    transcriptRef.current?.scrollTo({
-      top: transcriptRef.current.scrollHeight,
-      behavior: phase === 'thinking' ? 'smooth' : 'auto',
-    })
-  }, [messages, liveTranscript, phase])
-
-  useEffect(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = '0px'
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 132)}px`
-  }, [draft])
-
-  useEffect(
-    () => () => {
-      abortRef.current?.abort()
-      recognitionRef.current?.abort()
-      audioRef.current?.pause()
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
-    },
-    [],
-  )
+  function stopRecognition(suppressRestart = true) {
+    if (!recognitionRef.current) return
+    suppressRecognitionRestartRef.current = suppressRestart
+    recognitionRef.current.stop()
+  }
 
   function stopAudio() {
     if (audioRef.current) {
@@ -287,76 +269,156 @@ function HomePage() {
       URL.revokeObjectURL(audioUrlRef.current)
       audioUrlRef.current = null
     }
-    setPhase((current) => (current === 'speaking' ? 'idle' : current))
   }
 
-  async function speak(text: string) {
-    if (!voiceEnabled || !text.trim()) return
-    stopAudio()
+  function pauseForSilence() {
+    setVoiceMode('paused')
+    setPhase('paused')
+    setLiveTranscript('')
+    clearSilenceTimer()
+    if (recognitionRef.current) {
+      suppressRecognitionRestartRef.current = true
+      recognitionRef.current.stop()
+    }
+  }
 
+  function armSilenceTimer(resetDeadline: boolean) {
+    clearSilenceTimer()
+    if (resetDeadline) silenceDeadlineRef.current = Date.now() + SILENCE_LIMIT_MS
+    const remaining = Math.max(0, silenceDeadlineRef.current - Date.now())
+    silenceTimerRef.current = setTimeout(pauseForSilence, remaining)
+  }
+
+  useEffect(() => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    setSpeechSupported(Boolean(Recognition))
+    if (!Recognition) setVoiceMode('muted')
+
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed) && parsed.length && parsed.every(isStoredMessage)) {
+          const restored = parsed.slice(-40)
+          setMessages(restored)
+          const lastAssistant = [...restored].reverse().find((message) => message.role === 'assistant')
+          const lastUser = [...restored].reverse().find((message) => message.role === 'user')
+          if (lastAssistant) {
+            setAssistantCaption(lastAssistant.content)
+            setEmotion(deriveEmotion(lastAssistant.content))
+          }
+          if (lastUser) setUserCaption(lastUser.content)
+        }
+      }
+    } catch {
+      localStorage.removeItem(STORAGE_KEY)
+    }
+    setHydrated(true)
+
+    void fetch('/api/config')
+      .then((response) => response.json())
+      .then((data: PublicConfig) => setConfig(data))
+      .catch(() => setConfig(null))
+
+    if (Recognition) {
+      autoStartTimerRef.current = setTimeout(() => startListeningRef.current(false), 900)
+    }
+
+    return () => {
+      if (autoStartTimerRef.current) clearTimeout(autoStartTimerRef.current)
+      clearSilenceTimer()
+      abortRef.current?.abort()
+      recognitionRef.current?.abort()
+      stopAudio()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40)))
+  }, [hydrated, messages])
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = '0px'
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`
+  }, [draft])
+
+  async function speak(text: string) {
+    if (voiceModeRef.current !== 'active' || !text.trim()) {
+      setPhase('idle')
+      return
+    }
+
+    stopAudio()
+    setPhase('speaking')
     try {
       const response = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
-
       if (!response.ok) throw new Error(await readError(response))
+
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
-      audioUrlRef.current = url
       audioRef.current = audio
-      audio.onplay = () => setPhase('speaking')
-      audio.onended = stopAudio
+      audioUrlRef.current = url
+      audio.onended = () => {
+        stopAudio()
+        setPhase('idle')
+        if (voiceModeRef.current === 'active') {
+          setTimeout(() => startListeningRef.current(false), 260)
+        }
+      }
       audio.onerror = () => {
         stopAudio()
-        setNotice('The spoken reply could not be played. The text is still here.')
+        setPhase('idle')
+        setNotice('The voice could not play, but the reply is here.')
+        if (voiceModeRef.current === 'active') {
+          setTimeout(() => startListeningRef.current(false), 260)
+        }
       }
       await audio.play()
     } catch (error) {
       stopAudio()
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : 'The spoken reply could not be generated.',
-      )
+      setPhase('idle')
+      setNotice(error instanceof Error ? error.message : 'The voice could not be generated.')
+      if (voiceModeRef.current === 'active') {
+        setTimeout(() => startListeningRef.current(false), 260)
+      }
     }
   }
 
   async function sendMessage(rawText: string) {
     const text = rawText.trim()
-    if (!text || isWorking) return
+    if (!text || phaseRef.current === 'thinking') return
 
+    clearSilenceTimer()
+    stopRecognition(true)
     stopAudio()
     setNotice(null)
     setRetryText(null)
     setDraft('')
     setLiveTranscript('')
+    setUserCaption(text)
+    setAssistantCaption('')
+    setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
+    setPhase('thinking')
 
     const userMessage: Message = {
       id: makeId(),
       role: 'user',
       content: text,
-      createdAt: timeLabel(),
-    }
-    const assistantId = makeId()
-    const assistantMessage: Message = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      createdAt: timeLabel(),
-      pending: true,
+      createdAt: new Date().toISOString(),
     }
     const context = [...messages, userMessage]
+    setMessages(context)
 
-    setMessages([...context, assistantMessage])
-    setPhase('thinking')
     const controller = new AbortController()
     abortRef.current = controller
-    const startedAt = performance.now()
-    let receivedFirstToken = false
-
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -366,39 +428,29 @@ function HomePage() {
         }),
         signal: controller.signal,
       })
-
       if (!response.ok) throw new Error(await readError(response))
 
       const completeText = await consumeOpenRouterStream(response, (delta) => {
-        if (!receivedFirstToken) {
-          receivedFirstToken = true
-          setLastLatency(Math.max(1, Math.round(performance.now() - startedAt)))
-        }
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? { ...message, content: message.content + delta }
-              : message,
-          ),
-        )
+        setAssistantCaption((current) => current + delta)
       })
+      if (!completeText.trim()) throw new Error('I lost that thought. Ask me once more.')
 
-      if (!completeText.trim()) {
-        throw new Error('The model returned an empty reply. Try that again.')
+      const assistantMessage: Message = {
+        id: makeId(),
+        role: 'assistant',
+        content: completeText,
+        createdAt: new Date().toISOString(),
       }
-
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId ? { ...message, pending: false } : message,
-        ),
-      )
-      setPhase('idle')
+      setMessages([...context, assistantMessage])
+      setEmotion(deriveEmotion(`${text} ${completeText}`))
       await speak(completeText)
     } catch (error) {
-      setMessages((current) => current.filter((message) => message.id !== assistantId))
       if ((error as Error).name !== 'AbortError') {
-        setNotice(error instanceof Error ? error.message : 'The reply was interrupted.')
+        const message = error instanceof Error ? error.message : 'The reply was interrupted.'
+        setNotice(message)
         setRetryText(text)
+        setAssistantCaption('I lost the connection for a moment.')
+        setEmotion('concerned')
       }
       setPhase('idle')
     } finally {
@@ -406,27 +458,31 @@ function HomePage() {
     }
   }
 
-  function toggleListening() {
-    if (phase === 'listening') {
-      recognitionRef.current?.stop()
-      return
-    }
-
+  function startListening(preserveDeadline = false) {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!Recognition) {
       setSpeechSupported(false)
-      setNotice('Live speech input is not supported in this browser. Type below or use Chrome or Edge.')
-      textareaRef.current?.focus()
+      setVoiceMode('muted')
+      setPhase('idle')
+      setNotice('Live voice needs Chrome or Edge. You can still type below.')
       return
     }
+    if (phaseRef.current === 'thinking' || phaseRef.current === 'speaking') return
+    if (recognitionRef.current) return
 
-    stopAudio()
+    setVoiceMode('active')
+    setPhase('listening')
     setNotice(null)
     setLiveTranscript('')
+    suppressRecognitionRestartRef.current = false
+    if (!preserveDeadline) silenceDeadlineRef.current = Date.now() + SILENCE_LIMIT_MS
+    armSilenceTimer(false)
+
     let finalText = ''
-    let recognitionFailed = false
+    let failed = false
+    let silentEnd = false
     const recognition = new Recognition()
-    recognition.continuous = false
+    recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = navigator.language || 'en-US'
 
@@ -434,305 +490,278 @@ function HomePage() {
       let interimText = ''
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index]
-        if (result.isFinal) finalText += `${result[0].transcript} `
-        else interimText += result[0].transcript
+        const transcript = result[0].transcript
+        if (result.isFinal) finalText += `${transcript} `
+        else interimText += transcript
       }
+
       const visibleText = `${finalText}${interimText}`.trim()
-      setLiveTranscript(visibleText)
-      setDraft(visibleText)
-    }
-    recognition.onerror = (event) => {
-      recognitionFailed = true
-      const messagesByError: Record<string, string> = {
-        'not-allowed': 'Microphone access was blocked. Allow it for localhost, then try again.',
-        'audio-capture': 'No working microphone was found. Check your input device.',
-        network: 'Speech recognition lost its connection. You can keep typing instead.',
-        'no-speech': 'I did not hear anything. Tap the microphone when you are ready.',
+      if (visibleText) {
+        armSilenceTimer(true)
+        setLiveTranscript(visibleText)
+        setUserCaption(visibleText)
+        setEmotion(deriveEmotion(visibleText) === 'happy' ? 'happy' : 'curious')
       }
-      setNotice(messagesByError[event.error] || 'Speech recognition stopped unexpectedly.')
+
+      if (finalText.trim()) recognition.stop()
     }
+
+    recognition.onerror = (event) => {
+      if (event.error === 'no-speech') {
+        silentEnd = true
+        return
+      }
+      failed = true
+      const messagesByError: Record<string, string> = {
+        'not-allowed': 'Tap Resume voice and allow microphone access to start talking.',
+        'audio-capture': 'No working microphone was found. Check your input device.',
+        network: 'Voice recognition lost its connection. Tap to resume.',
+      }
+      setNotice(messagesByError[event.error] || 'Voice recognition paused. Tap to resume.')
+    }
+
     recognition.onend = () => {
-      recognitionRef.current = null
-      setPhase('idle')
+      if (recognitionRef.current === recognition) recognitionRef.current = null
       const spokenText = finalText.trim()
-      setLiveTranscript('')
-      if (!recognitionFailed && spokenText) void sendMessage(spokenText)
+      const suppressed = suppressRecognitionRestartRef.current
+      suppressRecognitionRestartRef.current = false
+
+      if (spokenText && !failed) {
+        clearSilenceTimer()
+        void sendMessage(spokenText)
+        return
+      }
+      if (suppressed) return
+
+      if (
+        (silentEnd || !failed) &&
+        voiceModeRef.current === 'active' &&
+        Date.now() < silenceDeadlineRef.current
+      ) {
+        setTimeout(() => startListeningRef.current(true), 220)
+        return
+      }
+
+      clearSilenceTimer()
+      if (voiceModeRef.current === 'active') {
+        setVoiceMode('paused')
+        setPhase('paused')
+      }
     }
 
     recognitionRef.current = recognition
-    setPhase('listening')
     try {
       recognition.start()
     } catch {
       recognitionRef.current = null
-      setPhase('idle')
-      setNotice('The microphone could not start. Wait a moment and try again.')
+      clearSilenceTimer()
+      setVoiceMode('paused')
+      setPhase('paused')
+      setNotice('Tap Resume voice to give the microphone another try.')
     }
   }
 
-  function stopInteraction() {
-    if (phase === 'listening') recognitionRef.current?.stop()
-    if (phase === 'thinking') abortRef.current?.abort()
-    if (phase === 'speaking') stopAudio()
+  startListeningRef.current = startListening
+
+  function handleVoiceControl() {
+    if (voiceModeRef.current === 'active') {
+      setVoiceMode('muted')
+      clearSilenceTimer()
+      stopRecognition(true)
+      stopAudio()
+      if (phaseRef.current !== 'thinking') setPhase('idle')
+      setLiveTranscript('')
+      return
+    }
+
+    setVoiceMode('active')
+    setNotice(null)
+    startListening(false)
+  }
+
+  function stopCurrentTurn() {
+    abortRef.current?.abort()
+    stopAudio()
+    setPhase('idle')
+    setAssistantCaption((current) => current || 'Stopped.')
+    if (voiceModeRef.current === 'active') {
+      setTimeout(() => startListeningRef.current(false), 220)
+    }
   }
 
   function newConversation() {
-    stopInteraction()
+    abortRef.current?.abort()
+    clearSilenceTimer()
+    stopRecognition(true)
+    stopAudio()
     setMessages([WELCOME_MESSAGE])
-    setDraft('')
+    setAssistantCaption(WELCOME_MESSAGE.content)
+    setUserCaption('')
+    setEmotion('neutral')
     setNotice(null)
     setRetryText(null)
-    setLastLatency(null)
+    setDraft('')
     localStorage.removeItem(STORAGE_KEY)
-    textareaRef.current?.focus()
+    if (voiceModeRef.current === 'active') {
+      setPhase('idle')
+      setTimeout(() => startListeningRef.current(false), 220)
+    } else {
+      setPhase(voiceModeRef.current === 'paused' ? 'paused' : 'idle')
+    }
   }
 
-  function toggleVoice() {
-    if (voiceEnabled) stopAudio()
-    setVoiceEnabled((current) => !current)
+  function handlePointerMove(event: React.PointerEvent<HTMLElement>) {
+    const x = Math.max(-1, Math.min(1, (event.clientX / window.innerWidth - 0.5) * 2))
+    const y = Math.max(-1, Math.min(1, (event.clientY / window.innerHeight - 0.5) * 2))
+    stageRef.current?.style.setProperty('--gaze-x', x.toFixed(3))
+    stageRef.current?.style.setProperty('--gaze-y', y.toFixed(3))
   }
 
-  const phaseCopy = {
-    idle: 'Ready when you are',
-    listening: 'Listening closely',
-    thinking: 'Forming a reply',
-    speaking: 'Speaking with you',
+  function resetGaze() {
+    stageRef.current?.style.setProperty('--gaze-x', '0')
+    stageRef.current?.style.setProperty('--gaze-y', '0')
+  }
+
+  const statusCopy = {
+    idle: voiceMode === 'muted' ? 'Voice muted' : 'Here with you',
+    listening: liveTranscript ? 'I hear you' : 'Listening…',
+    thinking: 'Thinking with you…',
+    speaking: 'Speaking',
+    paused: 'Voice paused after 30 seconds of quiet',
   }[phase]
 
+  const voiceControl =
+    voiceMode === 'paused'
+      ? { icon: <Play size={19} fill="currentColor" />, label: 'Resume voice', hint: 'Paused after 30s' }
+      : voiceMode === 'muted'
+        ? { icon: <MicOff size={19} />, label: 'Voice muted', hint: 'Tap to resume' }
+        : phase === 'speaking'
+          ? { icon: <AudioLines size={20} />, label: 'Speaking', hint: 'Tap to mute' }
+          : phase === 'thinking'
+            ? { icon: <Sparkles size={19} />, label: 'Thinking', hint: 'Tap to mute' }
+            : { icon: <Mic size={20} />, label: phase === 'listening' ? 'Listening' : 'Voice live', hint: 'Tap to mute' }
+
   return (
-    <main className="gideon-shell">
-      <aside className="presence-rail" aria-label="GIDEON status">
-        <header className="brand-lockup">
-          <div>
-            <p className="eyebrow">Conversational intelligence</p>
-            <h1>GIDEON</h1>
-          </div>
-          <span
-            className={`connection-dot ${config?.configured ? 'is-online' : ''}`}
-            title={config?.configured ? 'OpenRouter connected' : 'OpenRouter key needed'}
-          />
-        </header>
+    <main
+      className="presence-shell"
+      ref={stageRef}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={resetGaze}
+    >
+      <div className="ambient-field" aria-hidden="true">
+        <span className="ambient-orbit orbit-one" />
+        <span className="ambient-orbit orbit-two" />
+        <span className="ambient-grain" />
+      </div>
 
-        <section className="presence-stage" aria-live="polite">
-          <VoiceAperture phase={phase} />
-          <div className="phase-copy">
-            <span className="phase-kicker">{phase === 'idle' ? 'Standing by' : 'Live'}</span>
-            <strong>{phaseCopy}</strong>
-            {phase === 'listening' && liveTranscript ? (
-              <span className="heard-text">“{liveTranscript}”</span>
-            ) : (
-              <span className="phase-detail">
-                {voiceEnabled ? 'Voice replies are on' : 'Text replies only'}
-              </span>
-            )}
-          </div>
-        </section>
+      <div className="floating-brand" aria-label="GIDEON">
+        <span className="brand-seed" />
+        <span>GIDEON</span>
+      </div>
 
-        <dl className="session-facts">
-          <div>
-            <dt>Conversation</dt>
-            <dd>{visibleModel}</dd>
-          </div>
-          <div>
-            <dt>Voice</dt>
-            <dd>Fish S2.1 · free</dd>
-          </div>
-          <div>
-            <dt>First response</dt>
-            <dd>{lastLatency ? `${(lastLatency / 1000).toFixed(1)} s` : '—'}</dd>
-          </div>
-        </dl>
+      <button className="reset-button" type="button" onClick={newConversation} aria-label="New conversation">
+        <RotateCcw size={17} />
+        <span>New</span>
+      </button>
 
-        <button className="new-chat-button" type="button" onClick={newConversation}>
-          <RotateCcw size={15} aria-hidden="true" />
-          New conversation
-        </button>
-      </aside>
+      {config && !config.configured ? (
+        <div className="setup-note" role="status">
+          Add the local OpenRouter key, then restart GIDEON.
+        </div>
+      ) : null}
 
-      <section className="conversation-panel" aria-label="Conversation">
-        <header className="conversation-header">
-          <div className="mobile-brand">
-            <span className="mobile-mark">G</span>
-            <div>
-              <strong>GIDEON</strong>
-              <span>{phaseCopy}</span>
-            </div>
-          </div>
-          <div className="conversation-title">
-            <p className="eyebrow">Current exchange</p>
-            <h2>A place to think out loud</h2>
-          </div>
-          <div className="header-actions">
-            <button
-              className={`icon-button voice-toggle ${voiceEnabled ? 'is-active' : ''}`}
-              type="button"
-              onClick={toggleVoice}
-              aria-label={voiceEnabled ? 'Turn voice replies off' : 'Turn voice replies on'}
-              aria-pressed={voiceEnabled}
-            >
-              {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
-              <span>{voiceEnabled ? 'Voice on' : 'Voice off'}</span>
+      <section className="agent-presence" aria-label="GIDEON voice presence">
+        <LivingEyes phase={phase} emotion={emotion} />
+        <div className="presence-status" aria-live="polite">
+          <span className="status-dot" />
+          {statusCopy}
+        </div>
+
+        <div className="live-captions" aria-live="polite" aria-atomic="false">
+          {userCaption ? (
+            <p className="user-caption">
+              <span>You</span>
+              {userCaption}
+            </p>
+          ) : null}
+          <p className={`assistant-caption ${phase === 'thinking' && !assistantCaption ? 'is-thinking' : ''}`}>
+            {assistantCaption || <span className="thought-pulse">•••</span>}
+          </p>
+        </div>
+      </section>
+
+      <section className="voice-dock" aria-label="Voice and text controls">
+        {notice ? (
+          <div className="inline-notice" role="alert">
+            <span>{notice}</span>
+            {retryText ? (
+              <button type="button" onClick={() => void sendMessage(retryText)}>
+                Try again
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message">
+              <X size={14} />
             </button>
-            <button
-              className="icon-button mobile-clear"
-              type="button"
-              onClick={newConversation}
-              aria-label="Start a new conversation"
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
-        </header>
-
-        {config && !config.configured ? (
-          <div className="config-banner" role="status">
-            <span className="config-pulse" />
-            <div>
-              <strong>One local step remains</strong>
-              <span>
-                Copy <code>.env.example</code> to <code>.env</code>, add your OpenRouter key,
-                then restart the server.
-              </span>
-            </div>
           </div>
         ) : null}
 
-        <div className="transcript" ref={transcriptRef}>
-          <div className="message-stack">
-            {messages.map((message) => (
-              <article
-                className={`message message-${message.role} ${message.pending ? 'is-pending' : ''}`}
-                key={message.id}
-              >
-                <div className="message-meta">
-                  <span>{message.role === 'assistant' ? 'GIDEON' : 'YOU'}</span>
-                  <time>{message.createdAt}</time>
-                </div>
-                <div className="message-bubble">
-                  {message.content ? (
-                    <p>{message.content}</p>
-                  ) : (
-                    <span className="typing-indicator" aria-label="GIDEON is replying">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  )}
-                </div>
-              </article>
-            ))}
+        <div className="voice-action-row">
+          <button
+            type="button"
+            className="voice-mode-button"
+            data-mode={voiceMode}
+            data-phase={phase}
+            onClick={handleVoiceControl}
+            aria-label={voiceMode === 'active' ? 'Mute voice mode' : 'Resume voice mode'}
+            aria-pressed={voiceMode === 'active'}
+          >
+            <span className="voice-icon">{speechSupported ? voiceControl.icon : <MicOff size={19} />}</span>
+            <span className="voice-label">
+              <strong>{speechSupported ? voiceControl.label : 'Voice unavailable'}</strong>
+              <small>{speechSupported ? voiceControl.hint : 'Type below'}</small>
+            </span>
+            <span className="voice-level" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+          </button>
 
-            {messages.length === 1 ? (
-              <div className="starter-group" aria-label="Conversation starters">
-                <p>Begin somewhere</p>
-                <div>
-                  {STARTERS.map((starter) => (
-                    <button
-                      type="button"
-                      key={starter}
-                      onClick={() => void sendMessage(starter)}
-                    >
-                      <span>{starter}</span>
-                      <ArrowUp size={15} aria-hidden="true" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {notice ? (
-              <div className="notice-card" role="alert">
-                <div>
-                  <strong>The conversation paused</strong>
-                  <p>{notice}</p>
-                </div>
-                <div className="notice-actions">
-                  {retryText ? (
-                    <button type="button" onClick={() => void sendMessage(retryText)}>
-                      Try again
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="dismiss-notice"
-                    onClick={() => setNotice(null)}
-                    aria-label="Dismiss message"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          {phase === 'thinking' || phase === 'speaking' ? (
+            <button type="button" className="stop-turn-button" onClick={stopCurrentTurn} aria-label="Stop current response">
+              <Square size={15} fill="currentColor" />
+            </button>
+          ) : null}
         </div>
 
-        <footer className="composer-zone">
-          <div className={`composer ${phase === 'listening' ? 'is-listening' : ''}`}>
-            <button
-              type="button"
-              className="talk-button"
-              onClick={toggleListening}
-              disabled={phase === 'thinking'}
-              aria-label={phase === 'listening' ? 'Stop listening' : 'Talk to GIDEON'}
-              title={speechSupported ? 'Talk to GIDEON' : 'Speech input needs Chrome or Edge'}
-            >
-              {phase === 'listening' ? <Square size={17} fill="currentColor" /> : <Mic size={20} />}
-              <span>{phase === 'listening' ? 'Finish' : 'Talk'}</span>
-            </button>
-
-            <label className="sr-only" htmlFor="message-input">
-              Message GIDEON
-            </label>
-            <textarea
-              id="message-input"
-              ref={textareaRef}
-              value={draft}
-              rows={1}
-              maxLength={8000}
-              placeholder={phase === 'listening' ? 'I’m listening…' : 'Say what’s on your mind…'}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  void sendMessage(draft)
-                }
-              }}
-              disabled={phase === 'thinking'}
-            />
-
-            {phase === 'thinking' || phase === 'speaking' ? (
-              <button
-                type="button"
-                className="send-button stop-button"
-                onClick={stopInteraction}
-                aria-label={phase === 'thinking' ? 'Stop response' : 'Stop speaking'}
-              >
-                <Square size={16} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="send-button"
-                onClick={() => void sendMessage(draft)}
-                disabled={!draft.trim() || phase === 'listening'}
-                aria-label="Send message"
-              >
-                <ArrowUp size={19} strokeWidth={2.4} />
-              </button>
-            )}
-          </div>
-
-          <div className="composer-footnote">
-            <span>
-              {speechSupported ? (
-                <><Mic size={12} /> Speech input available</>
-              ) : (
-                <><AudioLines size={12} /> Type to chat in this browser</>
-              )}
-            </span>
-            <span>Enter to send · Shift + Enter for a new line</span>
-          </div>
-        </footer>
+        <div className="text-composer">
+          <label className="sr-only" htmlFor="message-input">Type to GIDEON</label>
+          <textarea
+            id="message-input"
+            ref={textareaRef}
+            value={draft}
+            rows={1}
+            maxLength={8000}
+            placeholder="Or type something…"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void sendMessage(draft)
+              }
+            }}
+            disabled={phase === 'thinking'}
+          />
+          <button
+            type="button"
+            onClick={() => void sendMessage(draft)}
+            disabled={!draft.trim() || phase === 'thinking'}
+            aria-label="Send typed message"
+          >
+            <ArrowUp size={18} strokeWidth={2.5} />
+          </button>
+        </div>
       </section>
     </main>
   )
