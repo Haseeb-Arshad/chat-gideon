@@ -1,0 +1,95 @@
+# GIDEON
+
+GIDEON is a localhost-first, voice-forward conversational companion. You can type or talk, watch the reply stream in, and hear the finished reply through Fish Audio.
+
+## What it uses
+
+- **Conversation:** `google/gemma-4-26b-a4b-it:free` on OpenRouter
+- **Voice output:** `fish-audio/s2.1-pro-free:free` on OpenRouter
+- **Voice input:** the browser Speech Recognition API (Chrome or Edge recommended)
+- **App:** TanStack Start, React 19, TypeScript, Tailwind CSS 4
+
+The chat model reports reasoning off by default in OpenRouter's live catalog, and GIDEON also sends `reasoning.effort: "none"` so replies start quickly. Both configured OpenRouter models are free variants intended for local testing. Free endpoints may still be rate-limited or temporarily unavailable.
+
+## Run locally
+
+1. Copy the example environment file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. Put your OpenRouter key in `.env`:
+
+   ```dotenv
+   OPENROUTER_API_KEY=your_key_here
+   ```
+
+3. Start the app:
+
+   ```powershell
+   npm install
+   npm run dev
+   ```
+
+4. Open [http://localhost:3000](http://localhost:3000) in Chrome or Edge. Allow microphone access when you use **Talk**.
+
+Never rename the key to a `VITE_` variable. Vite exposes `VITE_` variables to browser code; GIDEON keeps this credential exclusively in server routes.
+
+## Conversation controls
+
+- Type and press **Enter** to send; use **Shift + Enter** for a new line.
+- Select **Talk** to start live transcription. Select **Finish** to submit what was heard.
+- Use **Voice on/off** to control automatic Fish Audio playback.
+- The square stop control interrupts a streamed answer or active playback.
+- **New conversation** clears the local transcript.
+
+Conversation history is saved only in the current browser's local storage. The server sends at most the most recent 24 messages to OpenRouter.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | required | Server-only OpenRouter bearer token |
+| `OPENROUTER_CHAT_MODEL` | `google/gemma-4-26b-a4b-it:free` | Fast, free text model |
+| `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro-free:free` | Free Fish Audio speech model |
+| `OPENROUTER_SITE_URL` | `http://localhost:3000` | OpenRouter app attribution URL |
+
+## Architecture
+
+```text
+Browser microphone ──> Speech Recognition ──> transcript
+                                                 │
+Typed message ───────────────────────────────────┤
+                                                 ▼
+                                      POST /api/chat
+                                                 │ server-only key
+                                                 ▼
+                                   OpenRouter chat stream
+                                                 │
+                                visible text <───┘
+                                      │
+                                      ▼
+                               POST /api/voice
+                                      │ server-only key
+                                      ▼
+                          Fish Audio MP3 response ──> playback
+```
+
+The browser calls same-origin TanStack Start server routes. Those routes validate and bound input, add GIDEON's conversational system prompt, normalize provider failures, and proxy streaming text or MP3 bytes without returning the API key.
+
+## Verify
+
+```powershell
+npm test
+npx tsc --noEmit
+npm run build
+```
+
+The tests cover request validation, bounded history, and provider-error normalization. A live text/audio smoke test additionally requires a valid `OPENROUTER_API_KEY`.
+
+## Model references
+
+- [Fish Audio S2.1 Pro Free on OpenRouter](https://openrouter.ai/fish-audio/s2.1-pro-free:free)
+- [OpenRouter text-to-speech guide](https://openrouter.ai/docs/guides/overview/multimodal/tts)
+- [OpenRouter chat streaming quickstart](https://openrouter.ai/docs/cookbook/get-started/quickstart)
