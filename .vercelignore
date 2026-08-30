@@ -1,0 +1,9 @@
+.git
+.env
+.playwright-cli
+node_modules
+dist
+.output
+output
+.tanstack
+.vercel
