@@ -11,6 +11,7 @@ import {
 } from './openrouter'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
 
 const SYSTEM_PROMPT = `You are GIDEON, a quick, emotionally present voice companion.
 Talk like a thoughtful person in a live conversation: direct, warm, relaxed, and responsive to the user's mood.
@@ -118,10 +119,11 @@ export async function synthesizeVoice(text: string) {
       headers,
       body: JSON.stringify({
         model: process.env.OPENROUTER_VOICE_MODEL || VOICE_MODEL,
-        input: text,
+        input: `${VOICE_STYLE} ${text}`,
+        voice: process.env.OPENROUTER_VOICE || 'alloy',
         response_format: 'mp3',
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(15_000),
     })
   } catch {
     return Response.json(

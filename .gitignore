@@ -13,3 +13,5 @@ output/playwright
 .vinxi
 __unconfig*
 todos.json
+
+.vercel

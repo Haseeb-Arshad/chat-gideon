@@ -27,8 +27,18 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  notFoundComponent: NotFound,
   shellComponent: RootDocument,
 })
+
+function NotFound() {
+  return (
+    <main className="not-found">
+      <p>That place is outside GIDEON's current world.</p>
+      <a href="/">Return to GIDEON</a>
+    </main>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

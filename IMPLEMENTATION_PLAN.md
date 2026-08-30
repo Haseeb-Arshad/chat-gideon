@@ -1,5 +1,110 @@
 # GIDEON conversational interface plan
 
+## Revision 4 — signal to city landing page
+
+The current conversational presence moves intact from `/` to `/agent`. The new root becomes GIDEON's public threshold: a restrained, motion-led introduction for people deciding whether to begin a conversation.
+
+### Experience sequence
+
+1. Open in near-darkness with the same deep-space atmosphere as the agent.
+2. Let one warm red signal climb slowly through a sparse field of stars; nearby points notice it and make small, slightly uncanny course corrections.
+3. As the visitor moves down the page, those scattered points gather into an abstract city/network horizon. The change explains GIDEON's value: scattered context becomes a direction you can act on.
+4. Keep one primary action, `Meet GIDEON`, linked to `/agent`, with a quiet secondary scroll cue.
+5. Preserve `/api/chat`, `/api/voice`, and `/api/config` unchanged.
+
+### Visual system
+
+- **Night** `#050608`: shared product background.
+- **Carbon** `#090B0E`: near-field depth.
+- **Signal red** `#FF4B3E`: the single moving beacon and CTA accent.
+- **Living white** `#F6F8FF`: primary copy and stars.
+- **Mist** `#9BA3AF`: secondary copy.
+- **Deep plum** `#2D1522`: distant atmospheric warmth.
+- Manrope remains the body/utility voice so the landing and agent feel related. `Instrument Serif` is introduced only for the landing's editorial display lines, giving the public page a more human rhythm without changing the product UI.
+
+### Layout
+
+```text
++--------------------------------------------------------------+
+| GIDEON                                      About  Meet ->   |
+|                                                              |
+|         Intelligence that stays close to the signal.         |
+|            supporting line + primary action                  |
+|                                                              |
+|                 ·       *                                    |
+|                    red signal rises                           |
+|              scattered lights subtly react                   |
+|                         scroll ↓                              |
++--------------------------------------------------------------+
+|  What to follow / what to mention        orbiting statements |
++--------------------------------------------------------------+
+|     scattered lights converge into a quiet city horizon      |
+|                    Meet GIDEON ->                             |
++--------------------------------------------------------------+
+```
+
+### Signature, motion, and restraint
+
+The memorable element is the `signal journey`: a red beacon climbs, hesitates, then pulls a handful of independent stars into a coherent horizon. Motion is slow and ambient (8–18 second cycles), with one short page-load choreography and scroll reveals. There are no dashboard cards, gradient slogans, or decorative metrics. Reduced-motion mode freezes every element in a meaningful composed state; keyboard focus and mobile layout remain first-class.
+
+### Verification and release gate
+
+- `/` renders the new landing page at desktop and mobile widths.
+- `/agent` renders the current voice experience without behavioral changes.
+- Root navigation and all `Meet GIDEON` actions reach `/agent` without a reload.
+- Typecheck/build and existing tests pass.
+- Browser checks cover the root, `/agent`, reduced-motion-safe CSS, overflow, and console errors.
+- Vercel deployment is only reported complete after a returned public URL and live checks of both routes. Local gates alone remain local proof.
+
+## Revision 3 — luminous robot
+
+The eye reference is direction, not an asset to reproduce. GIDEON becomes one compact circular machine with two white light-slits. The casing supplies the requested circle language; the eyes carry emotion through spacing, tilt, height, blink, and coordinated body motion rather than irises, lashes, brows, or human anatomy.
+
+### Revised behavior
+
+1. Keep the 30-second quiet pause, but move its explanation out of the face and into the voice controls below.
+2. Start Fish generation as soon as the first complete sentence streams from the chat model. Prefetch following sentences while the current one plays.
+3. Do not reveal the completed written answer before speech begins. During playback, reveal words against the audio clock so the caption feels spoken rather than dumped onto the page.
+4. Pin the Fish request to the live-verified `alloy` voice identifier and prepend a restrained feminine delivery instruction so one warm adult female character persists across turns.
+5. If voice is muted or unavailable, keep the normal streamed-text path so typing never waits on audio.
+
+### Visual system
+
+- **Deep space** `#050608`: the quiet canvas.
+- **Machine black** `#0C0E12`: the circular face core.
+- **Cold steel** `#8E97A3`: restrained casing highlights.
+- **Living white** `#F6F8FF`: both eye-slits and spoken text.
+- **Listening ice** `#BFE9FF`: the only bright state tint.
+- **Edge cobalt** `#3148B8` and **ember plum** `#5B2D4F`: low-light background forms at the frame edges.
+- Speech remains Manrope; state language remains IBM Plex Mono.
+
+### Layout
+
+```text
++--------------------------------------------------------------+
+| GIDEON                                                [new]  |
+|                                                              |
+|                .------------------------.                    |
+|              /     [ white ] [ white ]    \                  |
+|             |       circular robot face    |                 |
+|              \____________________________/                  |
+|                                                              |
+|                  word · by · word caption                    |
+|                                                              |
+|                 [ rounded live voice control ]                |
+|              quiet-pause detail lives down here              |
+|                   [ quiet typed fallback ↑ ]                  |
++--------------------------------------------------------------+
+```
+
+### Motion direction
+
+The face is the only prominent actor. A blink compresses both slits, curiosity offsets their height, concern tilts them inward, delight lifts and widens them, and speech sends a subtle white pulse through the casing. The whole machine anticipates state changes with at most 4% deformation. Caption words enter from eight pixels below with blur-to-sharp focus in 220 ms. Controls settle in 180 ms and keep a 0.98 pressed state. Reduced-motion mode removes looping movement while preserving every state through shape and tone.
+
+### Signature and critique
+
+The signature is the contrast between a tactile circular machine and impossibly soft white light-slits. The previous iris-and-lid construction read as a human or feminine eye, which contradicted the brief. It is removed completely. The colorful perimeter in the reference is translated into two very dark, out-of-focus edge forms rather than copied decoration, keeping the product original and preventing the background from competing with the face.
+
 ## Revision 2 — living presence
 
 The first interface proved the transport but presented GIDEON as a conventional dashboard and chat transcript. The approved redesign removes the rail, top bar, telemetry, bubbles, and decorative sci-fi framing. GIDEON becomes a full-screen voice presence whose eyes are the primary interface.
