@@ -8,7 +8,7 @@ export const Route = createFileRoute('/api/voice')({
       POST: async ({ request }) => {
         try {
           const body = await request.json()
-          return synthesizeVoice(parseVoiceBody(body))
+          return await synthesizeVoice(parseVoiceBody(body), request.signal)
         } catch (error) {
           if (error instanceof RequestValidationError) {
             return Response.json(apiError(error.code, error.message), { status: 400 })

@@ -348,53 +348,53 @@ button:active:not(:disabled) {
   border-radius: 50%;
 }
 
-.robot-eyes {
+.gideon-face {
   position: relative;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(30px, 4.2vw, 50px);
-  width: 72%;
-  transform:
-    translate3d(
-      calc(var(--gaze-x) * 5px),
-      calc(var(--gaze-y) * 4px),
-      16px
-    );
-  transition: transform 180ms ease-out;
+  width: 92%;
+  /* The lights sit forward of the recessed face so the sphere keeps its depth. */
+  transform: translate3d(0, 0, 16px);
 }
 
-.robot-eye {
-  position: relative;
-  width: clamp(34px, 4vw, 48px);
-  height: clamp(92px, 9vw, 118px);
-  overflow: hidden;
-  border: 1px solid rgba(205, 216, 232, 0.09);
-  border-radius: 999px;
-  background: #020306;
-  box-shadow:
-    inset 4px 6px 13px rgba(0, 0, 0, 0.92),
-    0 1px 0 rgba(255, 255, 255, 0.07);
-  transition: height 200ms ease-out, transform 200ms ease-out, border-radius 200ms ease-out;
+.gideon-eyes {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
-.robot-eye-left,
-.robot-eye-right {
-  transform: rotate(-13deg);
+.eye-core {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.5;
+  filter: drop-shadow(0 0 6px rgba(241, 247, 255, 0.5));
 }
 
-.eye-light {
-  position: absolute;
-  inset: 8px;
-  border-radius: inherit;
-  background: linear-gradient(180deg, #ffffff 0%, #edf5ff 48%, #cbd8e8 100%);
-  box-shadow:
-    0 0 9px rgba(241, 247, 255, 0.9),
-    0 0 28px rgba(191, 233, 255, 0.32);
-  transform-origin: center;
-  animation: machine-blink 7.4s ease-in-out infinite;
-  transition: background 180ms ease-out, box-shadow 180ms ease-out, transform 200ms ease-out;
+/* A blurred duplicate of the same paths is what gives the lights their bloom. */
+.eye-aura {
+  filter: blur(9px);
+}
+
+.eye-glow {
+  fill: var(--ice);
+}
+
+.eye-scan {
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+}
+
+.eye-spark {
+  fill: #ffffff;
+  mix-blend-mode: screen;
+}
+
+.robot-presence[data-phase='listening'] .eye-glow {
+  fill: #eaf8ff;
+}
+
+.robot-presence[data-phase='paused'] .eye-aura {
+  filter: blur(6px);
+  opacity: 0.45;
 }
 
 .machine-mark {
@@ -465,33 +465,12 @@ button:active:not(:disabled) {
   animation: listening-ring 2.2s ease-in-out infinite;
 }
 
-.robot-presence[data-phase='listening'] .eye-light {
-  background: linear-gradient(180deg, #fff 0%, #eaf8ff 48%, var(--ice) 100%);
-  box-shadow:
-    0 0 12px rgba(244, 250, 255, 0.95),
-    0 0 34px rgba(133, 219, 255, 0.42);
-}
-
 .robot-presence[data-phase='thinking'] .robot-face {
   animation: thinking-tilt 1.7s ease-in-out infinite;
 }
 
-.robot-presence[data-phase='thinking'] .robot-eye-left {
-  height: clamp(82px, 8.2vw, 106px);
-  transform: translateY(-7px) rotate(-19deg);
-}
-
-.robot-presence[data-phase='thinking'] .robot-eye-right {
-  height: clamp(96px, 9.5vw, 124px);
-  transform: translateY(6px) rotate(-7deg);
-}
-
 .robot-presence[data-phase='speaking'] .robot-face {
   animation: face-speak 620ms ease-in-out infinite;
-}
-
-.robot-presence[data-phase='speaking'] .eye-light {
-  animation: speech-light 620ms ease-in-out infinite;
 }
 
 .robot-presence[data-phase='speaking'] .face-rim {
@@ -503,12 +482,6 @@ button:active:not(:disabled) {
     0 0 36px rgba(191, 233, 255, 0.08);
 }
 
-.robot-presence[data-phase='paused'] .eye-light {
-  opacity: 0.42;
-  transform: scaleY(0.36);
-  box-shadow: 0 0 8px rgba(226, 234, 244, 0.32);
-}
-
 .robot-presence[data-phase='paused'] .robot-face {
   transform:
     perspective(700px)
@@ -517,42 +490,8 @@ button:active:not(:disabled) {
     scale(0.985);
 }
 
-.robot-presence[data-emotion='curious']:not([data-phase='thinking']) .robot-eye-left {
-  transform: translateY(-8px) rotate(-19deg);
-}
-
-.robot-presence[data-emotion='curious']:not([data-phase='thinking']) .robot-eye-right {
-  transform: translateY(5px) rotate(-7deg);
-}
-
-.robot-presence[data-emotion='concerned'] .robot-eye-left {
-  height: clamp(80px, 8vw, 104px);
-  transform: translateY(4px) rotate(-26deg);
-}
-
-.robot-presence[data-emotion='concerned'] .robot-eye-right {
-  height: clamp(80px, 8vw, 104px);
-  transform: translateY(4px) rotate(1deg);
-}
-
 .robot-presence[data-emotion='happy'] .robot-face {
   animation: delight-bob 1.2s ease-in-out infinite;
-}
-
-.robot-presence[data-emotion='happy'] .robot-eye {
-  height: clamp(66px, 6.7vw, 86px);
-}
-
-.robot-presence[data-emotion='happy'] .robot-eye-left {
-  transform: translateY(-2px) rotate(21deg);
-}
-
-.robot-presence[data-emotion='happy'] .robot-eye-right {
-  transform: translateY(-2px) rotate(-21deg);
-}
-
-.robot-presence[data-emotion='happy'] .eye-light {
-  transform: scaleY(0.82);
 }
 
 .robot-presence[data-emotion='happy'] .delight-spark {
@@ -610,7 +549,7 @@ button:active:not(:disabled) {
   animation: word-rise 220ms ease-out both;
 }
 
-.caption-word:last-child {
+.caption-word.is-spoken {
   color: var(--white);
   text-shadow: 0 0 22px rgba(218, 235, 255, 0.12);
 }
@@ -916,18 +855,6 @@ button:active:not(:disabled) {
   opacity: 0.2;
 }
 
-@keyframes machine-blink {
-  0%,
-  43%,
-  47%,
-  100% {
-    transform: scaleY(1);
-  }
-  45% {
-    transform: scaleY(0.06);
-  }
-}
-
 @keyframes listening-ring {
   0%,
   100% {
@@ -957,18 +884,6 @@ button:active:not(:disabled) {
   }
   50% {
     transform: perspective(700px) translateY(-2px) scale(1.012, 0.992);
-  }
-}
-
-@keyframes speech-light {
-  0%,
-  100% {
-    opacity: 0.82;
-    transform: scaleY(0.98);
-  }
-  50% {
-    opacity: 1;
-    transform: scaleY(1.03);
   }
 }
 
@@ -1122,15 +1037,6 @@ button:active:not(:disabled) {
     width: clamp(220px, 68vw, 288px);
   }
 
-  .robot-eyes {
-    gap: 28px;
-  }
-
-  .robot-eye {
-    width: 34px;
-    height: 84px;
-  }
-
   .live-captions {
     width: 100%;
     min-height: 146px;
@@ -1205,7 +1111,7 @@ button:active:not(:disabled) {
   }
 
   .robot-face,
-  .robot-eyes,
+  .gideon-face,
   .signal-halo {
     transition: none;
   }

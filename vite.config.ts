@@ -7,13 +7,16 @@ import { nitro } from 'nitro/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const config = defineConfig(({ mode }) => ({
+import { realtimePlugin } from './realtime-plugin'
+
+const config = defineConfig(({ command, mode }) => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     devtools(),
+    realtimePlugin(),
     tailwindcss(),
     tanstackStart(),
-    ...(mode === 'test' ? [] : [nitro()]),
+    ...(command === 'build' && mode !== 'test' ? [nitro()] : []),
     viteReact(),
   ],
 }))
