@@ -16,9 +16,137 @@
 > as such and refused the *execution* of tools, while still being offered them,
 > or a guess will confidently answer a question it never looked up.
 >
-> Still open, and still in the order below: streaming speech-to-text (which is
-> what ends the Chrome/Edge restriction), on-device presence, back-channels, the
-> WebRTC phone handoff, and prosody-driven emotion.
+> Still open: streaming speech-to-text, the WebRTC phone handoff, on-device
+> presence, back-channels, and prosody-driven emotion. Section 0 below orders
+> them by what they prove to someone reading the repo, which is not the order
+> the phases were originally written in.
+
+---
+
+## 0. What to build next, in order
+
+The phases in section 4 were ordered so each one could stand on the last. Now
+that the foundation exists, the question is different: a reader with five
+minutes — a hiring manager, an interviewer, a stranger from a link — has to
+come away convinced this is real-time engineering and not a chat UI with a
+face. Each item below is placed by how much it moves that reader per day of
+work. Every one ends with something you can put a number or a clip next to.
+
+### 0.1 Publish the numbers (1 day)
+
+The latency panel already records every stage of every turn, and the README
+already argues from latency, but it never quotes an end-to-end figure. That is
+the single cheapest fix in this list and the one a reader trusts most.
+
+- Add an export to `LatencyLog` (JSON: per-stage p50/p95, turn count,
+  speculation hit/miss counts, wasted speculative tokens) and a key in the HUD
+  that copies it.
+- Run fifty real turns, paste the table into the README under a dated heading,
+  and say what machine and network they were on. Include the misses.
+- Done when the README states, with a date, the p50 and p95 from speech end
+  to first audible sample, and the speculation hit rate.
+
+### 0.2 A link that works, and a clip that shows it (2–3 days)
+
+Nobody clones a repo to evaluate it. They click the link, or watch the clip.
+
+- `Dockerfile` for `server/serve.mjs`; deploy to Fly.io or Railway, where a
+  socket can stay open. The access code is already built; turn it on.
+- GitHub Actions: typecheck, test, build, on every push. Badge in the README.
+- A 30–45 second screen recording, no narration needed: ask something, talk
+  over the answer mid-sentence, watch it stop and take the correction; open the
+  HUD and show a speculative hit. Embed it as the first thing in the README.
+- Done when the README opens with the clip and a live URL, and CI is green.
+
+### 0.3 Streaming audio over the socket (1–2 weeks)
+
+Today the microphone audio leaves the browser as a WAV per utterance over
+HTTP. That is honest and it works, but it is the one place where the
+architecture is still request/response, and it is why captions arrive in 850 ms
+steps and why Firefox and Safari are second-class.
+
+- Binary audio frames on the existing socket: a small header (`seq`, `pts`,
+  `codec`) then 20 ms of Opus from WebCodecs `AudioEncoder`, PCM16 where
+  WebCodecs is missing. `protocol.ts` grows `audio`, `partial` and `final`
+  frames; nothing else changes.
+- The server relays frames to a streaming recogniser (Deepgram live is the
+  least friction; a self-hosted `faster-whisper` stream is the most impressive)
+  and returns partials as they arrive. The per-utterance transcriber survives
+  as the fallback for a deployment without a streaming key.
+- Backpressure and a jitter budget on the server side, with the HUD showing
+  frame loss and queue depth. This is where the RTC vocabulary earns its place.
+- Done when captions appear word by word while you speak, the endpoint decision
+  uses the recogniser's stability as well as the VAD, and the README's browser
+  note shrinks to "any browser with WebCodecs or a microphone".
+
+### 0.4 The phone as GIDEON's ears: WebRTC (1–2 weeks)
+
+The repo describes itself as an RTC showcase and contains no
+`RTCPeerConnection`. An interviewer will notice. This is the feature that
+closes that gap, and it is a good demo in its own right.
+
+- Desktop shows a QR; the phone opens a small page that joins the same session
+  id over the socket. Signalling (offer, answer, ICE candidates) rides the
+  existing socket server as three new frame types.
+- `RTCPeerConnection` with a TURN fallback (coturn beside the Node server in
+  the same Docker deployment, or a hosted TURN). The phone's microphone track
+  is received on the desktop and fed into the *same* AudioWorklet → VAD → STT
+  pipeline as the local microphone, so barge-in and speculation work from the
+  phone untouched. GIDEON's voice returns as an outbound track.
+- A DataChannel mirrors captions, phase and face state so the phone shows the
+  eyes too.
+- Stretch: two phones, per-track VAD, the eyes turn toward whoever is speaking.
+- Done when you can start a conversation at the desk, scan, walk out of the
+  room, and keep talking, with the HUD showing RTT and jitter for the remote
+  track.
+
+### 0.5 An end-to-end test that speaks (2–3 days)
+
+Unit tests cover the VAD, the encoder, the guard and the speculation rule.
+What is missing is one test that pushes real audio through the real browser.
+
+- Playwright, Chromium with `--use-fake-device-for-media-stream` and
+  `--use-file-for-fake-audio-capture=<fixture>.wav`, against the dev server
+  with a stubbed transcription route. Assert the utterance is captured, the
+  transcript lands, and a second fixture played during synthesized playback
+  triggers barge-in.
+- Run it in CI. Done when a reviewer can see, in the Actions log, a browser
+  hearing a WAV and the agent stopping mid-sentence.
+
+### 0.6 Back-channels and tone (3–4 days)
+
+The cheapest thing that makes a voice agent feel present, and no shipping
+assistant does it.
+
+- Synthesize a small bank ("mm-hm", "right", "go on") once at boot from the
+  configured voice; cache the decoded buffers.
+- Trigger: utterance longer than 4 s, VAD dip of 300–600 ms with no endpoint,
+  at most one every 6 s, never while the recogniser has produced a question.
+  Play at −12 dB on the same scheduled player so it never collides with a
+  reply.
+- Prosody from the worklet frames already carrying RMS and zero-crossing rate:
+  speech rate and energy trend become a one-line hint to the model ("the user
+  sounds rushed") and drive the eyes before the words are understood. Retire
+  the keyword regex in `mood.ts`.
+- Done when a long, hesitant sentence gets a quiet acknowledgement at the
+  pause, and the eyes change before the transcript does.
+
+### 0.7 Presence (1–2 weeks, last)
+
+Camera-based attention is the most cinematic item here and the least about
+real-time communication, which is why it is last. MediaPipe Face Landmarker in
+a worker; `present` / `attending` / `away` with hysteresis; look-to-talk; the
+eyes follow your face; a greeting when you come back. Nothing leaves the
+device, and the permission screen says so.
+
+### What not to spend time on yet
+
+- A Supabase or Postgres memory store. The lexical store works and is tested;
+  swapping the backend proves nothing about real-time engineering. Do it only
+  if multi-user deployment is the goal.
+- Model shopping. The benchmark script exists; a faster model moves one stage
+  of the waterfall and teaches a reader nothing about the system.
+- More face polish. The eyes are already the thing people remember.
 
 This document is the plan for turning GIDEON from a fast voice chat into the
 kind of agent people recognise from films: something that is *in the room*,
