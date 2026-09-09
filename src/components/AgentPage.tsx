@@ -802,8 +802,11 @@ export function AgentPage() {
 
     const snapshot = capture.snapshot()
     // Below about a second there is not enough audio to transcribe usefully,
-    // and a one-word guess is not worth a request.
-    if (!snapshot || snapshot.ms < 900) return
+    // and a one-word guess is not worth a request. Above fifteen seconds the
+    // partial is re-uploading a buffer that grows every time, for a caption
+    // nobody is reading during a monologue; the final transcript still covers
+    // the whole thing.
+    if (!snapshot || snapshot.ms < 900 || snapshot.ms > 15_000) return
 
     const result = await transcriber.run(snapshot.frames, snapshot.sampleRate)
     if (!result || !result.text) return
@@ -946,7 +949,20 @@ export function AgentPage() {
       setSpeechSupported(true)
       setVoiceMode('active')
       setPhase('listening')
+      return
     }
+
+    // Nothing is listening. Saying "voice live" at this point would be the
+    // interface lying about the one thing the user can check for themselves.
+    captureRef.current = null
+    stopPartials()
+    // No re-dispatch to the recogniser from here: `startListening` chooses the
+    // path by capability, so calling back into it while capture still reports
+    // itself supported would loop. The next listen attempt picks the
+    // recogniser on its own once the graph is known to be unavailable.
+    setVoiceMode(capture.status === 'denied' ? 'paused' : 'muted')
+    setPhase('paused')
+    setSpeechSupported(capture.status !== 'unsupported' || speechRecognitionSupported())
   }, [dropEager, handleUtterance, interrupt, runPartial, setPhase, setVoiceMode, stopPartials])
 
   const startListening = useCallback(
