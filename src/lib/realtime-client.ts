@@ -26,6 +26,8 @@ export interface LinkConfig {
   configured: boolean
   chatModel: string
   voiceModel: string
+  /** Tools this server can run, which depends on its keys and its transport. */
+  tools: string[]
 }
 
 export interface TurnHandlers {
@@ -33,6 +35,8 @@ export interface TurnHandlers {
   onDelta: (text: string) => void
   onDone: (text: string) => void
   onError: (message: string, retryable: boolean) => void
+  /** GIDEON did something worth showing in the ledger. */
+  onAction?: (action: { call: string; name: string; summary: string; ok: boolean }) => void
 }
 
 export interface TurnHandle {
@@ -49,6 +53,15 @@ export interface ChatTurnMessage {
 const FALLBACK_KEY = 'gideon-transport-fallback'
 const OPEN_TIMEOUT_MS = 1_600
 const PING_INTERVAL_MS = 20_000
+
+/** Best-effort IANA zone, so the server can answer "what day is it". */
+function localTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
 
 function socketUrl() {
   const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -93,13 +106,22 @@ export class RealtimeLink {
 
   private onTransportChange: ((transport: LinkTransport) => void) | null = null
   private onConfig: ((config: LinkConfig) => void) | null = null
+  /**
+   * Fulfils tools the server asks the browser to run. Absent on the HTTP
+   * fallback, where the server has no way to ask in the first place.
+   */
+  private runClientTool:
+    | ((name: string, args: unknown) => Promise<{ ok: boolean; content: string }>)
+    | null = null
 
   constructor(options: {
     onTransportChange?: (transport: LinkTransport) => void
     onConfig?: (config: LinkConfig) => void
+    runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
     this.onConfig = options.onConfig ?? null
+    this.runClientTool = options.runClientTool ?? null
   }
 
   connect() {
@@ -199,7 +221,7 @@ export class RealtimeLink {
     this.turns.set(id, handlers)
 
     if (this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
-      this.send({ t: 'turn', id, messages })
+      this.send({ t: 'turn', id, messages, timezone: localTimezone() })
       return {
         id,
         cancel: () => {
@@ -290,7 +312,19 @@ export class RealtimeLink {
           configured: frame.configured,
           chatModel: frame.chatModel,
           voiceModel: frame.voiceModel,
+          tools: Array.isArray(frame.tools) ? frame.tools : [],
         })
+        return
+      case 'action':
+        this.turns.get(frame.id)?.onAction?.({
+          call: frame.call,
+          name: frame.name,
+          summary: frame.summary,
+          ok: frame.ok,
+        })
+        return
+      case 'tool_request':
+        void this.fulfilTool(frame.call, frame.name, frame.args)
         return
       case 'audio':
         this.pendingAudioKey = `${frame.id}`
@@ -331,6 +365,28 @@ export class RealtimeLink {
     }
   }
 
+  /**
+   * Runs a tool the server asked for and sends the result back.
+   *
+   * A reply always goes out, including on failure. The server is holding a turn
+   * open waiting for one, and letting it time out would cost the user eight
+   * seconds of silence to learn what a single frame could have told it.
+   */
+  private async fulfilTool(call: string, name: string, args: unknown) {
+    let result = { ok: false, content: `The browser cannot run ${name}.` }
+    if (this.runClientTool) {
+      try {
+        result = await this.runClientTool(name, args)
+      } catch (error) {
+        result = {
+          ok: false,
+          content: error instanceof Error ? error.message : 'That could not be done here.',
+        }
+      }
+    }
+    this.send({ t: 'tool_reply', id: call, call, ok: result.ok, content: result.content })
+  }
+
   private resolveAudio(buffer: ArrayBuffer) {
     const key = this.pendingAudioKey
     this.pendingAudioKey = null
@@ -353,7 +409,7 @@ export class RealtimeLink {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, messages }),
+        body: JSON.stringify({ id, messages, timezone: localTimezone() }),
         signal,
       })
 

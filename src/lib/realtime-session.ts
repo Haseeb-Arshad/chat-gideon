@@ -5,15 +5,23 @@
  * plugin wires it to a `ws` connection; any other Node host can wire it the same
  * way. Frames are the ones defined in `protocol.ts`, identical to the HTTP
  * fallback, so the browser never branches on transport.
+ *
+ * The socket does buy one thing the fallback cannot: the server can ask the
+ * browser to run a tool and wait for the answer. That is what `pendingTools`
+ * below is for, and it is the reason the realtime path is not merely a faster
+ * version of the HTTP one.
  */
 
 import {
+  availableTools,
   fetchVoice,
   getPublicConfig,
   streamTurn,
   warmUpstream,
+  type ClientToolBridge,
 } from './agent-core'
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
+import type { ToolOutcome } from './tools/registry'
 import {
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
@@ -32,9 +40,25 @@ export interface RealtimeSession {
   close: () => void
 }
 
+/**
+ * How long the server waits for the browser to fulfil a tool.
+ *
+ * The user is sitting in silence for this whole window, so it is deliberately
+ * short. A browser that has navigated away, or a tool the page refuses, must
+ * not hold a turn open indefinitely.
+ */
+const CLIENT_TOOL_TIMEOUT_MS = 8_000
+
+interface PendingTool {
+  resolve: (outcome: ToolOutcome) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
   /** Aborts keyed by turn id, so a cancel only kills the turn it names. */
   const turns = new Map<string, AbortController>()
+  /** Tool calls the browser has been asked to run and has not answered yet. */
+  const pendingTools = new Map<string, PendingTool>()
   let closed = false
 
   const send = (frame: ServerFrame) => {
@@ -52,6 +76,48 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
     const controller = new AbortController()
     turns.set(id, controller)
     return controller
+  }
+
+  const settleTool = (call: string, outcome: ToolOutcome) => {
+    const pending = pendingTools.get(call)
+    if (!pending) return
+    pendingTools.delete(call)
+    clearTimeout(pending.timer)
+    pending.resolve(outcome)
+  }
+
+  /**
+   * The server's half of a browser-run tool.
+   *
+   * The `tool_request` frame has already gone out by the time this is awaited;
+   * this only waits for the reply, and resolves rather than rejects on timeout
+   * so the agent loop can tell the model what happened instead of the whole
+   * turn collapsing over one unavailable tool.
+   */
+  const bridge: ClientToolBridge = {
+    call: (callId, name, _args, signal) =>
+      new Promise<ToolOutcome>((resolve) => {
+        if (closed || signal.aborted) {
+          resolve({ ok: false, content: 'The connection closed before that could run.' })
+          return
+        }
+
+        const timer = setTimeout(() => {
+          pendingTools.delete(callId)
+          resolve({
+            ok: false,
+            content: `The browser did not complete ${name} in time. Tell the user it did not go through.`,
+          })
+        }, CLIENT_TOOL_TIMEOUT_MS)
+
+        pendingTools.set(callId, { resolve, timer })
+
+        signal.addEventListener(
+          'abort',
+          () => settleTool(callId, { ok: false, content: 'That turn was cancelled.' }),
+          { once: true },
+        )
+      }),
   }
 
   async function runTurn(frame: Extract<ClientFrame, { t: 'turn' }>) {
@@ -72,7 +138,10 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
 
     const controller = controllerFor(frame.id)
     try {
-      for await (const event of streamTurn(frame.id, messages, controller.signal)) {
+      for await (const event of streamTurn(frame.id, messages, controller.signal, {
+        timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : undefined,
+        bridge,
+      })) {
         if (closed || controller.signal.aborted) return
         send(event)
       }
@@ -138,7 +207,14 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
         case 'hello': {
           warmUpstream()
           const config = getPublicConfig()
-          send({ t: 'ready', version: REALTIME_PROTOCOL_VERSION, ...config })
+          send({
+            t: 'ready',
+            version: REALTIME_PROTOCOL_VERSION,
+            ...config,
+            // Browser-run tools are reachable over this transport, so they are
+            // included here and absent from the HTTP fallback's config.
+            tools: availableTools(true),
+          })
           return
         }
         case 'turn':
@@ -147,6 +223,18 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
         case 'speak':
           void runSpeak(frame)
           return
+        case 'tool_reply': {
+          settleTool(frame.call, {
+            ok: Boolean(frame.ok),
+            content:
+              typeof frame.content === 'string' && frame.content.trim()
+                ? frame.content.slice(0, 2_000)
+                : frame.ok
+                  ? 'Done.'
+                  : 'That did not work.',
+          })
+          return
+        }
         case 'cancel': {
           turns.get(frame.id)?.abort()
           turns.delete(frame.id)
@@ -164,6 +252,11 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
       closed = true
       for (const controller of turns.values()) controller.abort()
       turns.clear()
+      for (const [call, pending] of pendingTools) {
+        clearTimeout(pending.timer)
+        pending.resolve({ ok: false, content: 'The connection closed.' })
+        pendingTools.delete(call)
+      }
     },
   }
 }

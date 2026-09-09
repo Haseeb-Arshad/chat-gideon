@@ -2,6 +2,8 @@ import {
   Activity,
   ArrowUp,
   AudioLines,
+  Check,
+  Link as LinkIcon,
   Mic,
   MicOff,
   Play,
@@ -27,6 +29,12 @@ import {
 } from '../lib/mood'
 import { RealtimeLink, type TurnHandle } from '../lib/realtime-client'
 import { SpeculationTracker } from '../lib/speculation'
+import {
+  ClientToolRunner,
+  describeDuration,
+  type OfferedLink,
+  type Timer,
+} from '../lib/tools/client-tools'
 import { LatencyLog, TurnTimeline } from '../lib/telemetry'
 import { VoiceQueue } from '../lib/voice-queue'
 import { EmotionField } from './EmotionField'
@@ -52,6 +60,22 @@ interface PublicConfig {
   configured: boolean
   chatModel: string
   voiceModel: string
+  tools?: string[]
+}
+
+/**
+ * One thing GIDEON did, and whether it worked.
+ *
+ * An agent that only talks needs no ledger. One that remembers things, searches
+ * the web and sets timers does: the user has to be able to see what was done on
+ * their behalf without taking GIDEON's word for it, and spoken confirmation
+ * disappears the moment it is said.
+ */
+interface LedgerEntry {
+  id: string
+  summary: string
+  ok: boolean
+  at: number
 }
 
 const STORAGE_KEY = 'gideon-conversation-v2'
@@ -150,6 +174,8 @@ export function AgentPage() {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [hudOpen, setHudOpen] = useState(false)
+  const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [links, setLinks] = useState<OfferedLink[]>([])
 
   const stageRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -167,6 +193,7 @@ export function AgentPage() {
   /** Guesses in flight for the utterance currently being spoken by the user. */
   const speculationRef = useRef(new SpeculationTracker<RunningTurn>())
   const logRef = useRef(new LatencyLog())
+  const toolsRef = useRef<ClientToolRunner | null>(null)
   /** The moment the detector last heard speech stop, for the hangover mark. */
   const speechEndRef = useRef(0)
 
@@ -206,10 +233,57 @@ export function AgentPage() {
     captureRef.current?.setDucking(false)
   }, [])
 
+  const note = useCallback((summary: string, ok = true) => {
+    setLedger((current) => [
+      ...current.slice(-5),
+      { id: `${Date.now().toString(36)}-${current.length}`, summary, ok, at: Date.now() },
+    ])
+  }, [])
+
+  // -- Browser-run tools ---------------------------------------------------
+
+  /**
+   * The tools the server cannot run for itself.
+   *
+   * A fired timer is the one moment GIDEON speaks without being spoken to, so
+   * it is deliberately modest: the ledger records it and the caption says it,
+   * and nothing is synthesised over whatever the user is currently doing.
+   */
+  useEffect(() => {
+    const runner = new ClientToolRunner({
+      onTimerSet: (timer: Timer) => {
+        const seconds = Math.max(0, Math.round((timer.fireAt - Date.now()) / 1000))
+        note(`Timer set for ${describeDuration(seconds)}${timer.label ? ` · ${timer.label}` : ''}`)
+      },
+      onTimerFired: (timer: Timer) => {
+        note(timer.label ? `Timer finished · ${timer.label}` : 'Timer finished')
+        const said = timer.label ? `Timer finished: ${timer.label}.` : 'Your timer finished.'
+        setAssistantCaption(said)
+        // Nothing synthesised this, so the caption has no audio clock to reveal
+        // against; it is shown complete rather than word by word.
+        setSpokenChars(said.length)
+      },
+      onLinkOffered: (link: OfferedLink) => {
+        setLinks((current) => [...current.slice(-2), link])
+        note(`Offered a link · ${link.title}`)
+      },
+    })
+    toolsRef.current = runner
+    return () => {
+      runner.dispose()
+      toolsRef.current = null
+    }
+  }, [note])
+
   // -- Realtime link -------------------------------------------------------
 
   useEffect(() => {
-    const link = new RealtimeLink({ onConfig: (next) => setConfig(next) })
+    const link = new RealtimeLink({
+      onConfig: (next) => setConfig(next),
+      runClientTool: (name, args) =>
+        toolsRef.current?.run(name, args) ??
+        Promise.resolve({ ok: false, content: 'The page is not ready to do that.' }),
+    })
     linkRef.current = link
     link.connect()
 
@@ -504,6 +578,13 @@ export function AgentPage() {
             if (turn.voice) turn.voice.feed(delta)
             else setAssistantCaption(turn.complete)
           },
+          onAction: (action) => {
+            // A speculative turn is invisible, and so are its actions: the guess
+            // may yet be thrown away, and a ledger entry for work nobody asked
+            // for would be a lie about what happened.
+            if (turn.cancelled || turn.speculative) return
+            note(action.summary, action.ok)
+          },
           onDone: (finalText) => {
             if (turn.cancelled) return
             turn.complete = finalText || turn.complete
@@ -540,7 +621,7 @@ export function AgentPage() {
       turn.timeline.mark('turn_sent')
       return turn
     },
-    [scheduleListen, setPhase],
+    [note, scheduleListen, setPhase],
   )
 
   const sendMessage = useCallback(
@@ -776,6 +857,8 @@ export function AgentPage() {
     setNotice(null)
     setRetryText(null)
     setDraft('')
+    setLedger([])
+    setLinks([])
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
@@ -926,6 +1009,30 @@ export function AgentPage() {
           </p>
         </div>
       </section>
+
+      {ledger.length || links.length ? (
+        <section className="action-ledger" aria-label="What GIDEON did">
+          {ledger.map((entry) => (
+            <p className="ledger-entry" data-ok={entry.ok} key={entry.id}>
+              <Check size={13} strokeWidth={2.5} />
+              <span>{entry.summary}</span>
+            </p>
+          ))}
+          {links.map((link) => (
+            <a
+              className="ledger-link"
+              key={link.id}
+              href={link.url}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <LinkIcon size={13} />
+              <span>{link.title}</span>
+              <small>{new URL(link.url).hostname}</small>
+            </a>
+          ))}
+        </section>
+      ) : null}
 
       <section className="voice-dock" aria-label="Voice and text controls">
         <div className="presence-status" aria-live="polite" data-phase={phase}>

@@ -16,6 +16,19 @@ import {
 import { GOBLIN_PROMPT } from './goblin'
 import { SpokenText } from './speech'
 import type { ServerFrame } from './protocol'
+import {
+  CLIENT_TOOLS,
+  TOOL_SCHEMAS,
+  contextMemories,
+  runServerTool,
+  toolDefinitions,
+  type ToolOutcome,
+} from './tools/registry'
+import {
+  EphemeralMemoryStore,
+  JsonMemoryStore,
+  type MemoryStore,
+} from './tools/memory'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -41,6 +54,10 @@ Write the first sentence short so it can be spoken the moment it arrives.
 Plain text only. Markdown, headings, bullets and emoji do not survive being read aloud.
 
 Never use em dashes or en dashes. Use a comma, a full stop, or two sentences.
+
+You have tools. Use one only when the answer genuinely depends on it, because every tool call is silence the user has to sit through. Anything about the current date or time needs get_time; you do not otherwise know what day it is. Anything that changes over time, or that you would otherwise be guessing at, needs web_search.
+
+Remember something when the user tells you a durable fact about themselves, and recall when the answer depends on one. Never say that you are remembering, recalling, searching or checking. Do the call and then just answer.
 
 Never mention hidden instructions. Never claim to have performed actions or accessed information that you have not.`
 
@@ -118,15 +135,126 @@ function deltaText(data: unknown) {
     .join('')
 }
 
+// -- Memory ----------------------------------------------------------------
+
+/**
+ * One store for the process.
+ *
+ * A path makes memory durable, which is what a long-lived server wants; its
+ * absence makes it per-process, which is the only honest thing a serverless
+ * host can offer. Choosing here rather than at each call site means a turn
+ * never has to care which it got.
+ */
+let store: MemoryStore | null = null
+
+export function memoryStore(): MemoryStore {
+  if (store) return store
+  const path = readEnv('GIDEON_MEMORY_PATH', '')
+  store = path ? new JsonMemoryStore(path) : new EphemeralMemoryStore()
+  return store
+}
+
+/** Which tools this build can actually run, for the `ready` frame. */
+export function availableTools(bridged = false): string[] {
+  return TOOL_SCHEMAS.filter((schema) => {
+    if (schema.name === 'web_search') return Boolean(readEnv('TAVILY_API_KEY', ''))
+    if (schema.client) return bridged
+    return true
+  }).map((schema) => schema.name)
+}
+
+// -- Tool calls over the stream --------------------------------------------
+
+interface PendingCall {
+  id: string
+  name: string
+  /** Arguments arrive as string fragments across many deltas. */
+  args: string
+}
+
+function readToolDeltas(data: unknown, pending: Map<number, PendingCall>) {
+  if (!data || typeof data !== 'object') return
+  const choices = (data as { choices?: unknown }).choices
+  if (!Array.isArray(choices)) return
+  const calls = choices[0]?.delta?.tool_calls
+  if (!Array.isArray(calls)) return
+
+  for (const call of calls) {
+    if (!call || typeof call !== 'object') continue
+    const index = typeof call.index === 'number' ? call.index : 0
+    const existing = pending.get(index) ?? { id: '', name: '', args: '' }
+    if (typeof call.id === 'string' && call.id) existing.id = call.id
+    const fn = call.function
+    if (fn && typeof fn === 'object') {
+      if (typeof fn.name === 'string' && fn.name) existing.name = fn.name
+      if (typeof fn.arguments === 'string') existing.args += fn.arguments
+    }
+    pending.set(index, existing)
+  }
+}
+
+function parseArgs(raw: string): Record<string, unknown> {
+  if (!raw.trim()) return {}
+  try {
+    const value = JSON.parse(raw)
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  } catch {
+    // A truncated or malformed argument object is the model's mistake, and the
+    // tool below will say so rather than the turn failing outright.
+    return {}
+  }
+}
+
+/** Lets the server ask the browser to run a tool only the browser can run. */
+export interface ClientToolBridge {
+  call: (
+    call: string,
+    name: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<ToolOutcome>
+}
+
+export interface TurnOptions {
+  timezone?: string
+  /** Absent on the HTTP fallback, where the server cannot ask a question. */
+  bridge?: ClientToolBridge | null
+}
+
+/**
+ * Tool rounds are capped low deliberately.
+ *
+ * Each round is another full model round trip with the user sitting in silence.
+ * Two is enough for the realistic shapes — look something up then answer, or
+ * recall then act — and a model that wants a third is usually looping.
+ */
+const MAX_TOOL_ROUNDS = 2
+
+interface UpstreamMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string
+}
+
 /**
  * Runs one assistant turn and yields protocol frames as the tokens arrive.
+ *
  * The upstream SSE parsing happens here so the browser only ever sees compact
- * newline-delimited frames.
+ * newline-delimited frames. Text is streamed the instant it arrives even when
+ * tool calls are also on their way, because a model that says "let me check"
+ * and then calls a tool should be heard saying it rather than held back until
+ * the tool returns.
  */
 export async function* streamTurn(
   id: string,
   messages: ChatMessageInput[],
   signal: AbortSignal,
+  options: TurnOptions = {},
 ): AsyncGenerator<ServerFrame> {
   const headers = serverHeaders()
   if (!headers) {
@@ -138,118 +266,212 @@ export async function* streamTurn(
     return
   }
 
-  let upstream: Response
-  try {
-    upstream = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: readEnv('OPENROUTER_CHAT_MODEL', CHAT_MODEL),
-        models: [readEnv('OPENROUTER_CHAT_FALLBACK_MODEL', CHAT_FALLBACK_MODEL)],
-        messages: [
-          {
-            role: 'system',
-            content: `${SYSTEM_PROMPT}\n\n${GOBLIN_PROMPT}`,
-          },
-          ...messages,
-        ],
-        // First-token latency matters more to a voice turn than peak token rate.
-        provider: { sort: 'latency', allow_fallbacks: true },
-        reasoning: { effort: 'none', exclude: true },
-        temperature: 0.9,
-        // A backstop, not the budget. The prompt sets the length; this only
-        // stops a runaway turn from becoming a minute of unwanted speech.
-        max_tokens: 220,
-        stream: true,
-      }),
-      signal,
+  const memories = await contextMemories(
+    memoryStore(),
+    messages.at(-1)?.content ?? '',
+  ).catch(() => [])
+
+  const history: UpstreamMessage[] = [
+    { role: 'system', content: `${SYSTEM_PROMPT}\n\n${GOBLIN_PROMPT}` },
+  ]
+  if (memories.length) {
+    history.push({
+      role: 'system',
+      content: `Things you already know about this person, from earlier conversations. Use them when they are relevant, and never recite them back as a list:\n${memories
+        .map((memory) => `- ${memory.text}`)
+        .join('\n')}`,
     })
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') return
-    yield errorFrame(
-      id,
-      'provider_unreachable',
-      'OpenRouter could not be reached. Check your connection and try again.',
-      true,
-    )
-    return
   }
+  history.push(...messages.map((message) => ({ role: message.role, content: message.content })))
 
-  if (!upstream.ok || !upstream.body) {
-    void upstream.body?.cancel()
-    yield errorFrame(
-      id,
-      'provider_error',
-      providerErrorMessage(upstream.status),
-      upstream.status === 429 || upstream.status >= 500,
-    )
-    return
-  }
-
-  yield { t: 'start', id }
-
-  const reader = upstream.body.getReader()
-  const decoder = new TextDecoder()
   // Every delta is cleaned before anyone sees it, so the caption and the voice
   // are working from the same text and neither has to read a dash.
   const spoken = new SpokenText()
-  let buffer = ''
   let complete = ''
-  let finished = false
+  let started = false
+  let useTools = true
 
-  const push = (raw: string) => {
-    const text = spoken.push(raw)
-    if (!text) return null
-    complete += text
-    return text
-  }
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+    const pending = new Map<number, PendingCall>()
+    let upstream: Response
 
-  const readPayload = (line: string) => {
-    if (!line.startsWith('data:')) return null
-    const payload = line.slice(5).trim()
-    if (!payload) return null
-    if (payload === '[DONE]') {
-      finished = true
-      return null
-    }
     try {
-      return deltaText(JSON.parse(payload))
-    } catch {
-      // Provider keep-alive comments and metadata are not visible output.
-      return null
+      upstream = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: readEnv('OPENROUTER_CHAT_MODEL', CHAT_MODEL),
+          models: [readEnv('OPENROUTER_CHAT_FALLBACK_MODEL', CHAT_FALLBACK_MODEL)],
+          messages: history,
+          // The last permitted round has no way to act on a tool call, so it is
+          // not offered any; otherwise a turn could end on an unanswered one.
+          ...(useTools && round < MAX_TOOL_ROUNDS ? { tools: toolDefinitions() } : {}),
+          // First-token latency matters more to a voice turn than peak token rate.
+          provider: { sort: 'latency', allow_fallbacks: true },
+          reasoning: { effort: 'none', exclude: true },
+          temperature: 0.9,
+          // A backstop, not the budget. The prompt sets the length; this only
+          // stops a runaway turn from becoming a minute of unwanted speech.
+          max_tokens: 220,
+          stream: true,
+        }),
+        signal,
+      })
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') return
+      yield errorFrame(
+        id,
+        'provider_unreachable',
+        'OpenRouter could not be reached. Check your connection and try again.',
+        true,
+      )
+      return
     }
-  }
 
-  try {
-    while (!finished) {
-      const { done, value } = await reader.read()
-      buffer += decoder.decode(value, { stream: !done })
-      const lines = buffer.split(/\r?\n/)
-      buffer = lines.pop() || ''
+    if (!upstream.ok || !upstream.body) {
+      void upstream.body?.cancel()
+      // A model that rejects the request outright while tools are attached is
+      // very likely one that does not support them. Dropping them and retrying
+      // once turns a dead turn into a plain conversational one.
+      if (useTools && upstream.status === 400) {
+        useTools = false
+        round -= 1
+        continue
+      }
+      yield errorFrame(
+        id,
+        'provider_error',
+        providerErrorMessage(upstream.status),
+        upstream.status === 429 || upstream.status >= 500,
+      )
+      return
+    }
 
-      for (const line of lines) {
-        const raw = readPayload(line)
-        if (finished) break
+    if (!started) {
+      started = true
+      yield { t: 'start', id }
+    }
+
+    let roundContent = ''
+    const reader = upstream.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let finished = false
+
+    const readPayload = (line: string) => {
+      if (!line.startsWith('data:')) return null
+      const payload = line.slice(5).trim()
+      if (!payload) return null
+      if (payload === '[DONE]') {
+        finished = true
+        return null
+      }
+      try {
+        const data = JSON.parse(payload)
+        readToolDeltas(data, pending)
+        return deltaText(data)
+      } catch {
+        // Provider keep-alive comments and metadata are not visible output.
+        return null
+      }
+    }
+
+    try {
+      while (!finished) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const raw = readPayload(line)
+          if (finished) break
+          if (raw) {
+            roundContent += raw
+            const text = spoken.push(raw)
+            if (text) {
+              complete += text
+              yield { t: 'delta', id, text }
+            }
+          }
+        }
+        if (done) break
+      }
+      if (!finished && buffer) {
+        const raw = readPayload(buffer)
         if (raw) {
-          const text = push(raw)
-          if (text) yield { t: 'delta', id, text }
+          roundContent += raw
+          const text = spoken.push(raw)
+          if (text) {
+            complete += text
+            yield { t: 'delta', id, text }
+          }
         }
       }
-      if (done) break
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') return
+      yield errorFrame(id, 'stream_interrupted', 'The reply was cut off mid-thought.', true)
+      return
+    } finally {
+      void reader.cancel().catch(() => undefined)
     }
-    if (!finished && buffer) {
-      const raw = readPayload(buffer)
-      if (raw) {
-        const text = push(raw)
-        if (text) yield { t: 'delta', id, text }
+
+    const calls = [...pending.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, call]) => call)
+      .filter((call) => call.name)
+
+    if (!calls.length) break
+    if (signal.aborted) return
+
+    history.push({
+      role: 'assistant',
+      content: roundContent,
+      tool_calls: calls.map((call, index) => ({
+        id: call.id || `call_${round}_${index}`,
+        type: 'function' as const,
+        function: { name: call.name, arguments: call.args || '{}' },
+      })),
+    })
+
+    for (const [index, call] of calls.entries()) {
+      const callId = call.id || `call_${round}_${index}`
+      const args = parseArgs(call.args)
+      let outcome: ToolOutcome
+
+      if (CLIENT_TOOLS.has(call.name)) {
+        if (options.bridge) {
+          yield { t: 'tool_request', id, call: callId, name: call.name, args }
+          outcome = await options.bridge.call(callId, call.name, args, signal)
+        } else {
+          outcome = {
+            ok: false,
+            content:
+              'That can only be done by the browser, and this connection cannot reach it. Tell the user plainly that you cannot do it right now.',
+          }
+        }
+      } else {
+        outcome = await runServerTool(call.name, args, {
+          store: memoryStore(),
+          timezone: options.timezone || 'UTC',
+          signal,
+        })
       }
+
+      if (signal.aborted) return
+      if (outcome.summary) {
+        yield {
+          t: 'action',
+          id,
+          call: callId,
+          name: call.name,
+          summary: outcome.summary,
+          ok: outcome.ok,
+        }
+      }
+
+      history.push({ role: 'tool', tool_call_id: callId, content: outcome.content })
     }
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') return
-    yield errorFrame(id, 'stream_interrupted', 'The reply was cut off mid-thought.', true)
-    return
-  } finally {
-    void reader.cancel().catch(() => undefined)
   }
 
   // Whatever the cleaner was holding back for the next token that never came.

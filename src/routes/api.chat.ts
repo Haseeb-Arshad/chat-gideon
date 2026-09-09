@@ -15,9 +15,11 @@ export const Route = createFileRoute('/api/chat')({
         if (denied) return denied
 
         try {
-          const body = (await request.json()) as { id?: unknown }
+          const body = (await request.json()) as { id?: unknown; timezone?: unknown }
           const id = typeof body?.id === 'string' ? body.id : 'turn'
-          return streamChat(id, parseChatBody(body), request.signal)
+          const timezone =
+            typeof body?.timezone === 'string' ? body.timezone.slice(0, 64) : undefined
+          return streamChat(id, parseChatBody(body), request.signal, timezone)
         } catch (error) {
           if (error instanceof RequestValidationError) {
             return Response.json(apiError(error.code, error.message), { status: 400 })

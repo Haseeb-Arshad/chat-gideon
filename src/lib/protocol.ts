@@ -1,28 +1,51 @@
 /**
  * Wire protocol shared by the WebSocket link and the streaming HTTP fallback.
  *
- * Both transports carry the exact same frames so the client only has one code
- * path. Over WebSocket the frames arrive as individual text messages; over HTTP
- * they arrive as newline-delimited JSON in the response body.
+ * Both transports carry the same frames so the client only has one code path.
+ * Over WebSocket the frames arrive as individual text messages; over HTTP they
+ * arrive as newline-delimited JSON in the response body.
+ *
+ * One capability does not survive the fallback. A tool the *browser* fulfils
+ * needs the server to ask a question and wait for an answer mid-turn, and a
+ * single HTTP response can only be written in one direction. So `tool_request`
+ * is socket-only, and the agent loop is told up front whether it has a way
+ * back to the browser rather than discovering it half way through a turn.
  */
 
 export const REALTIME_PATH = '/api/realtime'
-export const REALTIME_PROTOCOL_VERSION = 1
+export const REALTIME_PROTOCOL_VERSION = 2
+
+export interface TurnMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 export type ClientFrame =
   | { t: 'hello'; version: number }
   | {
       t: 'turn'
       id: string
-      messages: Array<{ role: 'user' | 'assistant'; content: string }>
+      messages: TurnMessage[]
+      /** The browser's timezone, so "today" means the user's today. */
+      timezone?: string
     }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }
+  /** The browser's answer to a `tool_request`. */
+  | { t: 'tool_reply'; id: string; call: string; ok: boolean; content: string }
   | { t: 'ping'; at: number }
 
 export type ServerFrame =
-  /** Sent once when the socket is live. `warm` reports upstream pre-connect. */
-  | { t: 'ready'; version: number; configured: boolean; chatModel: string; voiceModel: string }
+  /** Sent once when the socket is live. */
+  | {
+      t: 'ready'
+      version: number
+      configured: boolean
+      chatModel: string
+      voiceModel: string
+      /** Which tools this server can actually run, given its configuration. */
+      tools: string[]
+    }
   /** The upstream request has been accepted; first token is imminent. */
   | { t: 'start'; id: string }
   /** An incremental piece of assistant text. */
@@ -31,6 +54,13 @@ export type ServerFrame =
   | { t: 'done'; id: string; text: string }
   /** Header frame for audio; over WebSocket the binary frame follows immediately. */
   | { t: 'audio'; id: string; seq: number; mime: string; bytes: number }
+  /**
+   * GIDEON did something. One line per action, for the ledger the user can
+   * read back — an agent that acts has to be auditable.
+   */
+  | { t: 'action'; id: string; call: string; name: string; summary: string; ok: boolean }
+  /** Asks the browser to run a tool only it can run. Socket transport only. */
+  | { t: 'tool_request'; id: string; call: string; name: string; args: unknown }
   | { t: 'error'; id: string | null; code: string; message: string; retryable: boolean }
   | { t: 'pong'; at: number }
 

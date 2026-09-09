@@ -258,6 +258,93 @@ button:active:not(:disabled) {
   font-weight: 600;
 }
 
+/* -- Action ledger ------------------------------------------------------- */
+
+/*
+ * What GIDEON did, kept deliberately quiet.
+ *
+ * It sits between the captions and the controls because it is a receipt rather
+ * than a conversation: worth being able to check, never worth competing with
+ * the face. Entries are small, monospaced and dim, and an offered link is the
+ * only thing here bright enough to invite a click.
+ */
+.action-ledger {
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-self: center;
+  width: min(520px, calc(100vw - 40px));
+  margin: 0 auto 6px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.68rem;
+}
+
+.ledger-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  color: rgba(224, 230, 240, 0.4);
+  line-height: 1.45;
+}
+
+.ledger-entry svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: rgba(63, 201, 160, 0.68);
+}
+
+.ledger-entry[data-ok='false'] {
+  color: rgba(255, 183, 172, 0.62);
+}
+
+.ledger-entry[data-ok='false'] svg {
+  color: rgba(255, 183, 172, 0.7);
+}
+
+.ledger-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid rgba(210, 222, 239, 0.13);
+  border-radius: 11px;
+  background: rgba(9, 11, 15, 0.5);
+  color: rgba(230, 236, 245, 0.86);
+  text-decoration: none;
+  backdrop-filter: blur(14px);
+  transition: border-color 180ms ease-out, background 180ms ease-out;
+}
+
+.ledger-link:hover {
+  border-color: rgba(191, 233, 255, 0.32);
+  background: rgba(16, 19, 25, 0.7);
+}
+
+.ledger-link svg {
+  flex: 0 0 auto;
+  color: var(--ice);
+}
+
+.ledger-link span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ledger-link small {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: rgba(224, 230, 240, 0.36);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-link {
+    transition: none;
+  }
+}
+
 /* -- Latency panel ------------------------------------------------------- */
 
 /*
