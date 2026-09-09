@@ -26,6 +26,22 @@ export const Route = createRootRoute({
         rel: 'stylesheet',
         href: appCss,
       },
+      {
+        rel: 'icon',
+        type: 'image/png',
+        sizes: '1254x1254',
+        href: '/gideon-sphere.png',
+      },
+      {
+        rel: 'apple-touch-icon',
+        type: 'image/png',
+        sizes: '1254x1254',
+        href: '/gideon-sphere.png',
+      },
+      {
+        rel: 'manifest',
+        href: '/manifest.json',
+      },
     ],
   }),
   notFoundComponent: NotFound,

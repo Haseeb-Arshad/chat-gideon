@@ -854,7 +854,14 @@ export function AgentPage() {
       />
 
       <div className="floating-brand" aria-label="GIDEON">
-        <span className="brand-seed" />
+        <img
+          className="brand-logo"
+          src="/gideon-sphere.png"
+          alt=""
+          width={36}
+          height={36}
+          draggable={false}
+        />
         <span>GIDEON</span>
       </div>
 

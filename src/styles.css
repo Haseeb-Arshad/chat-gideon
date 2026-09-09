@@ -197,6 +197,15 @@ button:active:not(:disabled) {
   letter-spacing: 0.2em;
 }
 
+.brand-logo {
+  display: block;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 11px rgba(79, 125, 255, 0.28));
+}
+
 .brand-seed {
   width: 6px;
   height: 6px;
@@ -1002,6 +1011,12 @@ button:active:not(:disabled) {
   .floating-brand {
     top: 24px;
     left: 21px;
+  }
+
+  .brand-logo {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
   }
 
   .reset-button {
