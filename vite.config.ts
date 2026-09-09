@@ -23,7 +23,15 @@ const config = defineConfig(({ command, mode }) => ({
     realtimePlugin(),
     tailwindcss(),
     tanstackStart(),
-    ...(command === 'build' && mode !== 'test' ? [nitro()] : []),
+    ...(command === 'build' && mode !== 'test'
+      ? [
+          // `node-middleware` rather than the default `node` preset: it exports
+          // a plain Node request handler instead of starting its own listener,
+          // which is the only way `server/serve.mjs` can own the HTTP server
+          // and attach the realtime socket's upgrade handler to it.
+          nitro({ preset: 'node-middleware' }),
+        ]
+      : []),
     viteReact(),
   ],
 }))

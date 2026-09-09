@@ -258,29 +258,33 @@ memory ranking and eviction, URL scheme rejection, rate-limit buckets, origin
 and constant-time access-code checks, dash-stripping across a token stream, and
 the mood plane.
 
-### Where the socket actually runs
+### Deploying
 
-Be clear about this one, because it is the difference between the architecture
-and a demo of it. The WebSocket host is currently a **Vite dev-server plugin**
-(`realtime-plugin.ts`, `apply: 'serve'`). So:
+```bash
+npm run build
+npm start          # honours PORT and HOST
+```
 
-| | Socket | Browser tools | Everything else |
-| --- | --- | --- | --- |
-| `npm run dev` | yes | yes | yes |
-| `npm run build && npm start` | no | no | yes |
+`npm start` runs `server/serve.mjs`, which owns the HTTP listener, hands
+ordinary requests to Nitro and attaches the socket's `upgrade` handler to the
+same server. That indirection exists because Nitro's default `node` preset
+calls `serve({ fetch })` itself and never hands the server back, leaving nowhere
+to attach an upgrade to — so the build uses the `node-middleware` preset, which
+exports a plain request handler instead. Dev and production then call the same
+`attachRealtime`, so the origin check and the session wiring cannot drift apart.
 
-The built server drops to the HTTP frame path, which carries identical frames
-and loses only the tools the browser has to run. That is a deliberate fallback
-rather than a break — but it does mean the production build is not yet
-exercising the transport that the design is built around.
+Any host that runs a long-lived Node process works: Fly.io, Railway, Render, a
+VPS. Serverless hosts (Vercel and friends) cannot hold a socket at all; the
+browser detects that once and permanently falls back to the HTTP frame path,
+which carries identical frames and loses only the tools the browser has to run.
 
-The reason is mundane: Nitro's `node` preset calls `serve({ fetch })` itself and
-never hands back the underlying HTTP server, so there is no seam to attach an
-`upgrade` handler to. The fix is a production entry that owns the listener and
-delegates non-upgrade requests to Nitro's fetch handler — the session itself
-needs no changes, because `createRealtimeSession` already takes nothing but a
-sink and the core imports no framework. Until that lands, treat a deployed link
-as the HTTP path and run it locally to see the socket.
+Set `GIDEON_ACCESS_CODE` on anything public. Every HTTP route then requires it
+as an `X-Gideon-Access` header, and the socket requires it in its opening frame
+— the browser WebSocket API cannot set headers, so the client reads the code
+from `localStorage['gideon-access']` and sends it there instead. The socket also
+*requires* an `Origin` header rather than merely checking one: only a browser
+legitimately opens it, browsers always send one, and tolerating its absence is
+what would let a command-line client reach the turn endpoint unmetered.
 
 ---
 
@@ -288,8 +292,6 @@ as the HTTP path and run it locally to see the socket.
 
 Honest list, in the order I would do them:
 
-- **A production socket host**, so the built server exercises the realtime
-  transport rather than its fallback. See the note above.
 - **Streaming speech-to-text** behind the `SpeechSource` seam, which is what
   ends the Chrome/Edge restriction and puts endpointing entirely under our
   control.
