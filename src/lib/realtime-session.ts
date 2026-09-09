@@ -134,6 +134,27 @@ export function createRealtimeSession(
     return true
   }
 
+  /**
+   * The last line between one bad frame and the whole process.
+   *
+   * These handlers are dispatched without being awaited, so any rejection that
+   * escapes them is unhandled — and an unhandled rejection ends the Node
+   * process, taking every other connected session with it. That is exactly
+   * what a cancelled voice chunk used to do. A failure here is reported to the
+   * one client that caused it and goes no further.
+   */
+  const guarded = (id: string, work: Promise<void>) =>
+    work.catch((error: unknown) => {
+      if ((error as Error)?.name === 'AbortError') return
+      send({
+        t: 'error',
+        id,
+        code: 'session_failed',
+        message: 'That turn could not be completed.',
+        retryable: true,
+      })
+    })
+
   const settleTool = (call: string, outcome: ToolOutcome) => {
     const pending = pendingTools.get(call)
     if (!pending) return
@@ -297,11 +318,11 @@ export function createRealtimeSession(
         }
         case 'turn':
           if (!allowed(frame.id, 'turn')) return
-          void runTurn(frame)
+          void guarded(frame.id, runTurn(frame))
           return
         case 'speak':
           if (!allowed(frame.id, 'speak')) return
-          void runSpeak(frame)
+          void guarded(frame.id, runSpeak(frame))
           return
         case 'tool_reply': {
           settleTool(frame.call, {

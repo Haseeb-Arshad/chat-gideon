@@ -578,13 +578,26 @@ export async function fetchVoice(text: string, signal: AbortSignal): Promise<Voi
     )
   }
 
-  return {
-    ok: true,
-    mime: upstream.headers.get('Content-Type') || 'audio/mpeg',
-    body: await upstream.arrayBuffer(),
-    code: '',
-    message: '',
-    retryable: false,
+  // Reading the body is a second cancellable operation on the same signal, and
+  // it needs its own guard. Left outside one, an interruption arriving between
+  // the headers and the last byte rejected here, escaped `runSpeak`, and — the
+  // call being void-discarded — became an unhandled rejection that took the
+  // whole server process down with it. Barge-in made that a routine event.
+  try {
+    const body = await upstream.arrayBuffer()
+    return {
+      ok: true,
+      mime: upstream.headers.get('Content-Type') || 'audio/mpeg',
+      body,
+      code: '',
+      message: '',
+      retryable: false,
+    }
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      return fail('aborted', 'The spoken reply was cancelled.')
+    }
+    return fail('voice_truncated', 'That line arrived incomplete.', true)
   }
 }
 

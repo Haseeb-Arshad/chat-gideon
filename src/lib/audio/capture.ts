@@ -269,6 +269,14 @@ export class MicCapture {
     }
   }
 
+  /**
+   * How long to wait for someone to carry on before calling the sentence over.
+   * Passing null restores the configured default.
+   */
+  setHangover(ms: number | null) {
+    this.vad.hangoverOverrideMs = ms
+  }
+
   /** Called when GIDEON starts and stops being audible. */
   setDucking(ducking: boolean) {
     if (this.ducking === ducking) return

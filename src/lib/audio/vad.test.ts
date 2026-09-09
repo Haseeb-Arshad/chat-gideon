@@ -146,6 +146,43 @@ describe('VoiceActivityDetector', () => {
     expect(feed(ducked, quiet, 10)).toEqual([])
   })
 
+  it('waits longer when told the speaker has not finished', () => {
+    // The transcript, not the waveform, knows that "and" means more is coming.
+    const vad = new VoiceActivityDetector()
+    feed(vad, room(), 30)
+    feed(vad, voice(), 40)
+    vad.hangoverOverrideMs = 1_400
+
+    const defaultFrames = DEFAULT_VAD.hangoverMs / DEFAULT_VAD.frameMs
+    // Past the point the default would have ended the sentence.
+    expect(feed(vad, room(), defaultFrames + 5)).toEqual([])
+    expect(vad.currentState).toBe('trailing')
+
+    const remaining = (1_400 - DEFAULT_VAD.hangoverMs) / DEFAULT_VAD.frameMs
+    expect(feed(vad, room(), remaining)).toEqual(['end'])
+  })
+
+  it('tolerates a pause long enough to draw breath', () => {
+    // The original 340 ms hangover sat inside the range of an ordinary pause,
+    // so a sentence with a comma in it was routinely cut in half.
+    const vad = new VoiceActivityDetector()
+    feed(vad, room(), 30)
+    const events = [
+      ...feed(vad, voice(), 25),
+      ...feed(vad, room(), 500 / DEFAULT_VAD.frameMs),
+      ...feed(vad, voice(), 25),
+    ]
+    expect(events).toEqual(['start'])
+    expect(vad.currentState).toBe('speech')
+  })
+
+  it('forgets an override when reset', () => {
+    const vad = new VoiceActivityDetector()
+    vad.hangoverOverrideMs = 5_000
+    vad.reset()
+    expect(vad.hangoverOverrideMs).toBeNull()
+  })
+
   it('starts clean after a reset', () => {
     const vad = new VoiceActivityDetector()
     feed(vad, room(), 30)

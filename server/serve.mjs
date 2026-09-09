@@ -38,6 +38,19 @@ server.listen(port, host, () => {
   console.log(`[gideon] realtime socket on ws://${host}:${port}${REALTIME_PATH}`)
 })
 
+/*
+ * Nitro's own node entry installs these; owning the listener means owning them
+ * too, and their absence is why one rejected promise inside a single session
+ * could end the process for everyone connected to it. A server that stays up
+ * and logs the fault is strictly better than one that exits cleanly.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('[gideon] unhandled rejection:', reason)
+})
+process.on('uncaughtException', (error) => {
+  console.error('[gideon] uncaught exception:', error)
+})
+
 const shutdown = (signal) => {
   console.log(`[gideon] ${signal}, closing`)
   server.close(() => process.exit(0))

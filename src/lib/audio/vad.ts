@@ -40,7 +40,15 @@ export interface VadConfig {
   releaseDb: number
   /** Consecutive speech frames required before speech is declared. */
   onsetFrames: number
-  /** Silence tolerated inside one utterance before it is called finished. */
+  /**
+   * Silence tolerated inside one utterance before it is called finished.
+   *
+   * This is the single most consequential number in the file. Set too long and
+   * every reply feels sluggish; set too short and it interrupts people
+   * mid-thought, which is far worse. Conversational speech pauses for 300 to
+   * 800 milliseconds between clauses and to breathe, so anything under about
+   * half a second reliably cuts a sentence in half.
+   */
   hangoverMs: number
   /** Utterances shorter than this are noise, not speech. */
   minSpeechMs: number
@@ -57,7 +65,11 @@ export const DEFAULT_VAD: VadConfig = {
   onsetDb: 9,
   releaseDb: 5,
   onsetFrames: 3,
-  hangoverMs: 340,
+  // Was 340, which sat inside the range of an ordinary pause for breath and so
+  // ended sentences their speaker had not finished. The cost of the extra wait
+  // is largely absorbed elsewhere: transcription now starts when silence
+  // begins, so it runs during this window rather than after it.
+  hangoverMs: 700,
   minSpeechMs: 140,
   minLowRatio: 0.32,
   maxZcr: 0.36,
@@ -173,6 +185,16 @@ export class VoiceActivityDetector {
    */
   duckDb = 0
 
+  /**
+   * Overrides the configured hangover for the current utterance.
+   *
+   * Someone who has just said "and" is going to keep talking; someone who has
+   * finished a sentence is not. The transcript knows which, so the caller can
+   * lengthen the wait when the words trail off mid-clause and shorten it when
+   * they land — patience where it is needed without paying for it every turn.
+   */
+  hangoverOverrideMs: number | null = null
+
   constructor(config: Partial<VadConfig> = {}) {
     this.config = { ...DEFAULT_VAD, ...config }
   }
@@ -190,6 +212,7 @@ export class VoiceActivityDetector {
     this.onsetRun = 0
     this.speechMs = 0
     this.silenceMs = 0
+    this.hangoverOverrideMs = null
     this.floor.reset()
   }
 
@@ -259,7 +282,7 @@ export class VoiceActivityDetector {
           this.silenceMs = 0
         } else {
           this.silenceMs += config.frameMs
-          if (this.silenceMs >= config.hangoverMs) {
+          if (this.silenceMs >= (this.hangoverOverrideMs ?? config.hangoverMs)) {
             if (this.speechMs >= config.minSpeechMs) result.onSpeechEnd = true
             else result.onFalseStart = true
             this.state = 'silence'

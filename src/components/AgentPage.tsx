@@ -29,7 +29,7 @@ import {
   scoreText,
 } from '../lib/mood'
 import { RealtimeLink, type TurnHandle } from '../lib/realtime-client'
-import { SpeculationTracker } from '../lib/speculation'
+import { SpeculationTracker, looksUnfinished } from '../lib/speculation'
 import {
   ClientToolRunner,
   describeDuration,
@@ -830,6 +830,13 @@ export function AgentPage() {
     setUserCaption(result.text)
     if (deriveEmotion(result.text) === 'happy') setEmotion('happy')
 
+    // Patience where it is needed. Someone whose last word was "and" has not
+    // finished, so the detector is told to wait considerably longer before
+    // calling the sentence over; someone who landed on a complete clause gets
+    // the quick path. This is the difference between being listened to and
+    // being cut off, and it costs nothing on the turns that do not need it.
+    capture.setHangover(looksUnfinished(result.text) ? 1_400 : null)
+
     considerSpeculation(result.text, Date.now() - partialRef.current.changedAt)
   }, [considerSpeculation, midTurn, setEmotion])
 
@@ -897,6 +904,9 @@ export function AgentPage() {
       onSpeechStart: () => {
         speechEndRef.current = 0
         partialRef.current = { text: '', changedAt: Date.now() }
+        // Each utterance starts from the configured default; the partials
+        // below lengthen it only while the words are still trailing off.
+        captureRef.current?.setHangover(null)
         dropEager()
         if (phaseRef.current === 'idle') setPhase('listening')
         stopPartials()

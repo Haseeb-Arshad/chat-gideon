@@ -42,6 +42,15 @@ export interface RateDecision {
 export const LIMITS = {
   turn: { refillPerSecond: 0.5, capacity: 8 },
   speak: { refillPerSecond: 2, capacity: 24 },
+  /**
+   * Transcription, on its own budget.
+   *
+   * It used to share `speak`, which starves both: one turn issues a partial
+   * transcription roughly every 850 ms *and* a synthesis request per spoken
+   * chunk, so listening and talking were competing for the same tokens and a
+   * normal conversation could rate-limit itself into going deaf.
+   */
+  transcribe: { refillPerSecond: 3, capacity: 40 },
   config: { refillPerSecond: 1, capacity: 10 },
 } as const satisfies Record<string, BucketConfig>
 
