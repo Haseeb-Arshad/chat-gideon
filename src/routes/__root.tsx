@@ -28,15 +28,14 @@ export const Route = createRootRoute({
       },
       {
         rel: 'icon',
-        type: 'image/png',
-        sizes: '1254x1254',
-        href: '/gideon-sphere.png',
+        href: '/favicon.ico',
+        sizes: '16x16 32x32 48x48',
       },
       {
         rel: 'apple-touch-icon',
         type: 'image/png',
-        sizes: '1254x1254',
-        href: '/gideon-sphere.png',
+        sizes: '192x192',
+        href: '/gideon-192.png',
       },
       {
         rel: 'manifest',

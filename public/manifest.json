@@ -1,12 +1,24 @@
 {
   "short_name": "GIDEON",
-  "name": "GIDEON — Voice Companion",
+  "name": "GIDEON - Voice Presence",
   "icons": [
     {
-      "src": "gideon-sphere.png",
+      "src": "gideon-192.png",
       "type": "image/png",
-      "sizes": "1254x1254",
+      "sizes": "192x192",
       "purpose": "any"
+    },
+    {
+      "src": "gideon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "gideon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
   ],
   "start_url": "/",

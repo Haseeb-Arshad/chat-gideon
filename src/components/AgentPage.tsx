@@ -939,7 +939,7 @@ export function AgentPage() {
       <div className="floating-brand" aria-label="GIDEON">
         <img
           className="brand-logo"
-          src="/gideon-sphere.png"
+          src="/gideon-72.png"
           alt=""
           width={36}
           height={36}
