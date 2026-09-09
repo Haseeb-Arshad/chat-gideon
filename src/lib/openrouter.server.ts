@@ -8,7 +8,13 @@ import '@tanstack/react-start/server-only'
  * transport-shaped concerns (Response objects, headers, status codes) live.
  */
 
-import { fetchVoice, getPublicConfig, streamTurn, warmUpstream } from './agent-core'
+import {
+  fetchVoice,
+  getPublicConfig,
+  streamTurn,
+  transcribeAudio,
+  warmUpstream,
+} from './agent-core'
 import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
@@ -108,4 +114,30 @@ export async function synthesizeVoice(text: string, signal: AbortSignal): Promis
       'Cache-Control': 'no-store',
     },
   })
+}
+
+/**
+ * One utterance transcribed.
+ *
+ * A refusal is shaped like every other API error so the browser has one way to
+ * read a failure; an empty transcript is a success with no words in it, which
+ * is what a cough or a closing door legitimately produces.
+ */
+export async function transcribe(
+  audio: ArrayBuffer,
+  signal: AbortSignal,
+  language?: string,
+): Promise<Response> {
+  const result = await transcribeAudio(audio, signal, { language })
+
+  if (!result.ok) {
+    return Response.json(apiError(result.code, result.message, result.retryable), {
+      status: result.retryable ? 502 : 503,
+    })
+  }
+
+  return Response.json(
+    { text: result.text, model: result.model },
+    { headers: { 'Cache-Control': 'no-store' } },
+  )
 }

@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
-import { MicCapture, captureSupported } from '../lib/audio/capture'
+import { MicCapture, captureSupported, type Utterance } from '../lib/audio/capture'
+import { Transcriber } from '../lib/audio/transcriber'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
 import {
   NEUTRAL_MOOD,
@@ -60,6 +61,7 @@ interface PublicConfig {
   configured: boolean
   chatModel: string
   voiceModel: string
+  sttModel?: string
   tools?: string[]
 }
 
@@ -201,6 +203,29 @@ export function AgentPage() {
   const speculationRef = useRef(new SpeculationTracker<RunningTurn>())
   const logRef = useRef(new LatencyLog())
   const toolsRef = useRef<ClientToolRunner | null>(null)
+  const transcriberRef = useRef<Transcriber | null>(null)
+  /** Repeating partial transcription while someone is mid-sentence. */
+  const partialTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  /** The partial transcript, and when it last actually changed. */
+  const partialRef = useRef({ text: '', changedAt: 0 })
+  /**
+   * A transcription started the instant silence began, before the hangover has
+   * expired.
+   *
+   * This is what keeps the recogniser off the critical path. The detector waits
+   * a third of a second to be sure a sentence is over; transcription takes
+   * about the same. Running them concurrently rather than in sequence means the
+   * transcript is usually already in hand the moment the utterance is declared
+   * finished, so the whole speech-to-text step costs almost nothing.
+   */
+  const eagerRef = useRef<{
+    frames: number
+    controller: AbortController
+    promise: Promise<{ text: string } | null>
+  } | null>(null)
+  const vadStateRef = useRef<string>('silence')
+  /** Set once `runPartial` exists; called from the interrupt handler above it. */
+  const runPartialRef = useRef<() => void>(() => undefined)
   /** The moment the detector last heard speech stop, for the hangover mark. */
   const speechEndRef = useRef(0)
 
@@ -231,6 +256,22 @@ export function AgentPage() {
     turn.handle?.cancel()
     turn.voice?.cancel()
     turn.voice = null
+  }, [])
+
+  /** Read through a call so narrowing cannot outlive an await. */
+  const midTurn = useCallback(
+    () => phaseRef.current === 'thinking' || phaseRef.current === 'replying',
+    [],
+  )
+
+  const stopPartials = useCallback(() => {
+    if (partialTimerRef.current) clearInterval(partialTimerRef.current)
+    partialTimerRef.current = null
+  }, [])
+
+  const dropEager = useCallback(() => {
+    eagerRef.current?.controller.abort()
+    eagerRef.current = null
   }, [])
 
   const stopVoice = useCallback(() => {
@@ -310,7 +351,7 @@ export function AgentPage() {
   // -- Restore and persist -------------------------------------------------
 
   useEffect(() => {
-    const supported = speechRecognitionSupported()
+    const supported = captureSupported() || speechRecognitionSupported()
     setSpeechSupported(supported)
     if (!supported) setVoiceMode('muted')
 
@@ -348,6 +389,8 @@ export function AgentPage() {
 
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+      if (partialTimerRef.current) clearInterval(partialTimerRef.current)
+      eagerRef.current?.controller.abort()
       listenerRef.current?.abort()
       turnRef.current?.handle?.cancel()
       turnRef.current?.voice?.cancel()
@@ -429,6 +472,14 @@ export function AgentPage() {
     // No `scheduleListen` here: the microphone never closed, and the person is
     // already mid-sentence. Anything else would drop the word they cut in on.
     setPhase('listening')
+
+    // The capture graph withholds its speech-start callback while GIDEON is
+    // audible, so the live transcript is started from here instead, now that
+    // the interruption has been confirmed to be a person and not an echo.
+    partialRef.current = { text: '', changedAt: Date.now() }
+    if (!partialTimerRef.current) {
+      partialTimerRef.current = setInterval(() => runPartialRef.current(), 850)
+    }
   }, [abandon, setPhase])
 
   // -- One turn ------------------------------------------------------------
@@ -649,6 +700,7 @@ export function AgentPage() {
       if (!linkRef.current) return
 
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+      stopPartials()
       abandon(turnRef.current)
       turnRef.current = null
       captureRef.current?.setDucking(false)
@@ -699,7 +751,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, feel, promote],
+    [abandon, beginTurn, feel, promote, stopPartials],
   )
 
   /**
@@ -735,6 +787,86 @@ export function AgentPage() {
   // -- Microphone ----------------------------------------------------------
 
   /**
+   * Transcribes the sentence so far, for the caption and for the guess.
+   *
+   * Partials exist because the authoritative transcript only arrives once the
+   * sentence is over, and a screen that shows nothing until then feels dead.
+   * They are also what speculation reads: a guess needs to know roughly what
+   * is being said before it has been finished.
+   */
+  const runPartial = useCallback(async () => {
+    const capture = captureRef.current
+    const transcriber = transcriberRef.current
+    if (!capture || !transcriber || transcriber.busy) return
+    if (midTurn()) return
+
+    const snapshot = capture.snapshot()
+    // Below about a second there is not enough audio to transcribe usefully,
+    // and a one-word guess is not worth a request.
+    if (!snapshot || snapshot.ms < 900) return
+
+    const result = await transcriber.run(snapshot.frames, snapshot.sampleRate)
+    if (!result || !result.text) return
+    // The turn may have started while this was in flight, in which case the
+    // partial is about a sentence that has already been sent.
+    if (midTurn()) return
+
+    if (result.text !== partialRef.current.text) {
+      partialRef.current = { text: result.text, changedAt: Date.now() }
+    }
+    setLiveTranscript(result.text)
+    setUserCaption(result.text)
+    if (deriveEmotion(result.text) === 'happy') setEmotion('happy')
+
+    considerSpeculation(result.text, Date.now() - partialRef.current.changedAt)
+  }, [considerSpeculation, midTurn, setEmotion])
+
+  runPartialRef.current = () => void runPartial()
+
+  /**
+   * Turns a finished utterance into a turn.
+   *
+   * Prefers the eager transcription started when silence began, which by now
+   * has usually already returned; falls back to transcribing the utterance from
+   * scratch when speech resumed after that attempt or it failed.
+   */
+  const handleUtterance = useCallback(
+    async (utterance: Utterance) => {
+      stopPartials()
+      const transcriber = transcriberRef.current
+      if (!transcriber) return
+
+      const eager = eagerRef.current
+      eagerRef.current = null
+
+      let text = ''
+      // The eager attempt is only valid if nothing was still being said when
+      // it was taken; `dropEager` clears it the moment speech resumes.
+      if (eager) text = (await eager.promise)?.text?.trim() ?? ''
+      if (!text) {
+        text = (await transcriber.run(utterance.frames, utterance.sampleRate))?.text?.trim() ?? ''
+      }
+
+      partialRef.current = { text: '', changedAt: 0 }
+      transcriber.reset()
+
+      if (!text) {
+        // A cough, a door, a chair. Nothing was said, so nothing is sent and
+        // the microphone simply carries on listening.
+        setLiveTranscript('')
+        setUserCaption((current) => (phaseRef.current === 'listening' ? '' : current))
+        if (voiceModeRef.current === 'active' && phaseRef.current === 'listening') {
+          setPhase('listening')
+        }
+        return
+      }
+
+      sendMessage(text)
+    },
+    [sendMessage, setPhase, stopPartials],
+  )
+
+  /**
    * The capture graph, opened once and left open.
    *
    * It runs for the whole session rather than per turn: the echo guard needs
@@ -743,40 +875,115 @@ export function AgentPage() {
    */
   const ensureCapture = useCallback(async () => {
     if (captureRef.current || !captureSupported()) return
+
+    transcriberRef.current ??= new Transcriber({
+      language: (navigator.language || 'en').slice(0, 5),
+      onError: (message) => setNotice(message),
+    })
+
     const capture = new MicCapture({
       onSpeechStart: () => {
         speechEndRef.current = 0
+        partialRef.current = { text: '', changedAt: Date.now() }
+        dropEager()
+        if (phaseRef.current === 'idle') setPhase('listening')
+        stopPartials()
+        partialTimerRef.current = setInterval(() => void runPartial(), 850)
       },
+
+      onFrame: (result) => {
+        const previous = vadStateRef.current
+        vadStateRef.current = result.state
+        if (previous === result.state) return
+
+        if (result.state === 'trailing') {
+          // Silence has begun but the hangover has not expired. Transcribing
+          // now runs the round trip concurrently with the wait instead of
+          // after it, which is most of what makes a turn feel immediate.
+          const capture = captureRef.current
+          const transcriber = transcriberRef.current
+          const snapshot = capture?.snapshot()
+          if (!capture || !transcriber || !snapshot) return
+          dropEager()
+          const controller = new AbortController()
+          eagerRef.current = {
+            frames: snapshot.frames.length,
+            controller,
+            promise: transcriber.run(snapshot.frames, snapshot.sampleRate, controller.signal),
+          }
+        } else if (result.state === 'speech' && previous === 'trailing') {
+          // It was a pause, not the end. Whatever was transcribed is now short
+          // of the sentence and has to be thrown away.
+          dropEager()
+        }
+      },
+
+      onUtterance: (utterance) => void handleUtterance(utterance),
+
       onSpeechEnd: () => {
         speechEndRef.current = performance.now()
-        // The detector reached the end of the utterance from the waveform well
-        // before the recogniser will admit to a final result, so it is the one
-        // that decides the turn is over.
-        listenerRef.current?.commitNow()
+        stopPartials()
       },
+
       onBargeIn: () => interrupt(),
+
+      onLevel: (level) => {
+        // Only meaningful while listening; during playback the meter belongs
+        // to the voice, not the microphone.
+        if (phaseRef.current === 'listening') levelRef.current = level
+      },
+
       onError: (code, message) => {
         // A refused microphone is worth saying; a missing one on a machine that
         // was going to type anyway is not.
-        if (code === 'denied') setNotice(message)
+        if (code === 'denied' || code === 'no-device') setNotice(message)
       },
     })
+
     captureRef.current = capture
-    await capture.start()
-  }, [interrupt])
+    const started = await capture.start()
+    if (started) {
+      setSpeechSupported(true)
+      setVoiceMode('active')
+      setPhase('listening')
+    }
+  }, [dropEager, handleUtterance, interrupt, runPartial, setPhase, setVoiceMode, stopPartials])
 
   const startListening = useCallback(
     (preserveDeadline = false) => {
+      /*
+       * The capture graph is the listener now.
+       *
+       * It used to be the browser's SpeechRecognition, with capture running
+       * alongside it purely for barge-in. That was two microphone consumers on
+       * one device, and the recogniser was the slower and less accurate of the
+       * two. Where the graph is available it does the whole job, and the
+       * recogniser below is only for a browser without AudioWorklet.
+       */
+      if (captureSupported()) {
+        setNotice(null)
+        setLiveTranscript('')
+        const capture = captureRef.current
+        if (capture?.running) {
+          // Already open; it never stopped listening. Only the phase needs to
+          // catch up, and the detector needs to forget the last utterance.
+          capture.resetUtterance()
+          setVoiceMode('active')
+          setPhase('listening')
+          return
+        }
+        void ensureCapture()
+        return
+      }
+
       if (!speechRecognitionSupported()) {
         setSpeechSupported(false)
         setVoiceMode('muted')
         setPhase('idle')
-        setNotice('Live voice needs Chrome or Edge. You can still type below.')
+        setNotice('This browser cannot open a microphone. You can still type below.')
         return
       }
       if (listenerRef.current?.active) return
-
-      void ensureCapture()
 
       const listener = new Listener({
         onInterim: (value) => {
@@ -851,6 +1058,8 @@ export function AgentPage() {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       listenerRef.current?.abort()
       listenerRef.current = null
+      stopPartials()
+      dropEager()
       for (const run of speculationRef.current.clear()) abandon(run.handle)
       stopVoice()
       void captureRef.current?.stop()
@@ -861,7 +1070,7 @@ export function AgentPage() {
     }
     setNotice(null)
     startListening(false)
-  }, [abandon, setPhase, setVoiceMode, startListening, stopVoice])
+  }, [abandon, dropEager, setPhase, setVoiceMode, startListening, stopPartials, stopVoice])
 
   const stopCurrentTurn = useCallback(() => {
     const turn = turnRef.current

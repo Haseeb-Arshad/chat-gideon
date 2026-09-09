@@ -9,6 +9,8 @@
 import {
   CHAT_MODEL,
   CHAT_FALLBACK_MODEL,
+  TRANSCRIBE_FALLBACK_MODEL,
+  TRANSCRIBE_MODEL,
   VOICE_MODEL,
   providerErrorMessage,
   type ChatMessageInput,
@@ -83,6 +85,7 @@ export function getPublicConfig() {
     configured: Boolean(readEnv('OPENROUTER_API_KEY', '')),
     chatModel: readEnv('OPENROUTER_CHAT_MODEL', CHAT_MODEL),
     voiceModel: readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL),
+    sttModel: readEnv('OPENROUTER_STT_MODEL', TRANSCRIBE_MODEL),
   }
 }
 
@@ -149,8 +152,11 @@ let store: MemoryStore | null = null
 
 export function memoryStore(): MemoryStore {
   if (store) return store
-  const path = readEnv('GIDEON_MEMORY_PATH', '')
-  store = path ? new JsonMemoryStore(path) : new EphemeralMemoryStore()
+  // Defaulted rather than opt-in: memory that silently evaporates on restart
+  // is worse than none, because GIDEON says it will remember and then does not.
+  // `none` is the explicit escape hatch for a host with no writable disk.
+  const path = readEnv('GIDEON_MEMORY_PATH', '.gideon/memory.json')
+  store = path === 'none' ? new EphemeralMemoryStore() : new JsonMemoryStore(path)
   return store
 }
 
@@ -322,9 +328,12 @@ export async function* streamTurn(
           provider: { sort: 'latency', allow_fallbacks: true },
           reasoning: { effort: 'none', exclude: true },
           temperature: 0.9,
-          // A backstop, not the budget. The prompt sets the length; this only
-          // stops a runaway turn from becoming a minute of unwanted speech.
-          max_tokens: 220,
+          // No max_tokens. It was set to 220 as a "backstop" and was in fact
+          // the thing cutting replies off mid-sentence: the model would be
+          // half way through a thought when the cap ended the stream, and both
+          // the voice and the caption simply stopped. Length is the prompt's
+          // job, and a prompt that asks for two sentences does not need a
+          // guillotine behind it.
           stream: true,
         }),
         signal,
@@ -577,4 +586,108 @@ export async function fetchVoice(text: string, signal: AbortSignal): Promise<Voi
     message: '',
     retryable: false,
   }
+}
+
+// -- Transcription ---------------------------------------------------------
+
+/**
+ * Speech to text, on the server because the key lives here.
+ *
+ * This replaces the browser's own `SpeechRecognition` on the critical path,
+ * and the reason is a specific failure rather than a preference. That API
+ * reports interim text several hundred milliseconds to a second behind the
+ * audio, and it never says how far behind it is. Our detector endpoints from
+ * the waveform in about a third of a second, so committing a turn when the
+ * detector said "silence" captured only the words the recogniser had managed
+ * to emit — the opening of a sentence, with the rest discarded.
+ *
+ * Transcribing the retained audio instead means the transcript is of the whole
+ * utterance by construction. Measured over five interleaved reps on a short
+ * sentence, `parakeet-tdt-0.6b-v3` returned in 367 ms at the median for about
+ * six cents per thousand turns, which is faster than the recogniser's lag and
+ * correct as well.
+ */
+export interface TranscriptionResult {
+  ok: boolean
+  text: string
+  code: string
+  message: string
+  retryable: boolean
+  /** Which model answered, for the panel. */
+  model: string
+}
+
+const TRANSCRIBE_TIMEOUT_MS = 12_000
+
+export async function transcribeAudio(
+  wav: ArrayBuffer,
+  signal: AbortSignal,
+  options: { language?: string } = {},
+): Promise<TranscriptionResult> {
+  const fail = (code: string, message: string, retryable = false): TranscriptionResult => ({
+    ok: false,
+    text: '',
+    code,
+    message,
+    retryable,
+    model: '',
+  })
+
+  const headers = serverHeaders()
+  if (!headers) {
+    return fail('missing_api_key', 'Add OPENROUTER_API_KEY to .env, then restart the server.')
+  }
+  if (!wav.byteLength) return fail('empty_audio', 'There was no audio to transcribe.')
+
+  const primary = readEnv('OPENROUTER_STT_MODEL', TRANSCRIBE_MODEL)
+  const fallback = readEnv('OPENROUTER_STT_FALLBACK_MODEL', TRANSCRIBE_FALLBACK_MODEL)
+  // Base64 is what the endpoint takes. The browser sent raw bytes precisely so
+  // that this inflation happens once, here, rather than over the user's uplink.
+  const data = Buffer.from(wav).toString('base64')
+
+  // The fallback exists because a single slow provider would otherwise be felt
+  // as GIDEON going deaf; the models are ordered by measured median latency.
+  const attempts = fallback && fallback !== primary ? [primary, fallback] : [primary]
+  let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
+
+  for (const model of attempts) {
+    if (signal.aborted) return fail('aborted', 'Transcription was cancelled.')
+
+    try {
+      const upstream = await fetch(`${OPENROUTER_BASE_URL}/audio/transcriptions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          input_audio: { data, format: 'wav' },
+          language: options.language || 'en',
+          response_format: 'json',
+        }),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS)]),
+      })
+
+      if (!upstream.ok) {
+        void upstream.body?.cancel()
+        last = fail(
+          'stt_provider_error',
+          providerErrorMessage(upstream.status),
+          upstream.status === 429 || upstream.status >= 500,
+        )
+        continue
+      }
+
+      const body = (await upstream.json()) as { text?: unknown }
+      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      // An empty transcript is a normal outcome, not an error: the detector can
+      // be fooled by a cough or a door, and the caller simply keeps listening.
+      return { ok: true, text, code: '', message: '', retryable: false, model }
+    } catch (error) {
+      if ((error as Error).name === 'AbortError' && signal.aborted) {
+        return fail('aborted', 'Transcription was cancelled.')
+      }
+      last = fail('stt_unreachable', 'Speech recognition could not be reached.', true)
+    }
+  }
+
+  return last
 }

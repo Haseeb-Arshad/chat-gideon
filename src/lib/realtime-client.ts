@@ -26,6 +26,7 @@ export interface LinkConfig {
   configured: boolean
   chatModel: string
   voiceModel: string
+  sttModel: string
   /** Tools this server can run, which depends on its keys and its transport. */
   tools: string[]
 }
@@ -371,6 +372,7 @@ export class RealtimeLink {
           configured: frame.configured,
           chatModel: frame.chatModel,
           voiceModel: frame.voiceModel,
+          sttModel: frame.sttModel,
           tools: Array.isArray(frame.tools) ? frame.tools : [],
         })
         return

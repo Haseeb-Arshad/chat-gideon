@@ -1,9 +1,46 @@
 export const CHAT_MODEL = 'openai/gpt-4.1-mini'
 export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
 export const VOICE_MODEL = 'fish-audio/s2.1-pro-free:free'
-export const MAX_MESSAGE_LENGTH = 8_000
-export const MAX_VOICE_LENGTH = 1_800
-export const MAX_HISTORY_MESSAGES = 24
+/**
+ * Speech to text, chosen by measurement.
+ *
+ * Five interleaved reps of a short spoken sentence through OpenRouter's
+ * transcription endpoint, median round trip:
+ *
+ *   nvidia/parakeet-tdt-0.6b-v3          367 ms   $0.000056
+ *   deepgram/nova-3                      409 ms   $0.000161
+ *   fish-audio/transcribe-1              445 ms   $0.000300
+ *   mistralai/voxtral-mini-transcribe    535 ms   $0.000100
+ *   microsoft/mai-transcribe-2           603 ms   $0.000083
+ *   qwen/qwen3-asr-0.6b                  870 ms   $0.000007
+ *   openai/whisper-large-v3-turbo      1 380 ms   $0.000007
+ *
+ * All seven transcribed it exactly. Parakeet wins on latency with the tightest
+ * spread, which is what matters when the model sits in the gap between someone
+ * stopping and GIDEON starting; Nova follows it as the fallback because it is
+ * the most robust of the set on accented and noisy speech.
+ */
+export const TRANSCRIBE_MODEL = 'nvidia/parakeet-tdt-0.6b-v3'
+export const TRANSCRIBE_FALLBACK_MODEL = 'deepgram/nova-3'
+/** A spoken turn is seconds long; this only stops an absurd upload. */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024
+/**
+ * Bounds, not budgets.
+ *
+ * These exist so a malformed or hostile request cannot post a novel, and they
+ * are set far above anything a real conversation produces. Nothing here should
+ * ever be what stops a reply: an earlier build capped the model's own output at
+ * 220 tokens and the result was answers that stopped mid-sentence.
+ */
+export const MAX_MESSAGE_LENGTH = 32_000
+export const MAX_VOICE_LENGTH = 8_000
+/**
+ * How much conversation is sent upstream.
+ *
+ * Long enough that GIDEON does not forget the start of a real conversation,
+ * and the durable facts in `tools/memory.ts` carry what matters beyond it.
+ */
+export const MAX_HISTORY_MESSAGES = 80
 
 export type ChatRole = 'user' | 'assistant'
 

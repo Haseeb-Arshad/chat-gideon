@@ -116,12 +116,17 @@ Browser ────────────────────────
          ├─ VAD ──► endpoint  (commits the turn, ahead of the recogniser)
          ├─ VAD ──► barge-in  (threshold raised while the speakers are live)
          └─ level ──► the eyes
-  SpeechRecognition ──► interim words ──► stability tick ──► speculative turn
+         └─ ring buffer ──► utterance audio (with 320 ms pre-roll)
+                                  │
+                                  ├─ every 850 ms ──► partial transcript ──► caption
+                                  │                                      └─► speculative turn
+                                  └─ at silence ────► full transcript ──► the turn
   Playback: AudioContext clock ── AudioBufferSourceNode.start(when) ── gapless
                                         │ caption + eye level read this clock
         │ WebSocket (JSON frames + binary audio)
 ────────┼─────────────────────────────────────────────────────────────────────
 Node server (the same core runs in the Vite dev host and a built Nitro server)
+  transcription ──► OpenRouter /audio/transcriptions (parakeet, nova-3 behind it)
   agent loop ──► OpenRouter (streamed, tools attached)
        ├─ server tools: clock · memory · web search
        └─ client tools: tool_request ──► browser ──► tool_reply
@@ -162,6 +167,40 @@ frequency over a few hundred short facts runs in microseconds. Light suffix
 stripping came directly out of a failing test: without it, "what do I play"
 does not match "the user plays the cello", which is the ordinary case rather
 than an edge one.
+
+**A speech model for transcription, not the browser's recogniser.** This one
+was a bug fix before it was a decision. `SpeechRecognition` reports interim text
+several hundred milliseconds to a second behind the audio and never says how far
+behind it is — so when our detector endpointed from the waveform in ~340 ms and
+committed the turn, it committed only the words the recogniser had managed to
+emit. Sentences were being cut to their opening clause. It also meant two
+separate consumers of one microphone, which slowed the recogniser further.
+
+The audio is now retained and transcribed directly. Model chosen by measuring
+median round trip over five interleaved reps of a short spoken sentence:
+
+| model | median | cost/call |
+| --- | --- | --- |
+| `nvidia/parakeet-tdt-0.6b-v3` | **367 ms** | $0.000056 |
+| `deepgram/nova-3` | 409 ms | $0.000161 |
+| `fish-audio/transcribe-1` | 445 ms | $0.000300 |
+| `mistralai/voxtral-mini-transcribe` | 535 ms | $0.000100 |
+| `microsoft/mai-transcribe-2` | 603 ms | $0.000083 |
+| `qwen/qwen3-asr-0.6b` | 870 ms | $0.000007 |
+| `openai/whisper-large-v3-turbo` | 1380 ms | $0.000007 |
+
+All seven transcribed it exactly, so latency decided it. Parakeet has the
+tightest spread as well as the lowest median, which matters more than the mean
+when the model sits in the gap between someone stopping and GIDEON starting.
+About six cents per thousand turns.
+
+**Transcription starts when silence begins, not when it is confirmed.** The
+detector waits ~340 ms to be sure a sentence has ended; transcription takes
+about the same. Run in sequence that is two thirds of a second of dead air.
+So the moment the waveform goes quiet, the utterance so far is sent off to be
+transcribed; if speech resumes, that result is thrown away. Almost always it
+does not, and the transcript is already in hand when the utterance is declared
+finished — which makes the speech-to-text step nearly free in wall-clock terms.
 
 **A hand-written VAD, not Silero.** The features in
 [`audio/vad.ts`](src/lib/audio/vad.ts) — energy, zero-crossing rate, and the
@@ -206,11 +245,10 @@ npm run dev
 Open <http://localhost:3000> in Chrome or Edge and allow the microphone. Voice
 starts listening on its own.
 
-Firefox and Safari currently fall back to typing, because live transcription
-still comes from the browser `SpeechRecognition` API. The capture, VAD,
-barge-in and playback pipeline is standard Web Audio and already works
-everywhere; swapping in a streaming speech-to-text provider behind the
-`SpeechSource` seam is what removes that limitation.
+Transcription is a real speech model rather than the browser's own
+`SpeechRecognition`, so the whole pipeline is standard Web Audio and works in
+any browser with `AudioWorklet` — Chrome, Edge, Firefox and Safari. The
+recogniser survives only as a fallback for a browser without it.
 
 ### Configuration
 
@@ -221,7 +259,9 @@ everywhere; swapping in a streaming speech-to-text provider behind the
 | `OPENROUTER_CHAT_FALLBACK_MODEL` | `minimax/minimax-m3:free` | Free fallback |
 | `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro-free:free` | Speech synthesis |
 | `OPENROUTER_VOICE` | `alloy` | Voice identifier |
-| `GIDEON_MEMORY_PATH` | unset | Where facts persist; unset means per-process |
+| `OPENROUTER_STT_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Transcription; fastest measured |
+| `OPENROUTER_STT_FALLBACK_MODEL` | `deepgram/nova-3` | Used if the primary fails |
+| `GIDEON_MEMORY_PATH` | `.gideon/memory.json` | Where facts persist; `none` for no disk |
 | `TAVILY_API_KEY` | unset | Enables `web_search` |
 | `GIDEON_ACCESS_CODE` | unset | Required on every request when set |
 | `GIDEON_ALLOWED_ORIGINS` | same-origin | Only if the page is embedded elsewhere |
@@ -240,7 +280,11 @@ browser code; GIDEON keeps this credential in server routes only.
 - Thirty seconds of quiet pauses the microphone.
 
 Conversation history stays in this browser's local storage. Memories are the
-only thing that leaves it, and only to the server you are running.
+only thing that leaves it, and only to the server you are running — where they
+are written as plain JSON to `GIDEON_MEMORY_PATH` (`.gideon/memory.json` by
+default, gitignored). There is no database and no third-party store; swapping
+`JsonMemoryStore` for a real one means implementing three methods behind the
+`MemoryStore` interface, which is why that interface exists.
 
 ---
 
@@ -292,9 +336,10 @@ what would let a command-line client reach the turn endpoint unmetered.
 
 Honest list, in the order I would do them:
 
-- **Streaming speech-to-text** behind the `SpeechSource` seam, which is what
-  ends the Chrome/Edge restriction and puts endpointing entirely under our
-  control.
+- **Streaming speech-to-text.** Transcription is currently one request per
+  utterance, which is fast enough to hide inside the hangover but still means
+  the partial captions arrive in ~850 ms steps rather than word by word. A
+  provider with a WebSocket would make the live transcript continuous.
 - **On-device presence.** Face landmarking in a worker so the eyes track *you*
   rather than the pointer, look-to-talk as a gaze wake word, and picking the
   thread back up when you return. Nothing would leave the browser but a

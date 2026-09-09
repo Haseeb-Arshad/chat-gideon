@@ -26,10 +26,29 @@ import { WORKLET_NAME, workletUrl } from './worklet-source'
 export const TARGET_SAMPLE_RATE = 16_000
 export const FRAME_MS = 20
 
+export interface Utterance {
+  /** The whole utterance, pre-roll included, at `sampleRate`. */
+  frames: Float32Array[]
+  sampleRate: number
+  /** Speech length in milliseconds, hangover excluded. */
+  ms: number
+}
+
 export interface CaptureHandlers {
   /** Every frame, with the detector's verdict attached. */
   onFrame?: (result: VadFrameResult, features: FrameFeatures) => void
   onSpeechStart?: () => void
+  /**
+   * An utterance finished, with the audio it was made of.
+   *
+   * The audio is the point. An earlier build reported only the length and left
+   * transcription to the browser's own recogniser, whose interim text lags the
+   * waveform by up to a second — so committing a turn the moment the detector
+   * heard silence captured the first few words of a sentence and threw the rest
+   * away. Handing over the samples means the transcript is of what was
+   * actually said, all of it.
+   */
+  onUtterance?: (utterance: Utterance) => void
   /** An utterance finished. `ms` is its length, hangover excluded. */
   onSpeechEnd?: (ms: number) => void
   /** Sustained speech while GIDEON was audible. */
@@ -43,6 +62,16 @@ export interface CaptureOptions extends CaptureHandlers {
   vad?: Partial<VadConfig>
   /** Raised while GIDEON speaks so his own voice cannot interrupt him. */
   duckDb?: number
+  /**
+   * Audio kept from before speech was declared.
+   *
+   * Onset needs several frames above the threshold to be sure, and the first
+   * consonant of a sentence is often quieter than the vowel that follows it.
+   * Without a pre-roll the transcript reliably loses the opening sound.
+   */
+  preRollMs?: number
+  /** Utterances longer than this are cut, so one runaway cannot exhaust memory. */
+  maxUtteranceMs?: number
 }
 
 export type CaptureStatus = 'idle' | 'starting' | 'running' | 'denied' | 'unsupported' | 'failed'
@@ -83,6 +112,15 @@ export class MicCapture {
    */
   private ducking = false
   private disposed = false
+  /** A rolling window of recent frames, kept so speech can be back-dated. */
+  private preRoll: Float32Array[] = []
+  private preRollFrames = 0
+  /** Frames of the utterance in progress, or null between utterances. */
+  private recording: Float32Array[] | null = null
+  private recordedFrames = 0
+  private maxFrames = Infinity
+  /** The graph's actual rate, which Safari decides for itself. */
+  private rate = TARGET_SAMPLE_RATE
   /**
    * Bumped by every stop and dispose.
    *
@@ -105,6 +143,27 @@ export class MicCapture {
 
   get noiseFloor() {
     return this.vad.noiseFloor
+  }
+
+  /** The rate the graph is really running at, for encoding. */
+  get sampleRate() {
+    return this.rate
+  }
+
+  /**
+   * The utterance so far, without ending it.
+   *
+   * This is what makes a live transcript possible: the same audio can be
+   * transcribed mid-sentence for the caption and for the speculative turn,
+   * then again in full when the detector says the sentence is over.
+   */
+  snapshot(): Utterance | null {
+    if (!this.recording || !this.recording.length) return null
+    return {
+      frames: [...this.recording],
+      sampleRate: this.rate,
+      ms: Math.round((this.recordedFrames / this.rate) * 1000),
+    }
   }
 
   async start(): Promise<boolean> {
@@ -182,7 +241,15 @@ export class MicCapture {
         return false
       }
 
+      this.rate = this.context.sampleRate
       const frameSize = Math.round((this.context.sampleRate * FRAME_MS) / 1000)
+      this.preRollFrames = Math.max(
+        1,
+        Math.round((this.options.preRollMs ?? 320) / FRAME_MS),
+      )
+      this.maxFrames = Math.round(
+        ((this.options.maxUtteranceMs ?? 30_000) / 1000) * this.context.sampleRate,
+      )
       this.source = this.context.createMediaStreamSource(this.stream)
       this.node = new AudioWorkletNode(this.context, WORKLET_NAME, {
         numberOfInputs: 1,
@@ -214,6 +281,9 @@ export class MicCapture {
   resetUtterance() {
     this.vad.reset()
     this.barge.reset()
+    this.recording = null
+    this.recordedFrames = 0
+    this.preRoll = []
   }
 
   async stop() {
@@ -237,6 +307,21 @@ export class MicCapture {
       lowRatio: message.lowRatio,
     }
     const result = this.vad.push(features)
+    const pcm = message.pcm
+
+    // Retention happens before the state machine is consulted, because the
+    // frames that prove speech started are the ones already gone by then.
+    if (pcm) {
+      if (this.recording) {
+        if (this.recordedFrames < this.maxFrames) {
+          this.recording.push(pcm)
+          this.recordedFrames += pcm.length
+        }
+      } else {
+        this.preRoll.push(pcm)
+        if (this.preRoll.length > this.preRollFrames) this.preRoll.shift()
+      }
+    }
 
     // Attack fast, release slow: a level meter that decays as fast as it rises
     // flickers, and one that rises slowly misses the start of every word.
@@ -246,16 +331,49 @@ export class MicCapture {
 
     this.options.onFrame?.(result, features)
 
+    // Retention is decided before ducking is consulted. An interruption starts
+    // while GIDEON is still talking, so waiting until playback stops to begin
+    // recording would lose the words the person cut in with — which are the
+    // whole point of letting them cut in.
+    if (result.onSpeechStart) {
+      // The pre-roll becomes the head of the utterance, so the first consonant
+      // survives the frames onset detection spent making up its mind.
+      this.recording = [...this.preRoll]
+      this.recordedFrames = this.recording.reduce((sum, frame) => sum + frame.length, 0)
+      this.preRoll = []
+    }
+
     if (this.ducking) {
       // While GIDEON is talking, sustained speech is an interruption, and the
       // ordinary endpointer's edges are meaningless — the utterance it would
-      // report started against a raised threshold mid-playback.
+      // report started against a raised threshold mid-playback. The callbacks
+      // are withheld rather than the bookkeeping: announcing a speech start
+      // here would set a live transcript running on GIDEON's own echo.
       if (this.barge.push(result.probability)) this.options.onBargeIn?.()
       return
     }
 
     if (result.onSpeechStart) this.options.onSpeechStart?.()
-    if (result.onSpeechEnd) this.options.onSpeechEnd?.(result.speechMs)
+
+    if (result.onSpeechEnd) {
+      const utterance = this.recording
+        ? {
+            frames: this.recording,
+            sampleRate: this.rate,
+            ms: result.speechMs,
+          }
+        : null
+      this.recording = null
+      this.recordedFrames = 0
+      if (utterance) this.options.onUtterance?.(utterance)
+      this.options.onSpeechEnd?.(result.speechMs)
+    }
+
+    if (result.onFalseStart) {
+      // Too short to be a word, so the audio is dropped rather than sent.
+      this.recording = null
+      this.recordedFrames = 0
+    }
   }
 
   private async teardown() {
@@ -281,5 +399,8 @@ export class MicCapture {
     this.vad.reset()
     this.barge.reset()
     this.level = 0
+    this.recording = null
+    this.recordedFrames = 0
+    this.preRoll = []
   }
 }

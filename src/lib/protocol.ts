@@ -59,6 +59,7 @@ export type ServerFrame =
       configured: boolean
       chatModel: string
       voiceModel: string
+      sttModel: string
       /** Which tools this server can actually run, given its configuration. */
       tools: string[]
     }
