@@ -1,4 +1,87 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap');
+
+/*
+ * GT Alpina (Grilli Type) and Frances are licensed faces, so most of the files
+ * are not vendored here — only the two GT Alpina Condensed Light cuts that
+ * have actually been dropped into `public/fonts/` so far. Each rule accepts
+ * either .woff2 or .woff so whichever export you have works; add more weights
+ * under the same `GT-Alpina-Condensed-<Weight>[-Italic]` naming and they take
+ * over automatically. Frances still has no files in place, so that stack
+ * falls through to Manrope until some arrive. See public/fonts/README.md.
+ */
+@font-face {
+  font-family: 'GT Alpina';
+  src:
+    url('/fonts/GT-Alpina-Condensed-Light.woff2') format('woff2'),
+    url('/fonts/GT-Alpina-Condensed-Light.woff') format('woff');
+  font-weight: 300;
+  font-style: normal;
+  font-stretch: condensed;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'GT Alpina';
+  src:
+    url('/fonts/GT-Alpina-Condensed-Light-Italic.woff2') format('woff2'),
+    url('/fonts/GT-Alpina-Condensed-Light-Italic.woff') format('woff');
+  font-weight: 300;
+  font-style: italic;
+  font-stretch: condensed;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'GT Alpina';
+  src:
+    url('/fonts/GT-Alpina-Condensed-Regular.woff2') format('woff2'),
+    url('/fonts/GT-Alpina-Condensed-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-stretch: condensed;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'GT Alpina';
+  src:
+    url('/fonts/GT-Alpina-Condensed-Medium.woff2') format('woff2'),
+    url('/fonts/GT-Alpina-Condensed-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-stretch: condensed;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Frances';
+  src:
+    url('/fonts/Frances-Regular.woff2') format('woff2'),
+    url('/fonts/Frances-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Frances';
+  src:
+    url('/fonts/Frances-Medium.woff2') format('woff2'),
+    url('/fonts/Frances-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Frances';
+  src:
+    url('/fonts/Frances-Semibold.woff2') format('woff2'),
+    url('/fonts/Frances-Semibold.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   color-scheme: dark;
@@ -22,7 +105,11 @@
   --field-crest-soft: rgba(92, 128, 184, 0.16);
   --field-crest-faint: rgba(92, 128, 184, 0.07);
   --field-energy: 0.26;
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  /* GT Alpina speaks; Frances handles everything around it. */
+  --font-display: 'GT Alpina', 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-text: 'Frances', 'Manrope', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-text);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -191,7 +278,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 11px;
   color: rgba(238, 243, 251, 0.75);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.69rem;
   font-weight: 500;
   letter-spacing: 0.2em;
@@ -276,7 +363,7 @@ button:active:not(:disabled) {
   align-self: center;
   width: min(520px, calc(100vw - 40px));
   margin: 0 auto 6px;
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
 }
 
@@ -365,7 +452,7 @@ button:active:not(:disabled) {
   border-radius: 16px;
   background: rgba(7, 9, 13, 0.88);
   backdrop-filter: blur(22px);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   color: rgba(224, 230, 240, 0.72);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
@@ -580,8 +667,8 @@ button:active:not(:disabled) {
   flex-direction: column;
   align-items: center;
   width: min(880px, 92vw);
-  padding-top: clamp(66px, 9vh, 108px);
-  padding-bottom: 18px;
+  padding-top: clamp(40px, 6vh, 88px);
+  padding-bottom: 14px;
 }
 
 .robot-presence {
@@ -659,44 +746,133 @@ button:active:not(:disabled) {
   filter: blur(6px);
   opacity: 0.45;
 }
-.live-captions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  width: min(780px, 90vw);
-  min-height: clamp(126px, 17vh, 182px);
-  margin-top: clamp(18px, 3vh, 32px);
+/* -- The transcript ------------------------------------------------------- */
+
+/*
+ * The conversation is a narrow column that scrolls up under a blurred lip
+ * rather than a panel with a scrollbar. Everything older rises out of the room
+ * and the newest line rests on the floor at full size, which is what makes a
+ * reply feel like it is arriving rather than being listed.
+ *
+ * The frame is given a fixed height on purpose: it lets the flow inside sit on
+ * its bottom edge while a conversation is still short, so the first exchange
+ * starts where the last one will be rather than up against the eyes.
+ */
+.transcript-frame {
+  position: relative;
+  width: min(520px, 92vw);
+  height: clamp(150px, 25vh, 288px);
+  margin-top: clamp(20px, 3.4vh, 40px);
+}
+
+.transcript {
+  height: 100%;
+  padding: 30px 4px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /*
+   * Deliberately not smooth. The transcript pins itself to its own floor as
+   * lines arrive, and an animated pin reports its own intermediate frames as
+   * scroll events — which is indistinguishable from the reader scrolling up,
+   * and would switch the pinning off on the first token of every reply.
+   */
+  scrollbar-width: none;
+  /* The mask fades the words out; the veil above blurs them on the way. */
+  mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.3) 10%, #000 36%);
   text-align: center;
 }
 
-.user-caption {
-  max-width: 660px;
-  margin: 0 0 10px;
-  color: rgba(188, 197, 210, 0.52);
-  font-size: clamp(0.72rem, 1.15vw, 0.86rem);
+.transcript::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * The lip itself. `backdrop-filter` is what genuinely blurs the lines passing
+ * beneath it, and its own mask is what keeps that blur from having an edge.
+ */
+.transcript-veil {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: clamp(48px, 8vh, 78px);
+  pointer-events: none;
+  backdrop-filter: blur(7px);
+  mask-image: linear-gradient(to bottom, #000 24%, rgba(0, 0, 0, 0.46) 60%, transparent);
+}
+
+.transcript-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(13px, 2.1vh, 21px);
+  min-height: 100%;
+}
+
+.turn-said {
+  max-width: 100%;
+  margin: 0;
+  transition:
+    color 460ms ease-out,
+    font-size 460ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.turn-said[data-role='gideon'] {
+  color: rgba(216, 223, 234, 0.4);
+  font-family: var(--font-display);
+  font-size: clamp(0.94rem, 1.5vw, 1.14rem);
+  font-weight: 400;
+  letter-spacing: -0.016em;
+  line-height: 1.36;
+  text-wrap: pretty;
+}
+
+/* The line being said right now: full size, full strength. */
+.turn-said[data-role='gideon'][data-current='true'] {
+  color: rgba(228, 233, 242, 0.86);
+  font-size: clamp(1.42rem, 2.6vw, 2.08rem);
+  letter-spacing: -0.034em;
+  line-height: 1.24;
+  text-wrap: balance;
+}
+
+.turn-said[data-role='user'] {
+  color: rgba(188, 197, 210, 0.34);
+  font-size: clamp(0.72rem, 1.1vw, 0.84rem);
   line-height: 1.45;
 }
 
-.user-caption span {
+/* What you are saying grows as you say it, then settles back on the reply. */
+.turn-said[data-role='user'][data-current='true'] {
+  color: rgba(207, 216, 229, 0.7);
+  font-size: clamp(0.94rem, 1.6vw, 1.14rem);
+}
+
+.turn-who {
   display: block;
   margin-bottom: 4px;
-  color: rgba(191, 233, 255, 0.76);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.58rem;
+  color: rgba(191, 233, 255, 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.assistant-caption {
-  max-width: 760px;
-  margin: 0;
-  color: rgba(225, 230, 239, 0.82);
-  font-size: clamp(1.3rem, 2.45vw, 2.08rem);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-  line-height: 1.3;
-  text-wrap: balance;
+.turn-said[data-current='true'] .turn-who {
+  color: rgba(191, 233, 255, 0.8);
+}
+
+.turn-cut {
+  margin-left: 0.5em;
+  color: rgba(191, 198, 210, 0.32);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  font-style: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 
 .caption-word {
@@ -711,14 +887,10 @@ button:active:not(:disabled) {
   transition: text-shadow 2600ms ease-out;
 }
 
-.assistant-caption.is-thinking {
-  min-height: 1.3em;
-}
-
 .thought-pulse {
   display: inline-block;
   color: rgba(191, 233, 255, 0.64);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.22em;
   animation: thought-pulse 1.3s ease-in-out infinite;
 }
@@ -742,7 +914,7 @@ button:active:not(:disabled) {
   min-height: 20px;
   margin-bottom: 10px;
   color: rgba(166, 175, 187, 0.54);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.61rem;
   letter-spacing: 0.08em;
 }
@@ -813,116 +985,74 @@ button:active:not(:disabled) {
   height: 28px;
 }
 
-.voice-action-row {
+/*
+ * Voice and keyboard share one line. The microphone is a single control rather
+ * than a labelled slab — its state is carried by the icon and the ring, and its
+ * words moved to the status line and the tooltip, where they cost no room.
+ */
+.dock-row {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
+  width: 100%;
 }
 
-.voice-mode-button {
+.voice-orb {
+  position: relative;
+  flex: none;
   display: grid;
-  grid-template-columns: 42px minmax(112px, auto) 40px;
-  align-items: center;
-  gap: 10px;
-  min-width: 240px;
-  min-height: 58px;
-  padding: 7px 10px 7px 8px;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
   border: 1px solid rgba(214, 224, 239, 0.13);
-  border-radius: 999px;
+  border-radius: 50%;
   background: rgba(10, 13, 17, 0.78);
-  color: rgba(236, 241, 249, 0.88);
+  color: var(--ice);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.025),
     0 18px 48px rgba(0, 0, 0, 0.22);
   cursor: pointer;
   backdrop-filter: blur(22px);
-  transition: border-color 180ms ease-out, background 180ms ease-out, box-shadow 180ms ease-out, transform 180ms ease-out;
+  transition:
+    border-color 180ms ease-out,
+    background 180ms ease-out,
+    color 180ms ease-out,
+    transform 180ms ease-out;
 }
 
-.voice-mode-button:hover {
-  border-color: rgba(214, 224, 239, 0.24);
-  background: rgba(15, 18, 24, 0.9);
+.voice-orb:hover {
+  border-color: rgba(214, 224, 239, 0.26);
+  background: rgba(16, 20, 26, 0.9);
 }
 
-.voice-mode-button[data-mode='paused'] {
-  border-color: var(--field-crest-soft);
-}
-
-.voice-mode-button[data-mode='muted'] {
-  color: rgba(191, 199, 211, 0.62);
-}
-
-.voice-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: rgba(191, 233, 255, 0.09);
-  color: var(--ice);
-}
-
-.voice-mode-button[data-mode='paused'] .voice-icon {
+/* Paused is the one state asking to be pressed, so it is the bright one. */
+.voice-orb[data-mode='paused'] {
+  border-color: transparent;
   background: var(--white);
   color: #090b0f;
 }
 
-.voice-mode-button[data-mode='muted'] .voice-icon {
-  background: rgba(255, 255, 255, 0.045);
+.voice-orb[data-mode='muted'] {
+  background: rgba(255, 255, 255, 0.04);
   color: rgba(180, 188, 200, 0.5);
 }
 
-.voice-label {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
+/* A ring rather than a level meter: same news, none of the row. */
+.voice-orb::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1px solid var(--field-crest-soft);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.voice-label strong {
-  font-size: 0.76rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.voice-label small {
-  margin-top: 2px;
-  color: rgba(151, 160, 172, 0.56);
-  font-size: 0.59rem;
-}
-
-.voice-level {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 20px;
-}
-
-.voice-level i {
-  display: block;
-  width: 2px;
-  height: 5px;
-  border-radius: 99px;
-  background: rgba(191, 233, 255, 0.42);
-}
-
-.voice-mode-button[data-phase='listening'] .voice-level i,
-.voice-mode-button[data-phase='speaking'] .voice-level i {
-  animation: voice-level 760ms ease-in-out infinite;
-}
-
-.voice-level i:nth-child(2) {
-  animation-delay: 45ms !important;
-}
-
-.voice-level i:nth-child(3) {
-  animation-delay: 90ms !important;
-}
-
-.voice-level i:nth-child(4) {
-  animation-delay: 135ms !important;
+.voice-orb[data-mode='active'][data-phase='listening']::after,
+.voice-orb[data-mode='active'][data-phase='speaking']::after {
+  animation: orb-ring 1.9s ease-out infinite;
 }
 
 .stop-turn-button {
@@ -945,18 +1075,30 @@ button:active:not(:disabled) {
   background: rgba(18, 21, 27, 0.92);
 }
 
+/*
+ * At rest the composer is a pill the size of the microphone beside it, because
+ * most of this conversation is spoken and an empty text field the width of the
+ * screen is a standing invitation to do the wrong one. Focus opens it.
+ */
 .text-composer {
   display: grid;
-  grid-template-columns: 1fr 38px;
+  grid-template-columns: minmax(0, 1fr) 38px;
   align-items: end;
-  width: 100%;
-  margin-top: 11px;
-  padding: 6px 7px 6px 17px;
+  flex: 0 1 176px;
+  min-width: 0;
+  padding: 6px 7px 6px 16px;
   border: 1px solid rgba(205, 216, 232, 0.085);
-  border-radius: 22px;
+  border-radius: 26px;
   background: rgba(7, 9, 12, 0.56);
   backdrop-filter: blur(18px);
-  transition: border-color 180ms ease-out, background 180ms ease-out;
+  transition:
+    flex-basis 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease-out,
+    background 180ms ease-out;
+}
+
+.dock-row[data-open='true'] .text-composer {
+  flex-basis: 100%;
 }
 
 .text-composer:focus-within {
@@ -975,8 +1117,10 @@ button:active:not(:disabled) {
   outline: 0;
   background: transparent;
   color: rgba(230, 235, 243, 0.84);
-  font-size: 0.76rem;
+  font-family: var(--font-text);
+  font-size: 0.79rem;
   line-height: 1.5;
+  text-overflow: ellipsis;
 }
 
 .text-composer textarea::placeholder {
@@ -1047,15 +1191,15 @@ button:active:not(:disabled) {
   }
 }
 
-@keyframes voice-level {
-  0%,
-  100% {
-    height: 5px;
-    opacity: 0.38;
+@keyframes orb-ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.93);
   }
-  50% {
-    height: 16px;
-    opacity: 0.9;
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
   }
 }
 
@@ -1080,12 +1224,12 @@ button:active:not(:disabled) {
     width: clamp(300px, 62vh, 500px);
   }
 
-  .live-captions {
-    min-height: 102px;
-    margin-top: 12px;
+  .transcript-frame {
+    height: clamp(120px, 21vh, 190px);
+    margin-top: 14px;
   }
 
-  .assistant-caption {
+  .turn-said[data-role='gideon'][data-current='true'] {
     font-size: clamp(1.15rem, 2vw, 1.65rem);
   }
 }
@@ -1126,22 +1270,19 @@ button:active:not(:disabled) {
     width: min(84vw, 360px);
   }
 
-  .live-captions {
+  .transcript-frame {
     width: 100%;
-    min-height: 146px;
+    height: clamp(148px, 24vh, 232px);
     margin-top: 16px;
-    padding-inline: 7px;
   }
 
-  .user-caption {
-    max-width: 90%;
-    margin-bottom: 9px;
-    font-size: 0.68rem;
+  .turn-said[data-role='gideon'] {
+    font-size: 0.9rem;
   }
 
-  .assistant-caption {
+  .turn-said[data-role='gideon'][data-current='true'] {
     font-size: clamp(1.2rem, 6vw, 1.55rem);
-    line-height: 1.34;
+    line-height: 1.32;
   }
 
   .voice-dock {
@@ -1161,13 +1302,17 @@ button:active:not(:disabled) {
     border-left: 0;
   }
 
-  .voice-mode-button {
-    min-width: 226px;
-    min-height: 56px;
+  .text-composer {
+    border-radius: 24px;
   }
 
-  .text-composer {
-    border-radius: 21px;
+  /* One control plus a pill is the whole dock; let the pill have the rest. */
+  .dock-row .text-composer {
+    flex-basis: 152px;
+  }
+
+  .dock-row[data-open='true'] .text-composer {
+    flex-basis: 100%;
   }
 }
 
@@ -1176,17 +1321,16 @@ button:active:not(:disabled) {
     width: 288px;
   }
 
-  .live-captions {
-    min-height: 132px;
+  .transcript-frame {
+    height: 138px;
   }
 
-  .assistant-caption {
+  .turn-said[data-role='gideon'][data-current='true'] {
     font-size: 1.13rem;
   }
 
-  .voice-mode-button {
-    grid-template-columns: 40px minmax(100px, auto) 34px;
-    min-width: 212px;
+  .dock-row .text-composer {
+    flex-basis: 128px;
   }
 }
 
@@ -1284,7 +1428,7 @@ button:active:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.69rem;
   font-weight: 500;
   letter-spacing: 0.18em;
@@ -1349,7 +1493,7 @@ button:active:not(:disabled) {
   gap: 10px;
   margin: 0 0 30px;
   color: rgba(194, 201, 211, 0.55);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.61rem;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -1365,6 +1509,7 @@ button:active:not(:disabled) {
 .hero-copy h1,
 .approach-heading h2,
 .gather-copy h2 {
+  font-family: var(--font-display);
   margin: 0;
   font-weight: 500;
   letter-spacing: -0.055em;
@@ -1380,7 +1525,7 @@ button:active:not(:disabled) {
 .hero-copy h1 span {
   display: block;
   color: rgba(239, 242, 247, 0.64);
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.07em;
   font-style: italic;
   font-weight: 400;
@@ -1475,7 +1620,7 @@ button:active:not(:disabled) {
 .signal-coordinate {
   position: absolute;
   color: rgba(184, 192, 202, 0.2);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.52rem;
   letter-spacing: 0.13em;
 }
@@ -1614,7 +1759,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 9px;
   color: rgba(225, 231, 240, 0.34);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.52rem;
   letter-spacing: 0.1em;
   transform: rotate(-3deg);
@@ -1634,7 +1779,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 9px;
   color: rgba(211, 218, 228, 0.22);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.5rem;
 }
 
@@ -1674,7 +1819,7 @@ button:active:not(:disabled) {
 .approach-heading h2 em,
 .gather-copy h2 em {
   color: rgba(237, 241, 247, 0.64);
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-display);
   font-style: italic;
   font-weight: 400;
 }

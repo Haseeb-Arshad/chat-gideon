@@ -65,6 +65,22 @@ interface Message {
   createdAt: string
 }
 
+/**
+ * One line of the transcript.
+ *
+ * History and the turn currently in flight are the same thing on screen, so
+ * they are flattened into one list before rendering. `live` marks the entry
+ * that is still being written — the only one that reveals itself word by word.
+ */
+interface StreamEntry {
+  id: string
+  role: ChatRole
+  content: string
+  /** The reply was cut off by a barge-in rather than finished. */
+  cut: boolean
+  live: boolean
+}
+
 interface PublicConfig {
   configured: boolean
   chatModel: string
@@ -89,6 +105,9 @@ interface LedgerEntry {
 }
 
 const STORAGE_KEY = 'gideon-conversation-v2'
+
+/** How an interrupted reply is marked in history, for the model's benefit. */
+const INTERRUPTED = /s*[interrupted]$/
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
@@ -184,19 +203,23 @@ export function AgentPage() {
   const [assistantCaption, setAssistantCaption] = useState(WELCOME_MESSAGE.content)
   const [spokenChars, setSpokenChars] = useState(WELCOME_MESSAGE.content.length)
   const [captionTurn, setCaptionTurn] = useState(0)
-  const [userCaption, setUserCaption] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [retryText, setRetryText] = useState<string | null>(null)
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [hudOpen, setHudOpen] = useState(false)
+  /** The composer is a resting pill until it is asked for, then it is a field. */
+  const [composerOpen, setComposerOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [links, setLinks] = useState<OfferedLink[]>([])
 
   const stageRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
+  /** Whether the transcript is resting on its floor, rather than held open. */
+  const followRef = useRef(true)
   const phaseRef = useRef<Phase>('idle')
   const voiceModeRef = useRef<VoiceMode>('active')
   const messagesRef = useRef<Message[]>([WELCOME_MESSAGE])
@@ -373,13 +396,11 @@ export function AgentPage() {
           setMessages(restored)
           messagesRef.current = restored
           const lastAssistant = [...restored].reverse().find((m) => m.role === 'assistant')
-          const lastUser = [...restored].reverse().find((m) => m.role === 'user')
           if (lastAssistant) {
             setAssistantCaption(lastAssistant.content)
             setSpokenChars(lastAssistant.content.length)
             setEmotion(deriveEmotion(lastAssistant.content))
           }
-          if (lastUser) setUserCaption(lastUser.content)
           setMood(
             restored.reduce(
               (acc, message) =>
@@ -437,6 +458,41 @@ export function AgentPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  /**
+   * The newest line stays on the floor of the transcript and everything older
+   * rises out from under the veil. Smoothing lives in CSS rather than here, so
+   * the reduced-motion rule that already governs the page governs this too.
+   *
+   * Someone who has scrolled back to re-read something is not dragged down
+   * again by the next token — `followRef` is only true while the transcript is
+   * already resting on its floor, which is where it spends nearly all its time.
+   */
+  useEffect(() => {
+    const node = transcriptRef.current
+    if (node && followRef.current) node.scrollTop = node.scrollHeight
+  }, [messages, assistantCaption, liveTranscript])
+
+  /**
+   * The same pin again, driven by height rather than by state.
+   *
+   * A reply can change height without changing: the display face swapping in
+   * after its first paint reflows the newest line, and settling on it after the
+   * fact would otherwise leave the last line of an answer below the floor with
+   * nothing left to scroll it back into view.
+   */
+  useEffect(() => {
+    const node = transcriptRef.current
+    const flow = node?.firstElementChild
+    if (!node || !flow) return
+
+    const pin = () => {
+      if (followRef.current) node.scrollTop = node.scrollHeight
+    }
+    const observer = new ResizeObserver(pin)
+    observer.observe(flow)
+    return () => observer.disconnect()
   }, [])
 
   // -- Interruption --------------------------------------------------------
@@ -509,7 +565,6 @@ export function AgentPage() {
       setRetryText(null)
       setDraft('')
       setLiveTranscript('')
-      setUserCaption(finalText)
       setAssistantCaption('')
       setSpokenChars(0)
       setCaptionTurn((current) => current + 1)
@@ -827,7 +882,6 @@ export function AgentPage() {
       partialRef.current = { text: result.text, changedAt: Date.now() }
     }
     setLiveTranscript(result.text)
-    setUserCaption(result.text)
     if (deriveEmotion(result.text) === 'happy') setEmotion('happy')
 
     // Patience where it is needed. Someone whose last word was "and" has not
@@ -873,7 +927,6 @@ export function AgentPage() {
         // A cough, a door, a chair. Nothing was said, so nothing is sent and
         // the microphone simply carries on listening.
         setLiveTranscript('')
-        setUserCaption((current) => (phaseRef.current === 'listening' ? '' : current))
         if (voiceModeRef.current === 'active' && phaseRef.current === 'listening') {
           setPhase('listening')
         }
@@ -1029,7 +1082,6 @@ export function AgentPage() {
       const listener = new Listener({
         onInterim: (value) => {
           setLiveTranscript(value)
-          setUserCaption(value)
           if (phaseRef.current === 'listening') {
             setEmotion(deriveEmotion(value) === 'happy' ? 'happy' : 'curious')
           }
@@ -1144,7 +1196,6 @@ export function AgentPage() {
     setMessages([WELCOME_MESSAGE])
     setAssistantCaption(WELCOME_MESSAGE.content)
     setSpokenChars(WELCOME_MESSAGE.content.length)
-    setUserCaption('')
     setEmotion('neutral')
     setMood(NEUTRAL_MOOD)
     setNotice(null)
@@ -1220,6 +1271,36 @@ export function AgentPage() {
     return cursor <= spokenChars
   })
 
+  /**
+   * History, plus whichever turn has not settled into it yet.
+   *
+   * Nothing appears twice: a user line joins `messages` the moment its turn is
+   * promoted, and the reply joins on settle, so the live entry below is only
+   * ever the one that genuinely has nowhere else to live.
+   */
+  const stream: StreamEntry[] = messages.map((message) => {
+    const cut = INTERRUPTED.test(message.content)
+    return {
+      id: message.id,
+      role: message.role,
+      content: cut ? message.content.replace(INTERRUPTED, '') : message.content,
+      cut,
+      live: false,
+    }
+  })
+
+  if (stream[stream.length - 1]?.role === 'user') {
+    stream.push({
+      id: `live-${captionTurn}`,
+      role: 'assistant',
+      content: assistantCaption,
+      cut: false,
+      live: true,
+    })
+  } else if (liveTranscript.trim()) {
+    stream.push({ id: 'live-user', role: 'user', content: liveTranscript, cut: false, live: true })
+  }
+
   return (
     <main
       className="presence-shell"
@@ -1279,31 +1360,58 @@ export function AgentPage() {
       <section className="agent-presence" aria-label="GIDEON voice presence">
         <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} />
 
-        <div className="live-captions" aria-live="polite" aria-atomic="false">
-          {userCaption ? (
-            <p className="user-caption">
-              <span>You</span>
-              {userCaption}
-            </p>
-          ) : null}
-          <p
-            className={`assistant-caption ${
-              phase === 'thinking' && !assistantCaption ? 'is-thinking' : ''
-            }`}
+        <div className="transcript-frame">
+          <div className="transcript-veil" aria-hidden="true" />
+          <div
+            className="transcript"
+            ref={transcriptRef}
+            onScroll={(event) => {
+              const node = event.currentTarget
+              followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 72
+            }}
+            aria-live="polite"
+            aria-atomic="false"
           >
-            {assistantCaption ? (
-              words.map((word, index) => (
-                <span
-                  className={`caption-word${spokenIndex[index] ? ' is-spoken' : ''}`}
-                  key={`${captionTurn}-${index}`}
-                >
-                  {word}
-                </span>
-              ))
-            ) : (
-              <span className="thought-pulse">•••</span>
-            )}
-          </p>
+            <div className="transcript-flow">
+              {stream.map((entry, index) => {
+                const current = index === stream.length - 1
+
+                if (entry.role === 'user') {
+                  return (
+                    <p className="turn-said" data-role="user" data-current={current} key={entry.id}>
+                      <span className="turn-who">You</span>
+                      {entry.content}
+                    </p>
+                  )
+                }
+
+                return (
+                  <p
+                    className="turn-said"
+                    data-role="gideon"
+                    data-current={current}
+                    key={entry.id}
+                  >
+                    {entry.live && !entry.content ? (
+                      <span className="thought-pulse">•••</span>
+                    ) : entry.live ? (
+                      words.map((word, wordIndex) => (
+                        <span
+                          className={`caption-word${spokenIndex[wordIndex] ? ' is-spoken' : ''}`}
+                          key={`${captionTurn}-${wordIndex}`}
+                        >
+                          {word}
+                        </span>
+                      ))
+                    ) : (
+                      entry.content
+                    )}
+                    {entry.cut ? <em className="turn-cut">cut short</em> : null}
+                  </p>
+                )
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1357,29 +1465,26 @@ export function AgentPage() {
           </div>
         ) : null}
 
-        <div className="voice-action-row">
+        <div className="dock-row" data-open={composerOpen}>
           <button
             type="button"
-            className="voice-mode-button"
+            className="voice-orb"
             data-mode={voiceMode}
             data-phase={phase}
             onClick={handleVoiceControl}
-            aria-label={voiceMode === 'active' ? 'Mute voice mode' : 'Resume voice mode'}
+            aria-label={
+              speechSupported
+                ? `${voiceControl.label} · ${voiceControl.hint}`
+                : 'Voice unavailable — type instead'
+            }
             aria-pressed={voiceMode === 'active'}
+            title={
+              speechSupported
+                ? `${voiceControl.label} · ${voiceControl.hint}`
+                : 'Voice unavailable'
+            }
           >
-            <span className="voice-icon">
-              {speechSupported ? voiceControl.icon : <MicOff size={19} />}
-            </span>
-            <span className="voice-label">
-              <strong>{speechSupported ? voiceControl.label : 'Voice unavailable'}</strong>
-              <small>{speechSupported ? voiceControl.hint : 'Type below'}</small>
-            </span>
-            <span className="voice-level" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
+            {speechSupported ? voiceControl.icon : <MicOff size={19} />}
           </button>
 
           {phase === 'thinking' || phase === 'replying' || phase === 'speaking' ? (
@@ -1392,35 +1497,43 @@ export function AgentPage() {
               <Square size={15} fill="currentColor" />
             </button>
           ) : null}
-        </div>
 
-        <div className="text-composer">
-          <label className="sr-only" htmlFor="message-input">
-            Type to GIDEON
-          </label>
-          <textarea
-            id="message-input"
-            ref={textareaRef}
-            value={draft}
-            rows={1}
-            maxLength={8000}
-            placeholder="Or type something…"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                sendMessage(draft)
-              }
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => sendMessage(draft)}
-            disabled={!draft.trim()}
-            aria-label="Send typed message"
-          >
-            <ArrowUp size={18} strokeWidth={2.5} />
-          </button>
+          <div className="text-composer" data-open={composerOpen}>
+            <label className="sr-only" htmlFor="message-input">
+              Type to GIDEON
+            </label>
+            <textarea
+              id="message-input"
+              ref={textareaRef}
+              value={draft}
+              rows={1}
+              maxLength={8000}
+              placeholder={composerOpen ? 'Say it in writing…' : 'Type…'}
+              onFocus={() => setComposerOpen(true)}
+              // A half-written thought keeps the field open; an empty one lets
+              // it fall back to a pill so the eyes have the room again.
+              onBlur={() => setComposerOpen(Boolean(draft.trim()))}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.currentTarget.blur()
+                  return
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  sendMessage(draft)
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => sendMessage(draft)}
+              disabled={!draft.trim()}
+              aria-label="Send typed message"
+            >
+              <ArrowUp size={18} strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
       </section>
     </main>
