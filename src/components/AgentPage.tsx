@@ -561,8 +561,10 @@ export function AgentPage() {
         voice: null,
       }
 
-      if (speechEndRef.current) turn.timeline.mark('speech_end', speechEndRef.current)
-      if (!speculative) turn.timeline.mark('endpoint')
+      if (!speculative) {
+        if (speechEndRef.current) turn.timeline.mark('speech_end', speechEndRef.current)
+        turn.timeline.mark('endpoint')
+      }
 
       turn.handle = link.startTurn(
         turn.id,
@@ -650,6 +652,10 @@ export function AgentPage() {
       let turn = resolved.keep?.handle ?? null
       if (turn && !turn.cancelled) {
         turn.timeline.speculation = 'hit'
+        // Marked now rather than at creation: when the guess was sent, this
+        // utterance had not finished, and the only timestamp available then
+        // belonged to the previous one.
+        if (speechEndRef.current) turn.timeline.mark('speech_end', speechEndRef.current)
         turn.timeline.mark('endpoint')
         // The guess was sent this long before the endpoint, and the reply has
         // been streaming for exactly that long by the time it is needed.
@@ -717,6 +723,9 @@ export function AgentPage() {
   const ensureCapture = useCallback(async () => {
     if (captureRef.current || !captureSupported()) return
     const capture = new MicCapture({
+      onSpeechStart: () => {
+        speechEndRef.current = 0
+      },
       onSpeechEnd: () => {
         speechEndRef.current = performance.now()
         // The detector reached the end of the utterance from the waveform well
