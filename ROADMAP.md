@@ -1,4 +1,15 @@
-# GIDEON roadmap — from voice chat to a present, anticipating agent
+# GIDEON roadmap
+
+> **Status.** Phases 0 through 3 are built and verified, and the anticipation
+> work from Phase 4 landed with them. What shipped: the request guard, the
+> AudioWorklet capture and VAD, clock-scheduled gapless playback, full-duplex
+> barge-in with history truncation, speculative turns, the latency panel, the
+> tool-calling agent loop, durable memory, the browser tool bridge, and the
+> action ledger. The README documents the result and its trade-offs.
+>
+> Still open, and still in the order below: streaming speech-to-text (which is
+> what ends the Chrome/Edge restriction), on-device presence, back-channels, the
+> WebRTC phone handoff, and prosody-driven emotion.
 
 This document is the plan for turning GIDEON from a fast voice chat into the
 kind of agent people recognise from films: something that is *in the room*,

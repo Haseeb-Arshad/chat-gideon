@@ -1,5 +1,13 @@
 # GIDEON conversational interface plan
 
+> **Design log, newest first.** This records how the interface arrived at its
+> current form and why each revision replaced the one before it. Two things here
+> no longer match the code, and are kept because the reasoning still holds:
+> Revision 4's landing page was never built, so `/` opens straight into the
+> conversation and `/agent` only redirects; and the eyes described in Revision 3
+> have since been rebuilt again in SVG, driven by the springs and noise in
+> `src/lib/motion.ts`. For what the system does now, see the README.
+
 ## Revision 4 — signal to city landing page
 
 The current conversational presence moves intact from `/` to `/agent`. The new root becomes GIDEON's public threshold: a restrained, motion-led introduction for people deciding whether to begin a conversation.
