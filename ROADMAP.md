@@ -4,8 +4,17 @@
 > work from Phase 4 landed with them. What shipped: the request guard, the
 > AudioWorklet capture and VAD, clock-scheduled gapless playback, full-duplex
 > barge-in with history truncation, speculative turns, the latency panel, the
-> tool-calling agent loop, durable memory, the browser tool bridge, and the
-> action ledger. The README documents the result and its trade-offs.
+> tool-calling agent loop, durable memory, the browser tool bridge, the action
+> ledger, and a production server that hosts the realtime socket rather than
+> falling back to HTTP. The README documents the result and its trade-offs.
+>
+> One correction to the plan below, learned by building it: Phase 4 assumed
+> speculation could reuse the ordinary turn path unchanged. It cannot. A
+> speculative turn that is byte-identical on the wire runs the server's whole
+> tool loop, so a discarded guess really sets timers and really writes memory —
+> and "unobservable" then means nothing. Speculative turns have to be declared
+> as such and refused the *execution* of tools, while still being offered them,
+> or a guess will confidently answer a question it never looked up.
 >
 > Still open, and still in the order below: streaming speech-to-text (which is
 > what ends the Chrome/Edge restriction), on-device presence, back-channels, the
