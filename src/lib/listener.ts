@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Microphone listener built on the browser Speech Recognition API.
  *
  * The API only marks a result `isFinal` after its own fairly generous silence
@@ -15,6 +15,12 @@ export interface ListenerHandlers {
   onError: (code: string, message: string) => void
   onSilenceTimeout: () => void
   onEnd: (reason: 'committed' | 'error' | 'stopped' | 'restart') => void
+  /**
+   * Ticks while there is pending text, reporting how long it has read exactly
+   * the same way. This is what the speculative turn decides on: the recogniser
+   * itself only says "final", which by then is too late to be worth guessing.
+   */
+  onStable?: (text: string, stableMs: number) => void
 }
 
 interface BrowserSpeechRecognition {
@@ -75,21 +81,48 @@ function settleDelay(text: string) {
   return text.trim().split(/\s+/).length >= 3 ? SETTLED_PHRASE_MS : SETTLED_FRAGMENT_MS
 }
 
+/** How often the stability tick reports, while there is anything to report. */
+const STABILITY_TICK_MS = 80
+
 export class Listener {
   private recognition: BrowserSpeechRecognition | null = null
   private settleTimer: ReturnType<typeof setTimeout> | null = null
   private silenceTimer: ReturnType<typeof setTimeout> | null = null
+  private stabilityTimer: ReturnType<typeof setInterval> | null = null
   private silenceDeadline = 0
   private committed = false
   private failed = false
   private stopping = false
   private finalText = ''
   private interimText = ''
+  private pendingText = ''
+  private changedAt = 0
 
   constructor(private readonly handlers: ListenerHandlers) {}
 
   get active() {
     return this.recognition !== null
+  }
+
+  /** The transcript as it currently reads, committed or not. */
+  get pending() {
+    return this.pendingText
+  }
+
+  /**
+   * Commits whatever has been heard, now.
+   *
+   * The detector in `audio/vad.ts` decides the end of an utterance from the
+   * waveform, which it reaches well before the recogniser admits to a final
+   * result. When it does, it calls this rather than waiting out a settle timer
+   * that exists only for the case where no detector is running.
+   */
+  commitNow(): boolean {
+    if (this.committed) return false
+    const text = this.pendingText.trim()
+    if (!text) return false
+    this.commit(text)
+    return true
   }
 
   /**
@@ -110,9 +143,12 @@ export class Listener {
     this.stopping = false
     this.finalText = ''
     this.interimText = ''
+    this.pendingText = ''
+    this.changedAt = Date.now()
 
     if (!preserveDeadline) this.silenceDeadline = Date.now() + SILENCE_LIMIT_MS
     this.armSilence()
+    this.armStability()
 
     const recognition = new Recognition()
     recognition.continuous = true
@@ -134,6 +170,11 @@ export class Listener {
 
       const visible = `${this.finalText}${interim}`.replace(/\s+/g, ' ').trim()
       if (!visible) return
+
+      if (visible !== this.pendingText) {
+        this.pendingText = visible
+        this.changedAt = Date.now()
+      }
 
       this.silenceDeadline = Date.now() + SILENCE_LIMIT_MS
       this.armSilence()
@@ -159,6 +200,9 @@ export class Listener {
     recognition.onend = () => {
       if (this.recognition === recognition) this.recognition = null
       this.clearSettle()
+      // Every path out of here either commits, fails or hands off to a fresh
+      // listener, so the tick has nothing left to watch.
+      this.clearStability()
 
       if (this.committed) {
         this.handlers.onEnd('committed')
@@ -209,6 +253,7 @@ export class Listener {
     this.committed = true
     this.clearSettle()
     this.clearSilence()
+    this.clearStability()
     this.recognition?.stop()
   }
 
@@ -217,6 +262,7 @@ export class Listener {
     this.committed = true
     this.clearSettle()
     this.clearSilence()
+    this.clearStability()
     this.recognition?.abort()
     this.recognition = null
   }
@@ -230,6 +276,7 @@ export class Listener {
     this.committed = true
     this.clearSettle()
     this.clearSilence()
+    this.clearStability()
     this.handlers.onCommit(text)
     // Release the microphone; the caller decides when to listen again.
     try {
@@ -255,6 +302,7 @@ export class Listener {
       () => {
         if (this.committed) return
         this.stopping = true
+        this.clearStability()
         this.recognition?.stop()
         this.recognition = null
         this.handlers.onSilenceTimeout()
@@ -266,5 +314,25 @@ export class Listener {
   private clearSilence() {
     if (this.silenceTimer) clearTimeout(this.silenceTimer)
     this.silenceTimer = null
+  }
+
+  /**
+   * Reports stability on a tick rather than on each result.
+   *
+   * Stability is the *absence* of change, so the only way to notice it is to
+   * look while nothing is happening. Driving this from `onresult` would report
+   * it exactly when it had just been broken.
+   */
+  private armStability() {
+    if (!this.handlers.onStable || this.stabilityTimer) return
+    this.stabilityTimer = setInterval(() => {
+      if (this.committed || !this.pendingText) return
+      this.handlers.onStable?.(this.pendingText, Date.now() - this.changedAt)
+    }, STABILITY_TICK_MS)
+  }
+
+  private clearStability() {
+    if (this.stabilityTimer) clearInterval(this.stabilityTimer)
+    this.stabilityTimer = null
   }
 }

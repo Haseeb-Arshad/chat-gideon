@@ -6,21 +6,24 @@
  * 1. The first spoken chunk is deliberately short. Waiting for a whole sentence
  *    before asking for audio meant the first sound landed a second or more late,
  *    so the opening chunk is cut at the first natural clause boundary instead.
- * 2. Audio for later chunks starts generating as soon as the previous provider
- *    response arrives, while earlier chunks are still playing. Requests to the
- *    free voice provider stay serialised because concurrent calls can sit in a
- *    long queue or time out; playback itself remains strictly ordered.
+ * 2. Audio for later chunks is generated *while earlier chunks are still
+ *    playing*, a few requests deep, then played strictly in order. Generation is
+ *    no longer serialised behind playback.
  *
- * The queue also reports playback amplitude, which drives the eyes, and how far
- * through the text the voice has reached, which drives the caption highlight.
+ * Playback itself is not this module's job any more. Chunks are handed to a
+ * `ScheduledPlayer`, which queues them against the audio clock so the joins
+ * between them are sample-accurate; this file only decides what to say next and
+ * how far ahead to run.
  */
+
+import { ScheduledPlayer } from './audio/player'
 
 /** The opening chunk is cut aggressively so speech starts sooner. */
 const FIRST_CHUNK_MAX = 96
 const FIRST_CHUNK_MIN = 28
 const CHUNK_MAX = 220
 const CHUNK_MIN = 90
-const MAX_INFLIGHT = 1
+const MAX_INFLIGHT = 3
 
 export interface SpeakableChunk {
   text: string
@@ -102,6 +105,10 @@ export interface VoiceQueueOptions {
   /** How many characters of the reply the voice has reached. */
   onProgress?: (chars: number) => void
   onError?: (message: string) => void
+  /** The first chunk has been asked for. Used only for latency marks. */
+  onFirstRequest?: () => void
+  /** Its audio has arrived. */
+  onFirstAudio?: () => void
 }
 
 interface QueueItem {
@@ -121,15 +128,18 @@ export class VoiceQueue {
   private inflight = 0
   private waiting: Array<() => void> = []
   private controller = new AbortController()
-  private element: HTMLAudioElement | null = null
-  private objectUrl: string | null = null
-  private context: AudioContext | null = null
-  private analyser: AnalyserNode | null = null
-  private frame = 0
-  private speaking = false
   private failed = false
+  private sawAudio = false
+  private readonly player: ScheduledPlayer
 
-  constructor(private readonly options: VoiceQueueOptions) {}
+  constructor(private readonly options: VoiceQueueOptions) {
+    this.player = new ScheduledPlayer({
+      onSpeakingChange: options.onSpeakingChange,
+      onLevel: options.onLevel,
+      onProgress: options.onProgress,
+      onError: options.onError,
+    })
+  }
 
   get signal() {
     return this.controller.signal
@@ -141,6 +151,15 @@ export class VoiceQueue {
 
   get queued() {
     return this.seq > 0
+  }
+
+  get speaking() {
+    return this.player.isSpeaking
+  }
+
+  /** How far through the reply the voice has actually reached. */
+  get spokenChars() {
+    return this.player.spokenChars
   }
 
   /** Feeds newly streamed reply text; complete chunks are dispatched at once. */
@@ -163,14 +182,13 @@ export class VoiceQueue {
    */
   async idle() {
     while (this.draining) await this.draining
+    if (!this.controller.signal.aborted) await this.player.drain()
   }
 
   cancel() {
     if (this.controller.signal.aborted) return
     this.controller.abort()
-    this.stopMeter()
-    this.releaseElement()
-    this.setSpeaking(false)
+    this.player.stop()
     for (const release of this.waiting.splice(0)) release()
   }
 
@@ -195,6 +213,7 @@ export class VoiceQueue {
 
   private enqueue(text: string, startChar: number) {
     const seq = this.seq++
+    if (seq === 0) this.options.onFirstRequest?.()
     const item: QueueItem = {
       seq,
       text,
@@ -205,7 +224,7 @@ export class VoiceQueue {
     this.startDraining()
   }
 
-  /** Generation runs ahead of playback without overloading the voice provider. */
+  /** Generation runs ahead of playback, bounded by MAX_INFLIGHT. */
   private async generate(seq: number, text: string): Promise<Blob> {
     await this.acquire()
     try {
@@ -239,15 +258,20 @@ export class VoiceQueue {
     if (this.draining) return
     this.draining = this.drainQueue().finally(() => {
       this.draining = null
-      // Chunks that arrived while the last one was finishing.
+      // Chunks that arrived while the last one was being scheduled.
       if (this.playIndex < this.items.length && !this.controller.signal.aborted) {
         this.startDraining()
-      } else {
-        this.setSpeaking(false)
       }
     })
   }
 
+  /**
+   * Hands finished audio to the player strictly in sequence.
+   *
+   * The await is on the *audio* rather than on playback: the player schedules
+   * each buffer directly after the one before it, so this loop can run as far
+   * ahead as generation allows without the joins drifting.
+   */
   private async drainQueue() {
     while (this.playIndex < this.items.length) {
       if (this.controller.signal.aborted) return
@@ -269,169 +293,24 @@ export class VoiceQueue {
       }
 
       if (this.controller.signal.aborted) return
-      await this.play(item, blob)
-    }
-  }
-
-  private play(item: QueueItem, blob: Blob) {
-    return new Promise<void>((resolve) => {
-      const url = URL.createObjectURL(blob)
-      const audio = new Audio(url)
-      audio.preload = 'auto'
-      this.element = audio
-      this.objectUrl = url
-
-      let settled = false
-      const done = () => {
-        if (settled) return
-        settled = true
-        this.controller.signal.removeEventListener('abort', done)
-        this.stopMeter()
-        this.options.onProgress?.(item.startChar + item.text.length)
-        this.releaseElement()
-        resolve()
+      if (!this.sawAudio) {
+        this.sawAudio = true
+        this.options.onFirstAudio?.()
       }
 
-      this.controller.signal.addEventListener('abort', done, { once: true })
-
-      audio.onplaying = () => {
-        this.setSpeaking(true)
-        const firstWordEnd = item.text.search(/\s/)
-        const initialProgress =
-          firstWordEnd > 0
-            ? Math.min(item.text.length, firstWordEnd + 1)
-            : Math.min(item.text.length, 1)
-        this.options.onProgress?.(item.startChar + initialProgress)
-        this.attachMeter(audio)
-        this.trackProgress(audio, item)
-      }
-      audio.onended = done
-      audio.onerror = () => {
+      try {
+        await this.player.enqueue(blob, item.startChar, item.text.length)
+      } catch (error) {
+        if (this.controller.signal.aborted) return
         if (!this.failed) {
           this.failed = true
-          this.options.onError?.('That line could not be played aloud.')
+          this.options.onError?.(
+            error instanceof Error && /decod/i.test(error.message)
+              ? 'That line came back as audio I could not decode.'
+              : 'That line could not be played aloud.',
+          )
         }
-        done()
       }
-
-      void audio.play().catch(() => {
-        if (!this.failed) {
-          this.failed = true
-          this.options.onError?.('Autoplay is blocked. Tap anywhere, then try again.')
-        }
-        done()
-      })
-    })
-  }
-
-  private trackProgress(audio: HTMLAudioElement, item: QueueItem) {
-    const step = () => {
-      if (this.element !== audio) return
-      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0
-      if (duration) {
-        const ratio = Math.min(1, audio.currentTime / duration)
-        this.options.onProgress?.(item.startChar + Math.round(ratio * item.text.length))
-      }
-      this.frame = requestAnimationFrame(step)
     }
-    cancelAnimationFrame(this.frame)
-    this.frame = requestAnimationFrame(step)
-  }
-
-  /** Web Audio taps the element so the eyes can move with the actual voice. */
-  private attachMeter(audio: HTMLAudioElement) {
-    if (!this.options.onLevel) return
-    try {
-      const Ctor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      if (!Ctor) {
-        this.simulateLevel(audio)
-        return
-      }
-      this.context ??= new Ctor()
-      void this.context.resume().catch(() => undefined)
-
-      // Routing through Web Audio replaces the element's own output, so this is
-      // only safe once the context is actually running. A suspended context
-      // would silence the reply outright.
-      if (this.context.state !== 'running') {
-        this.simulateLevel(audio)
-        return
-      }
-
-      const source = this.context.createMediaElementSource(audio)
-      const analyser = this.context.createAnalyser()
-      analyser.fftSize = 256
-      analyser.smoothingTimeConstant = 0.72
-      source.connect(analyser)
-      analyser.connect(this.context.destination)
-      this.analyser = analyser
-
-      const data = new Uint8Array(analyser.frequencyBinCount)
-      const sample = () => {
-        if (this.analyser !== analyser) return
-        analyser.getByteTimeDomainData(data)
-        let sum = 0
-        for (let index = 0; index < data.length; index += 1) {
-          const centered = (data[index] - 128) / 128
-          sum += centered * centered
-        }
-        const rms = Math.sqrt(sum / data.length)
-        this.options.onLevel?.(Math.min(1, rms * 3.4))
-        requestAnimationFrame(sample)
-      }
-      requestAnimationFrame(sample)
-    } catch {
-      this.analyser = null
-      this.simulateLevel(audio)
-    }
-  }
-
-  /**
-   * When the real amplitude is unavailable, the eyes still need something to
-   * move with, so a soft speech-shaped rhythm stands in for it.
-   */
-  private simulateLevel(audio: HTMLAudioElement) {
-    const started = performance.now()
-    const tick = () => {
-      if (this.element !== audio || audio.paused) return
-      const t = (performance.now() - started) / 1000
-      const wave =
-        0.34 +
-        0.22 * Math.sin(t * 11.3) +
-        0.14 * Math.sin(t * 4.1 + 1.7) +
-        0.1 * Math.sin(t * 19.7 + 0.4)
-      this.options.onLevel?.(Math.max(0.05, Math.min(1, wave)))
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  }
-
-  private stopMeter() {
-    cancelAnimationFrame(this.frame)
-    this.frame = 0
-    this.analyser = null
-    this.options.onLevel?.(0)
-  }
-
-  private releaseElement() {
-    if (this.element) {
-      this.element.onplaying = null
-      this.element.onended = null
-      this.element.onerror = null
-      this.element.pause()
-      this.element = null
-    }
-    if (this.objectUrl) {
-      URL.revokeObjectURL(this.objectUrl)
-      this.objectUrl = null
-    }
-  }
-
-  private setSpeaking(next: boolean) {
-    if (this.speaking === next) return
-    this.speaking = next
-    this.options.onSpeakingChange?.(next)
   }
 }

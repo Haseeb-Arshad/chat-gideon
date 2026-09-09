@@ -6,11 +6,11 @@ export const Route = createFileRoute('/')({
   component: AgentPage,
   head: () => ({
     meta: [
-      { title: 'GIDEON — Voice Companion' },
+      { title: 'GIDEON — Voice Presence' },
       {
         name: 'description',
         content:
-          'Talk through what matters with GIDEON, a voice-forward companion that keeps the thread close.',
+          'Talk to GIDEON and cut in whenever you like. It listens while it speaks, starts working before you finish, and shows you every millisecond it spent.',
       },
     ],
   }),

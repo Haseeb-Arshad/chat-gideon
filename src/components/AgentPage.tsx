@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowUp,
   AudioLines,
   Mic,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
+import { MicCapture, captureSupported } from '../lib/audio/capture'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
 import {
   NEUTRAL_MOOD,
@@ -23,10 +25,13 @@ import {
   nudgeMood,
   scoreText,
 } from '../lib/mood'
-import { RealtimeLink } from '../lib/realtime-client'
+import { RealtimeLink, type TurnHandle } from '../lib/realtime-client'
+import { SpeculationTracker } from '../lib/speculation'
+import { LatencyLog, TurnTimeline } from '../lib/telemetry'
 import { VoiceQueue } from '../lib/voice-queue'
 import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
+import { LatencyHud } from './LatencyHud'
 
 /**
  * `replying` is the state between the first streamed token and audible playback.
@@ -78,6 +83,34 @@ function eyePhaseFor(phase: Phase): EyePhase {
   return phase === 'replying' ? 'speaking' : phase
 }
 
+/**
+ * A reply that is either being shown or being kept out of sight.
+ *
+ * A speculative turn is a fully live stream that nobody is allowed to see. It
+ * accumulates here until the real transcript either vindicates it — at which
+ * point everything buffered is released to the caption and the voice at once —
+ * or contradicts it, at which point it is cancelled having cost only tokens.
+ */
+interface RunningTurn {
+  id: string
+  /** The user text this reply is an answer to. */
+  text: string
+  timeline: TurnTimeline
+  handle: TurnHandle | null
+  /** Everything streamed so far. */
+  complete: string
+  /** Set once the stream ends, whether or not anyone has seen it. */
+  finished: boolean
+  speculative: boolean
+  cancelled: boolean
+  voice: VoiceQueue | null
+  /**
+   * Set by `promote` when the stream is still running, so the settle step is
+   * driven by whichever of the two happens second.
+   */
+  onFinish?: () => void
+}
+
 function LivingPresence({
   phase,
   emotion,
@@ -116,6 +149,7 @@ export function AgentPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
+  const [hudOpen, setHudOpen] = useState(false)
 
   const stageRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -124,11 +158,17 @@ export function AgentPage() {
   const messagesRef = useRef<Message[]>([WELCOME_MESSAGE])
   const linkRef = useRef<RealtimeLink | null>(null)
   const listenerRef = useRef<Listener | null>(null)
-  const voiceRef = useRef<VoiceQueue | null>(null)
-  const turnRef = useRef<{ cancel: () => void } | null>(null)
+  const captureRef = useRef<MicCapture | null>(null)
+  const turnRef = useRef<RunningTurn | null>(null)
   const levelRef = useRef(0)
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startListeningRef = useRef<(preserveDeadline?: boolean) => void>(() => undefined)
+
+  /** Guesses in flight for the utterance currently being spoken by the user. */
+  const speculationRef = useRef(new SpeculationTracker<RunningTurn>())
+  const logRef = useRef(new LatencyLog())
+  /** The moment the detector last heard speech stop, for the hangover mark. */
+  const speechEndRef = useRef(0)
 
   const setPhase = useCallback((next: Phase) => {
     phaseRef.current = next
@@ -150,10 +190,20 @@ export function AgentPage() {
     setMood((current) => blendMood(current, scoreText(text), weight))
   }, [])
 
+  /** Tear a turn down completely, whether it was ever visible or not. */
+  const abandon = useCallback((turn: RunningTurn | null) => {
+    if (!turn || turn.cancelled) return
+    turn.cancelled = true
+    turn.handle?.cancel()
+    turn.voice?.cancel()
+    turn.voice = null
+  }, [])
+
   const stopVoice = useCallback(() => {
-    voiceRef.current?.cancel()
-    voiceRef.current = null
+    turnRef.current?.voice?.cancel()
+    if (turnRef.current) turnRef.current.voice = null
     levelRef.current = 0
+    captureRef.current?.setDucking(false)
   }, [])
 
   // -- Realtime link -------------------------------------------------------
@@ -218,8 +268,9 @@ export function AgentPage() {
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       listenerRef.current?.abort()
-      turnRef.current?.cancel()
-      voiceRef.current?.cancel()
+      turnRef.current?.handle?.cancel()
+      turnRef.current?.voice?.cancel()
+      void captureRef.current?.dispose()
     }
   }, [scheduleListen, setVoiceMode])
 
@@ -236,106 +287,166 @@ export function AgentPage() {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`
   }, [draft])
 
+  /** The panel is a developer tool, so it lives on a key rather than a button. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== '`' || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return
+      event.preventDefault()
+      setHudOpen((open) => !open)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // -- Interruption --------------------------------------------------------
+
+  /**
+   * GIDEON stops talking because you started.
+   *
+   * The history entry is truncated to the words that were actually *heard*,
+   * not the ones that were written. Leaving the full reply in place would mean
+   * the next turn is reasoning about a paragraph you never received, and the
+   * conversation quietly diverges from the one you are having.
+   */
+  const interrupt = useCallback(() => {
+    const turn = turnRef.current
+    if (!turn || turn.speculative) return
+
+    const heard = turn.voice?.spokenChars ?? 0
+    const spoken = turn.complete.slice(0, heard).trimEnd()
+
+    turn.timeline.interrupted = true
+    logRef.current.push(turn.timeline.summary())
+
+    abandon(turn)
+    turnRef.current = null
+    captureRef.current?.setDucking(false)
+    levelRef.current = 0
+
+    if (spoken) {
+      const assistantMessage: Message = {
+        id: makeId(),
+        role: 'assistant',
+        content: `${spoken} [interrupted]`,
+        createdAt: new Date().toISOString(),
+      }
+      const next = [...messagesRef.current, assistantMessage]
+      messagesRef.current = next
+      setMessages(next)
+      setAssistantCaption(spoken)
+      setSpokenChars(spoken.length)
+    }
+
+    // No `scheduleListen` here: the microphone never closed, and the person is
+    // already mid-sentence. Anything else would drop the word they cut in on.
+    setPhase('listening')
+  }, [abandon, setPhase])
+
   // -- One turn ------------------------------------------------------------
 
-  const sendMessage = useCallback(
-    (rawText: string) => {
-      const text = rawText.trim()
-      if (!text) return
-
-      const link = linkRef.current
-      if (!link) return
-
-      listenerRef.current?.abort()
-      listenerRef.current = null
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
-      turnRef.current?.cancel()
-      stopVoice()
+  /**
+   * Attaches a running turn to the interface.
+   *
+   * For an ordinary turn this happens the moment it starts. For a speculative
+   * one it happens only once the final transcript has vindicated it, which is
+   * why everything streamed so far is replayed into the voice in one go.
+   */
+  const promote = useCallback(
+    (turn: RunningTurn, finalText: string, context: Message[]) => {
+      turnRef.current = turn
+      turn.speculative = false
 
       setNotice(null)
       setRetryText(null)
       setDraft('')
       setLiveTranscript('')
-      setUserCaption(text)
+      setUserCaption(finalText)
       setAssistantCaption('')
       setSpokenChars(0)
       setCaptionTurn((current) => current + 1)
-      setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
-      feel(text, SPEAKER_WEIGHT.user)
-      setPhase('thinking')
+      setPhase(turn.complete ? 'replying' : 'thinking')
 
-      const userMessage: Message = {
-        id: makeId(),
-        role: 'user',
-        content: text,
-        createdAt: new Date().toISOString(),
-      }
-      const context = [...messagesRef.current, userMessage]
-      messagesRef.current = context
-      setMessages(context)
+      const link = linkRef.current
+      if (!link) return
 
-      const turnId = makeId()
-      let complete = ''
-      let spokenProgress = 0
       const voice =
         voiceModeRef.current === 'active'
           ? new VoiceQueue({
-              request: (seq, chunk, signal) => link.speak(turnId, seq, chunk, signal),
+              request: (seq, chunk, signal) => link.speak(turn.id, seq, chunk, signal),
               onSpeakingChange: (isSpeaking) => {
-                if (isSpeaking) setPhase('speaking')
-                else if (phaseRef.current === 'speaking') setPhase('replying')
+                if (isSpeaking) {
+                  turn.timeline.mark('first_sample')
+                  captureRef.current?.setDucking(true)
+                  setPhase('speaking')
+                } else {
+                  captureRef.current?.setDucking(false)
+                  if (phaseRef.current === 'speaking') setPhase('replying')
+                }
               },
-               onLevel: (value) => {
-                 levelRef.current = value
-               },
-               onProgress: (chars) => {
-                 spokenProgress = Math.max(spokenProgress, chars)
-                 setSpokenChars(spokenProgress)
-                 const visible = complete.slice(0, Math.min(spokenProgress, complete.length))
-                 const boundary = visible.lastIndexOf(' ')
-                 const caption =
-                   visible.length < complete.length && !/\s$/.test(visible)
-                     ? boundary > 0
-                       ? visible.slice(0, boundary)
-                       : ''
-                     : visible.trimEnd()
-                 setAssistantCaption(caption)
-               },
+              onLevel: (value) => {
+                levelRef.current = value
+              },
+              onProgress: (chars) => {
+                setSpokenChars(chars)
+                // The caption is revealed on the audio clock, and cut at a word
+                // boundary so a half-written word never flashes on screen.
+                const visible = turn.complete.slice(0, Math.min(chars, turn.complete.length))
+                const boundary = visible.lastIndexOf(' ')
+                setAssistantCaption(
+                  visible.length < turn.complete.length && !/\s$/.test(visible)
+                    ? boundary > 0
+                      ? visible.slice(0, boundary)
+                      : ''
+                    : visible.trimEnd(),
+                )
+              },
+              onFirstRequest: () => turn.timeline.mark('speech_requested'),
+              onFirstAudio: () => turn.timeline.mark('speech_received'),
               onError: (message) => setNotice(message),
             })
           : null
-      voiceRef.current = voice
+      turn.voice = voice
 
-      let sawDelta = false
+      // Everything the speculative stream had already produced.
+      if (turn.complete) {
+        if (voice) voice.feed(turn.complete)
+        else setAssistantCaption(turn.complete)
+      }
 
-      const finish = async (finalText: string) => {
+      const settle = async () => {
         const assistantMessage: Message = {
           id: makeId(),
           role: 'assistant',
-          content: finalText,
+          content: turn.complete,
           createdAt: new Date().toISOString(),
         }
         const next = [...context, assistantMessage]
         messagesRef.current = next
         setMessages(next)
-        setEmotion(emotionForTurn(text, finalText))
-        feel(finalText, SPEAKER_WEIGHT.assistant)
+        setEmotion(emotionForTurn(finalText, turn.complete))
+        feel(turn.complete, SPEAKER_WEIGHT.assistant)
 
         if (voice) {
           voice.finish()
           await voice.idle()
         } else {
-          setAssistantCaption(finalText)
-          setSpokenChars(finalText.length)
+          setAssistantCaption(turn.complete)
+          setSpokenChars(turn.complete.length)
         }
-        if (voiceRef.current !== voice) return
+        if (turnRef.current !== turn || turn.cancelled) return
 
         // A voice turn reaches the complete caption only after its last chunk
         // has finished, keeping the visible words and the audio in step.
-        setAssistantCaption(finalText)
-        setSpokenChars(finalText.length)
-        voiceRef.current = null
+        setAssistantCaption(turn.complete)
+        setSpokenChars(turn.complete.length)
+        turn.timeline.mark('turn_done')
+        logRef.current.push(turn.timeline.summary())
+
+        turn.voice = null
         turnRef.current = null
+        captureRef.current?.setDucking(false)
 
         if (voiceModeRef.current === 'active') {
           setPhase('idle')
@@ -345,29 +456,76 @@ export function AgentPage() {
         }
       }
 
-      turnRef.current = link.startTurn(
-        turnId,
+      // A speculative stream that had already finished before it was promoted
+      // has no more deltas coming, so it settles immediately.
+      if (turn.finished) void settle()
+      else turn.onFinish = settle
+    },
+    [feel, scheduleListen, setPhase],
+  )
+
+  /**
+   * Starts a turn against the model.
+   *
+   * A speculative turn is identical on the wire; the only difference is that
+   * nothing it produces reaches the interface until `promote` says so.
+   */
+  const beginTurn = useCallback(
+    (text: string, context: Message[], speculative: boolean): RunningTurn | null => {
+      const link = linkRef.current
+      if (!link) return null
+
+      const turn: RunningTurn = {
+        id: makeId(),
+        text,
+        timeline: new TurnTimeline(makeId()),
+        handle: null,
+        complete: '',
+        finished: false,
+        speculative,
+        cancelled: false,
+        voice: null,
+      }
+
+      if (speechEndRef.current) turn.timeline.mark('speech_end', speechEndRef.current)
+      if (!speculative) turn.timeline.mark('endpoint')
+
+      turn.handle = link.startTurn(
+        turn.id,
         context.map(({ role, content }) => ({ role, content })),
         {
           onDelta: (delta) => {
-            complete += delta
-            if (!sawDelta) {
-              sawDelta = true
-              setPhase('replying')
-            }
-            if (!voice) setAssistantCaption(complete)
-            voice?.feed(delta)
+            if (turn.cancelled) return
+            turn.timeline.mark('first_token')
+            turn.complete += delta
+
+            if (turn.speculative) return
+            if (phaseRef.current === 'thinking') setPhase('replying')
+            if (turn.voice) turn.voice.feed(delta)
+            else setAssistantCaption(turn.complete)
           },
           onDone: (finalText) => {
-            complete = finalText || complete
-            void finish(complete)
+            if (turn.cancelled) return
+            turn.complete = finalText || turn.complete
+            turn.finished = true
+            turn.timeline.mark('reply_done')
+            turn.onFinish?.()
           },
           onError: (message, retryable) => {
-            stopVoice()
+            if (turn.cancelled) return
+            turn.finished = true
+            // A speculative failure is invisible on purpose. The real turn is
+            // about to run anyway and will surface anything that is still wrong.
+            if (turn.speculative) return
+
+            turn.voice?.cancel()
+            turn.voice = null
             turnRef.current = null
+            captureRef.current?.setDucking(false)
+
             setNotice(message)
-            if (retryable) setRetryText(text)
-            if (!complete) {
+            if (retryable) setRetryText(turn.text)
+            if (!turn.complete) {
               setAssistantCaption('I lost the connection for a moment.')
               setSpokenChars(0)
             }
@@ -378,11 +536,123 @@ export function AgentPage() {
           },
         },
       )
+
+      turn.timeline.mark('turn_sent')
+      return turn
     },
-    [feel, scheduleListen, setPhase, stopVoice],
+    [scheduleListen, setPhase],
+  )
+
+  const sendMessage = useCallback(
+    (rawText: string) => {
+      const text = rawText.trim()
+      if (!text) return
+      if (!linkRef.current) return
+
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+      abandon(turnRef.current)
+      turnRef.current = null
+      captureRef.current?.setDucking(false)
+
+      const userMessage: Message = {
+        id: makeId(),
+        role: 'user',
+        content: text,
+        createdAt: new Date().toISOString(),
+      }
+      const context = [...messagesRef.current, userMessage]
+
+      // Resolve any guesses made while this sentence was still being spoken.
+      const resolved = speculationRef.current.resolve(text)
+      for (const run of resolved.discard) abandon(run.handle)
+
+      let turn = resolved.keep?.handle ?? null
+      if (turn && !turn.cancelled) {
+        turn.timeline.speculation = 'hit'
+        turn.timeline.mark('endpoint')
+        // The guess was sent this long before the endpoint, and the reply has
+        // been streaming for exactly that long by the time it is needed.
+        turn.timeline.saved = Math.max(
+          0,
+          (turn.timeline.get('endpoint') ?? 0) - (turn.timeline.get('turn_sent') ?? 0),
+        )
+      } else {
+        turn = beginTurn(text, context, false)
+        if (turn && speculationRef.current.attempts > 0) turn.timeline.speculation = 'miss'
+      }
+      speculationRef.current.clear()
+
+      if (!turn) return
+
+      messagesRef.current = context
+      setMessages(context)
+      setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
+      feel(text, SPEAKER_WEIGHT.user)
+
+      promote(turn, text, context)
+    },
+    [abandon, beginTurn, feel, promote],
+  )
+
+  /**
+   * Considers spending a turn on a sentence that has not finished yet.
+   *
+   * Cheap to be wrong, expensive to be slow: a miss costs a couple of hundred
+   * tokens nobody reads, and a hit removes the entire model round trip from the
+   * gap between you stopping and GIDEON starting.
+   */
+  const considerSpeculation = useCallback(
+    (text: string, stableMs: number) => {
+      if (voiceModeRef.current !== 'active') return
+      if (turnRef.current && !turnRef.current.speculative) return
+      if (!speculationRef.current.consider(text, stableMs)) return
+
+      const context = [
+        ...messagesRef.current,
+        {
+          id: 'speculative',
+          role: 'user' as const,
+          content: text,
+          createdAt: new Date().toISOString(),
+        },
+      ]
+      const turn = beginTurn(text, context, true)
+      if (!turn) return
+      turn.timeline.speculation = 'hit'
+      speculationRef.current.start(text, turn, Date.now())
+    },
+    [beginTurn],
   )
 
   // -- Microphone ----------------------------------------------------------
+
+  /**
+   * The capture graph, opened once and left open.
+   *
+   * It runs for the whole session rather than per turn: the echo guard needs
+   * the same frames the level meter sees, and barge-in is only possible if the
+   * microphone is still listening while the speakers are busy.
+   */
+  const ensureCapture = useCallback(async () => {
+    if (captureRef.current || !captureSupported()) return
+    const capture = new MicCapture({
+      onSpeechEnd: () => {
+        speechEndRef.current = performance.now()
+        // The detector reached the end of the utterance from the waveform well
+        // before the recogniser will admit to a final result, so it is the one
+        // that decides the turn is over.
+        listenerRef.current?.commitNow()
+      },
+      onBargeIn: () => interrupt(),
+      onError: (code, message) => {
+        // A refused microphone is worth saying; a missing one on a machine that
+        // was going to type anyway is not.
+        if (code === 'denied') setNotice(message)
+      },
+    })
+    captureRef.current = capture
+    await capture.start()
+  }, [interrupt])
 
   const startListening = useCallback(
     (preserveDeadline = false) => {
@@ -393,9 +663,9 @@ export function AgentPage() {
         setNotice('Live voice needs Chrome or Edge. You can still type below.')
         return
       }
-      if (phaseRef.current === 'thinking' || phaseRef.current === 'replying') return
-      if (phaseRef.current === 'speaking') return
       if (listenerRef.current?.active) return
+
+      void ensureCapture()
 
       const listener = new Listener({
         onInterim: (value) => {
@@ -405,6 +675,7 @@ export function AgentPage() {
             setEmotion(deriveEmotion(value) === 'happy' ? 'happy' : 'curious')
           }
         },
+        onStable: (value, stableMs) => considerSpeculation(value, stableMs),
         onCommit: (value) => {
           listenerRef.current = null
           sendMessage(value)
@@ -435,14 +706,18 @@ export function AgentPage() {
       setNotice(null)
       setLiveTranscript('')
       if (listener.start(preserveDeadline)) {
-        setPhase('listening')
+        // Mid-reply the microphone is open for interruption, not for a turn, so
+        // the phase stays with whatever GIDEON is doing.
+        if (phaseRef.current !== 'speaking' && phaseRef.current !== 'replying') {
+          setPhase('listening')
+        }
       } else {
         listenerRef.current = null
         setVoiceMode('paused')
         setPhase('paused')
       }
     },
-    [scheduleListen, sendMessage, setPhase, setVoiceMode],
+    [considerSpeculation, ensureCapture, scheduleListen, sendMessage, setPhase, setVoiceMode],
   )
 
   startListeningRef.current = startListening
@@ -453,31 +728,43 @@ export function AgentPage() {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       listenerRef.current?.abort()
       listenerRef.current = null
+      for (const run of speculationRef.current.clear()) abandon(run.handle)
       stopVoice()
+      void captureRef.current?.stop()
+      captureRef.current = null
       if (phaseRef.current !== 'thinking' && phaseRef.current !== 'replying') setPhase('idle')
       setLiveTranscript('')
       return
     }
     setNotice(null)
     startListening(false)
-  }, [setPhase, setVoiceMode, startListening, stopVoice])
+  }, [abandon, setPhase, setVoiceMode, startListening, stopVoice])
 
   const stopCurrentTurn = useCallback(() => {
-    turnRef.current?.cancel()
+    const turn = turnRef.current
+    if (turn) {
+      turn.timeline.interrupted = true
+      logRef.current.push(turn.timeline.summary())
+    }
+    abandon(turn)
     turnRef.current = null
-    stopVoice()
+    captureRef.current?.setDucking(false)
+    levelRef.current = 0
     setPhase('idle')
     setAssistantCaption((current) => current || 'Stopped.')
     if (voiceModeRef.current === 'active') scheduleListen(220)
-  }, [scheduleListen, setPhase, stopVoice])
+  }, [abandon, scheduleListen, setPhase])
 
   const newConversation = useCallback(() => {
-    turnRef.current?.cancel()
+    abandon(turnRef.current)
     turnRef.current = null
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
     listenerRef.current?.abort()
     listenerRef.current = null
-    stopVoice()
+    for (const run of speculationRef.current.clear()) abandon(run.handle)
+    captureRef.current?.resetUtterance()
+    captureRef.current?.setDucking(false)
+    levelRef.current = 0
 
     messagesRef.current = [WELCOME_MESSAGE]
     setMessages([WELCOME_MESSAGE])
@@ -501,7 +788,7 @@ export function AgentPage() {
     } else {
       setPhase(voiceModeRef.current === 'paused' ? 'paused' : 'idle')
     }
-  }, [scheduleListen, setPhase, stopVoice])
+  }, [abandon, scheduleListen, setPhase])
 
   // The metal face still tilts toward the pointer; the eyes track it themselves.
   function handlePointerMove(event: React.PointerEvent<HTMLElement>) {
@@ -524,7 +811,7 @@ export function AgentPage() {
           listening: liveTranscript ? 'I hear you' : 'Listening…',
           thinking: 'Thinking with you…',
           replying: 'Replying',
-          speaking: 'Speaking',
+          speaking: 'Speaking · cut in any time',
           paused: 'Quiet pause',
         }[phase]
 
@@ -534,14 +821,14 @@ export function AgentPage() {
       : voiceMode === 'muted'
         ? { icon: <MicOff size={19} />, label: 'Voice muted', hint: 'Tap to resume' }
         : phase === 'speaking'
-          ? { icon: <AudioLines size={20} />, label: 'Speaking', hint: 'Tap to mute' }
+          ? { icon: <AudioLines size={20} />, label: 'Speaking', hint: 'Talk to interrupt' }
           : phase === 'thinking' || phase === 'replying'
-            ? { icon: <Sparkles size={19} />, label: 'Replying', hint: 'Tap to mute' }
-             : {
+            ? { icon: <Sparkles size={19} />, label: 'Replying', hint: 'Talk to interrupt' }
+            : {
                 icon: <Mic size={20} />,
                 label: phase === 'listening' ? 'Listening' : 'Voice live',
-               hint: 'Tap to mute',
-             }
+                hint: 'Tap to mute',
+              }
 
   // Words already voiced are shown at full strength, so text arriving ahead of
   // the audio reads as intent rather than as lag.
@@ -571,15 +858,30 @@ export function AgentPage() {
         <span>GIDEON</span>
       </div>
 
-      <button
-        className="reset-button"
-        type="button"
-        onClick={newConversation}
-        aria-label="New conversation"
-      >
-        <RotateCcw size={17} />
-        <span>New</span>
-      </button>
+      <div className="corner-actions">
+        <button
+          className="reset-button"
+          type="button"
+          onClick={() => setHudOpen((open) => !open)}
+          aria-label="Toggle latency panel"
+          aria-pressed={hudOpen}
+          title="Latency panel (`)"
+        >
+          <Activity size={17} />
+          <span>Latency</span>
+        </button>
+        <button
+          className="reset-button"
+          type="button"
+          onClick={newConversation}
+          aria-label="New conversation"
+        >
+          <RotateCcw size={17} />
+          <span>New</span>
+        </button>
+      </div>
+
+      {hudOpen ? <LatencyHud log={logRef.current} onClose={() => setHudOpen(false)} /> : null}
 
       {config && !config.configured ? (
         <div className="setup-note" role="status">

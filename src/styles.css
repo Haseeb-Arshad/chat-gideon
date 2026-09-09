@@ -206,11 +206,17 @@ button:active:not(:disabled) {
   transition: background 2600ms ease-out, box-shadow 2600ms ease-out;
 }
 
-.reset-button {
+.corner-actions {
   position: absolute;
   z-index: 10;
   top: 18px;
   right: clamp(16px, 3vw, 42px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reset-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -233,9 +239,225 @@ button:active:not(:disabled) {
   background: rgba(16, 19, 25, 0.74);
 }
 
+.reset-button[aria-pressed='true'] {
+  color: var(--ice);
+  border-color: rgba(191, 233, 255, 0.34);
+}
+
 .reset-button span {
   font-size: 0.72rem;
   font-weight: 600;
+}
+
+/* -- Latency panel ------------------------------------------------------- */
+
+/*
+ * Instrumentation, not product. It borrows the surface treatment so it does not
+ * look bolted on, and nothing else: monospace throughout, no animation, and a
+ * fixed width so the numbers hold still while they update.
+ */
+.latency-hud {
+  position: absolute;
+  z-index: 30;
+  top: 74px;
+  right: clamp(16px, 3vw, 42px);
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid rgba(210, 222, 239, 0.12);
+  border-radius: 16px;
+  background: rgba(7, 9, 13, 0.88);
+  backdrop-filter: blur(22px);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: rgba(224, 230, 240, 0.72);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.latency-hud header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.latency-hud h2 {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--white);
+}
+
+.hud-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hud-actions button {
+  padding: 4px 9px;
+  border: 1px solid rgba(210, 222, 239, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(224, 230, 240, 0.6);
+  font-family: inherit;
+  font-size: 0.64rem;
+  cursor: pointer;
+}
+
+.hud-actions button:hover:not(:disabled) {
+  color: var(--white);
+  border-color: rgba(210, 222, 239, 0.28);
+}
+
+.hud-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hud-section + .hud-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(210, 222, 239, 0.08);
+}
+
+.hud-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(224, 230, 240, 0.42);
+}
+
+.hud-tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.hud-tag-hit {
+  background: rgba(63, 201, 160, 0.16);
+  color: #7fe3c4;
+}
+
+.hud-tag-miss {
+  background: rgba(142, 162, 196, 0.16);
+  color: #9fb2ce;
+}
+
+.hud-tag-cut {
+  background: rgba(255, 183, 172, 0.16);
+  color: var(--danger);
+}
+
+.hud-waterfall {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hud-waterfall li {
+  display: grid;
+  grid-template-columns: 108px 1fr 58px;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-stage {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(224, 230, 240, 0.56);
+}
+
+.hud-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(210, 222, 239, 0.07);
+}
+
+.hud-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.hud-ms {
+  text-align: right;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-table th {
+  padding-bottom: 6px;
+  font-weight: 500;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(224, 230, 240, 0.34);
+  text-align: right;
+}
+
+.hud-table th:first-child,
+.hud-table td:first-child {
+  text-align: left;
+}
+
+.hud-table td {
+  padding: 3px 0;
+  text-align: right;
+  color: var(--white);
+}
+
+.hud-table td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(224, 230, 240, 0.56);
+}
+
+.hud-table td i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.hud-note,
+.hud-empty {
+  margin: 14px 0 0;
+  line-height: 1.5;
+  color: rgba(224, 230, 240, 0.46);
+}
+
+.hud-empty {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .latency-hud {
+    top: auto;
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: 50vh;
+  }
 }
 
 .setup-note {
