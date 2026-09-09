@@ -9,10 +9,27 @@ import '@tanstack/react-start/server-only'
  */
 
 import { fetchVoice, getPublicConfig, streamTurn, warmUpstream } from './agent-core'
+import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
 
 export { getPublicConfig, warmUpstream }
+
+/**
+ * Runs the shared gate and shapes a refusal as a Response.
+ *
+ * Returns `null` when the request may proceed, so a handler reads as
+ * `const denied = guardRequest(...); if (denied) return denied`.
+ */
+export function guardRequest(request: Request, limit: LimitName): Response | null {
+  const result: GateResult = gate(request, limit)
+  if (result.ok) return null
+
+  return Response.json(apiError(result.code, result.message, result.status === 429), {
+    status: result.status,
+    headers: result.retryAfter ? { 'Retry-After': String(result.retryAfter) } : undefined,
+  })
+}
 
 /**
  * Streams one turn as newline-delimited protocol frames — the same frames the

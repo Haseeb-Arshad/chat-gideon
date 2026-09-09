@@ -70,6 +70,22 @@ export function realtimePlugin(): Plugin {
 
         void (async () => {
           try {
+            const guard = (await server.ssrLoadModule('/src/lib/guard.ts')) as {
+              originAllowed: (origin: string | null, host: string | null) => boolean
+            }
+            // A socket upgrade is not covered by CORS, so the origin has to be
+            // checked here or a page anywhere could open one and spend the key.
+            if (
+              !guard.originAllowed(
+                request.headers.origin ?? null,
+                request.headers.host ?? null,
+              )
+            ) {
+              socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+              socket.destroy()
+              return
+            }
+
             wss ??= await createServer()
             const module = (await server.ssrLoadModule('/src/lib/realtime-session.ts')) as {
               createRealtimeSession: SessionFactory

@@ -1,11 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { parseVoiceBody, RequestValidationError, apiError } from '../lib/openrouter'
-import { synthesizeVoice } from '../lib/openrouter.server'
+import { guardRequest, synthesizeVoice } from '../lib/openrouter.server'
 
 export const Route = createFileRoute('/api/voice')({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const denied = guardRequest(request, 'speak')
+        if (denied) return denied
+
         try {
           const body = await request.json()
           return await synthesizeVoice(parseVoiceBody(body), request.signal)

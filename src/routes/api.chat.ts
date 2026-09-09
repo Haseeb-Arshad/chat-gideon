@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { parseChatBody, RequestValidationError, apiError } from '../lib/openrouter'
-import { streamChat } from '../lib/openrouter.server'
+import { guardRequest, streamChat } from '../lib/openrouter.server'
 
 /**
  * Streaming HTTP fallback for the realtime link. Emits the same protocol frames
@@ -11,6 +11,9 @@ export const Route = createFileRoute('/api/chat')({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const denied = guardRequest(request, 'turn')
+        if (denied) return denied
+
         try {
           const body = (await request.json()) as { id?: unknown }
           const id = typeof body?.id === 'string' ? body.id : 'turn'

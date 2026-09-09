@@ -17,7 +17,8 @@ export const Route = createRootRoute({
       },
       {
         name: 'description',
-        content: 'A fast, voice-forward conversational companion powered by OpenRouter and Fish Audio.',
+        content:
+          'A full-duplex voice presence: it listens while it speaks, starts working before you finish your sentence, and shows you every millisecond it spent.',
       },
     ],
     links: [

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiVoiceRouteImport } from './routes/api.voice'
+import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
 
@@ -30,6 +31,11 @@ const ApiVoiceRoute = ApiVoiceRouteImport.update({
   path: '/api/voice',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthzRoute = ApiHealthzRouteImport.update({
+  id: '/api/healthz',
+  path: '/api/healthz',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiConfigRoute = ApiConfigRouteImport.update({
   id: '/api/config',
   path: '/api/config',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/agent': typeof AgentRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
+  '/api/healthz': typeof ApiHealthzRoute
   '/api/voice': typeof ApiVoiceRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/agent': typeof AgentRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
+  '/api/healthz': typeof ApiHealthzRoute
   '/api/voice': typeof ApiVoiceRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,34 @@ export interface FileRoutesById {
   '/agent': typeof AgentRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
+  '/api/healthz': typeof ApiHealthzRoute
   '/api/voice': typeof ApiVoiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/agent' | '/api/chat' | '/api/config' | '/api/voice'
+  fullPaths:
+    | '/'
+    | '/agent'
+    | '/api/chat'
+    | '/api/config'
+    | '/api/healthz'
+    | '/api/voice'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/agent' | '/api/chat' | '/api/config' | '/api/voice'
-  id: '__root__' | '/' | '/agent' | '/api/chat' | '/api/config' | '/api/voice'
+  to:
+    | '/'
+    | '/agent'
+    | '/api/chat'
+    | '/api/config'
+    | '/api/healthz'
+    | '/api/voice'
+  id:
+    | '__root__'
+    | '/'
+    | '/agent'
+    | '/api/chat'
+    | '/api/config'
+    | '/api/healthz'
+    | '/api/voice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +104,7 @@ export interface RootRouteChildren {
   AgentRoute: typeof AgentRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiConfigRoute: typeof ApiConfigRoute
+  ApiHealthzRoute: typeof ApiHealthzRoute
   ApiVoiceRoute: typeof ApiVoiceRoute
 }
 
@@ -102,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVoiceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/healthz': {
+      id: '/api/healthz'
+      path: '/api/healthz'
+      fullPath: '/api/healthz'
+      preLoaderRoute: typeof ApiHealthzRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/config': {
       id: '/api/config'
       path: '/api/config'
@@ -124,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentRoute: AgentRoute,
   ApiChatRoute: ApiChatRoute,
   ApiConfigRoute: ApiConfigRoute,
+  ApiHealthzRoute: ApiHealthzRoute,
   ApiVoiceRoute: ApiVoiceRoute,
 }
 export const routeTree = rootRouteImport
