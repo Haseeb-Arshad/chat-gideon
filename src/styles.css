@@ -15,6 +15,13 @@
   --danger: #ffb7ac;
   --gaze-x: 0;
   --gaze-y: 0;
+  /* Overwritten every time the conversation moves; these are the resting mood. */
+  --field-base: rgb(5, 7, 10);
+  --field-body: rgb(20, 28, 51);
+  --field-crest: rgb(92, 128, 184);
+  --field-crest-soft: rgba(92, 128, 184, 0.16);
+  --field-crest-faint: rgba(92, 128, 184, 0.07);
+  --field-energy: 0.26;
   font-family: 'Manrope', 'Segoe UI', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -95,80 +102,84 @@ button:active:not(:disabled) {
   min-height: 100svh;
   padding: 30px clamp(22px, 4vw, 60px) 24px;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 39%, rgba(95, 113, 140, 0.08), transparent 31%),
-    linear-gradient(180deg, #06070a 0%, #040507 58%, #030405 100%);
+  /* The sky is the emotion field now; the shell only holds the layout. */
+  background: transparent;
 }
 
-.ambient-field,
-.ambient-field::before,
-.ambient-field::after,
-.ambient-grain {
+/* -- The room ------------------------------------------------------------- */
+
+.emotion-field {
+  position: fixed;
+  z-index: -3;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--field-base);
+  transition: background 2600ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+.emotion-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 900ms ease-out;
+}
+
+.emotion-field[data-mode='gl'] .emotion-canvas {
+  opacity: 1;
+}
+
+/*
+ * No WebGL2: the same palette, the same upward drift, done with two blobs and
+ * a sweep. Coarser than the shader, but it is the same room.
+ */
+.emotion-field[data-mode='css']::before,
+.emotion-field[data-mode='css']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: min(150vw, 1500px);
+  height: 90vh;
+  border-radius: 46% 54% 62% 38% / 52% 40% 60% 48%;
+  background: radial-gradient(closest-side, var(--field-body), transparent 76%);
+  filter: blur(58px);
+  transition: background 2600ms cubic-bezier(0.33, 0, 0.2, 1);
+  animation: field-rise 34s linear infinite;
+}
+
+.emotion-field[data-mode='css']::after {
+  width: min(110vw, 1100px);
+  height: 74vh;
+  background: radial-gradient(closest-side, var(--field-crest-soft), transparent 72%);
+  animation-duration: 47s;
+  animation-delay: -21s;
+}
+
+.emotion-wash {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-}
-
-.ambient-field {
-  z-index: -2;
-  overflow: hidden;
-}
-
-.ambient-field::before {
-  content: '';
-  width: min(40vw, 620px);
-  height: min(64vh, 720px);
-  inset: auto auto -24% -18%;
-  border-radius: 42% 58% 68% 32% / 48% 36% 64% 52%;
+  /* Scrims for the header and the dock only; the middle is left alone. */
   background:
-    radial-gradient(circle at 66% 30%, rgba(89, 112, 255, 0.4), transparent 34%),
-    linear-gradient(138deg, rgba(22, 35, 102, 0.75), rgba(13, 16, 32, 0.06) 70%);
-  filter: blur(38px);
-  opacity: 0.48;
-  transform: rotate(13deg);
+    linear-gradient(180deg, rgba(3, 4, 6, 0.62) 0%, transparent 22%),
+    linear-gradient(0deg, rgba(3, 4, 6, 0.78) 0%, transparent 30%);
 }
 
-.ambient-field::after {
-  content: '';
-  width: min(33vw, 520px);
-  height: min(56vh, 640px);
-  inset: -24% -13% auto auto;
-  border-radius: 63% 37% 45% 55% / 35% 58% 42% 65%;
-  background:
-    radial-gradient(circle at 28% 70%, rgba(135, 63, 105, 0.35), transparent 34%),
-    linear-gradient(220deg, rgba(62, 25, 52, 0.72), rgba(14, 14, 24, 0.03) 72%);
-  filter: blur(46px);
-  opacity: 0.44;
-  transform: rotate(-18deg);
-}
-
-.ambient-grain {
-  opacity: 0.13;
+.emotion-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.11;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
   mix-blend-mode: soft-light;
 }
 
-.ambient-orbit {
-  position: absolute;
-  border: 1px solid rgba(213, 224, 242, 0.045);
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.orbit-one {
-  width: min(72vw, 1040px);
-  aspect-ratio: 1;
-  left: 50%;
-  top: 40%;
-  transform: translate(-50%, -50%) rotate(-8deg) scaleY(0.42);
-}
-
-.orbit-two {
-  width: min(52vw, 760px);
-  aspect-ratio: 1;
-  left: 50%;
-  top: 40%;
-  transform: translate(-50%, -50%) rotate(11deg) scaleY(0.5);
+@keyframes field-rise {
+  from {
+    transform: translate(-50%, 62vh) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -92vh) rotate(24deg);
+  }
 }
 
 .floating-brand {
@@ -190,8 +201,9 @@ button:active:not(:disabled) {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--ice);
-  box-shadow: 0 0 12px rgba(191, 233, 255, 0.68);
+  background: var(--field-crest);
+  box-shadow: 0 0 12px var(--field-crest-soft);
+  transition: background 2600ms ease-out, box-shadow 2600ms ease-out;
 }
 
 .reset-button {
@@ -258,102 +270,34 @@ button:active:not(:disabled) {
   position: relative;
   display: grid;
   place-items: center;
-  width: clamp(250px, 31vw, 410px);
-  aspect-ratio: 1;
-  transform: translateZ(0);
+  width: clamp(320px, 46vw, 620px);
+  /* Matches the SVG viewBox, so nothing is reserved for a housing any more. */
+  aspect-ratio: 280 / 156;
+  transform: translate3d(calc(var(--gaze-x) * 7px), calc(var(--gaze-y) * 5px), 0);
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-.signal-halo {
-  position: absolute;
-  inset: 2%;
-  border: 1px solid rgba(213, 225, 244, 0.08);
-  border-radius: 50%;
-}
-
-.halo-outer {
-  inset: -4%;
-  border-color: rgba(213, 225, 244, 0.045);
-  clip-path: polygon(0 0, 48% 0, 48% 7%, 0 7%, 0 93%, 55% 93%, 55% 100%, 0 100%);
-  transform: rotate(calc(var(--gaze-x) * 6deg));
-  transition: transform 200ms ease-out;
-}
-
-.halo-inner {
-  inset: 3%;
-  border-color: rgba(213, 225, 244, 0.07);
-  border-style: dashed;
-  opacity: 0.5;
-  transform: rotate(calc(var(--gaze-y) * -5deg));
-  transition: transform 200ms ease-out;
-}
-
-.robot-face {
-  position: relative;
-  width: 78%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  transform:
-    perspective(700px)
-    rotateY(calc(var(--gaze-x) * 3deg))
-    rotateX(calc(var(--gaze-y) * -3deg));
-  transform-style: preserve-3d;
-  transition: transform 200ms ease-out;
-  filter: drop-shadow(0 34px 44px rgba(0, 0, 0, 0.48));
-}
-
-.face-rim {
-  position: absolute;
-  inset: 0;
-  border: 1px solid rgba(225, 232, 242, 0.3);
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at 33% 22%, rgba(237, 242, 250, 0.24), transparent 11%),
-    conic-gradient(from 210deg, #1a1e25, #7f8996 11%, #222731 24%, #0c0f14 49%, #424a55 70%, #12151b 88%, #1a1e25);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    inset -18px -22px 42px rgba(0, 0, 0, 0.62),
-    inset 14px 12px 26px rgba(255, 255, 255, 0.07),
-    0 0 0 8px rgba(3, 4, 6, 0.7);
-}
-
-.face-rim::after {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border: 1px solid rgba(5, 7, 10, 0.92);
-  border-radius: inherit;
-}
-
-.face-core {
-  position: absolute;
-  inset: 8%;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid rgba(210, 221, 237, 0.11);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 43% 32%, rgba(65, 74, 88, 0.32), transparent 31%),
-    radial-gradient(circle at 56% 62%, #12151b 0%, #090b0f 62%, #050609 100%);
-  box-shadow:
-    inset 0 18px 46px rgba(255, 255, 255, 0.025),
-    inset 0 -24px 40px rgba(0, 0, 0, 0.6);
-}
-
-.face-core::before {
-  content: '';
-  position: absolute;
-  inset: 5%;
-  border: 1px solid rgba(218, 226, 240, 0.035);
-  border-radius: 50%;
-}
-
 .gideon-face {
   position: relative;
   z-index: 2;
-  width: 92%;
-  /* The lights sit forward of the recessed face so the sphere keeps its depth. */
-  transform: translate3d(0, 0, 16px);
+  isolation: isolate;
+  width: 100%;
+}
+
+/*
+ * With the housing gone the eyes need their own presence, so they carry the
+ * light instead of sitting in it. `--eye-glow` is written by the animation loop
+ * on every frame, which keeps this in step with the face rather than running a
+ * separate CSS clock beside it.
+ */
+.gideon-face::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -58% -14%;
+  background: radial-gradient(46% 46% at 50% 50%, var(--field-crest-soft), transparent 72%);
+  filter: blur(26px);
+  opacity: calc(0.24 + var(--eye-glow, 0.4) * 0.72);
+  transition: background 2600ms cubic-bezier(0.33, 0, 0.2, 1);
 }
 
 .gideon-eyes {
@@ -375,11 +319,12 @@ button:active:not(:disabled) {
 }
 
 .eye-glow {
-  fill: var(--ice);
+  fill: color-mix(in oklab, var(--ice) 58%, var(--field-crest));
+  transition: fill 1400ms ease-out;
 }
 
 .eye-scan {
-  opacity: 0.22;
+  opacity: 0.07;
   mix-blend-mode: multiply;
 }
 
@@ -389,120 +334,13 @@ button:active:not(:disabled) {
 }
 
 .robot-presence[data-phase='listening'] .eye-glow {
-  fill: #eaf8ff;
+  fill: color-mix(in oklab, #eaf8ff 74%, var(--field-crest));
 }
 
 .robot-presence[data-phase='paused'] .eye-aura {
   filter: blur(6px);
   opacity: 0.45;
 }
-
-.machine-mark {
-  position: absolute;
-  left: 50%;
-  width: 26%;
-  height: 1px;
-  transform: translateX(-50%);
-  background: linear-gradient(90deg, transparent, rgba(214, 226, 241, 0.16), transparent);
-}
-
-.machine-mark-top {
-  top: 16%;
-}
-
-.machine-mark-bottom {
-  bottom: 15%;
-}
-
-.face-tick {
-  position: absolute;
-  z-index: 3;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(224, 232, 244, 0.5);
-  box-shadow: 0 0 8px rgba(224, 232, 244, 0.18);
-}
-
-.tick-one {
-  top: 15%;
-  left: 27%;
-}
-
-.tick-two {
-  right: 14%;
-  top: 48%;
-  opacity: 0.38;
-}
-
-.tick-three {
-  left: 30%;
-  bottom: 12%;
-  opacity: 0.24;
-}
-
-.delight-spark {
-  position: absolute;
-  z-index: 4;
-  display: none;
-  color: var(--white);
-  font-size: clamp(13px, 1.6vw, 20px);
-  opacity: 0;
-}
-
-.spark-left {
-  left: 3%;
-  top: 42%;
-}
-
-.spark-right {
-  right: 2%;
-  top: 30%;
-}
-
-.robot-presence[data-phase='listening'] .signal-halo {
-  border-color: rgba(191, 233, 255, 0.18);
-  animation: listening-ring 2.2s ease-in-out infinite;
-}
-
-.robot-presence[data-phase='thinking'] .robot-face {
-  animation: thinking-tilt 1.7s ease-in-out infinite;
-}
-
-.robot-presence[data-phase='speaking'] .robot-face {
-  animation: face-speak 620ms ease-in-out infinite;
-}
-
-.robot-presence[data-phase='speaking'] .face-rim {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
-    inset -18px -22px 42px rgba(0, 0, 0, 0.62),
-    inset 14px 12px 26px rgba(255, 255, 255, 0.08),
-    0 0 0 8px rgba(3, 4, 6, 0.7),
-    0 0 36px rgba(191, 233, 255, 0.08);
-}
-
-.robot-presence[data-phase='paused'] .robot-face {
-  transform:
-    perspective(700px)
-    rotateY(calc(var(--gaze-x) * 1deg))
-    rotateX(6deg)
-    scale(0.985);
-}
-
-.robot-presence[data-emotion='happy'] .robot-face {
-  animation: delight-bob 1.2s ease-in-out infinite;
-}
-
-.robot-presence[data-emotion='happy'] .delight-spark {
-  display: block;
-  animation: delight-spark 900ms ease-out infinite alternate;
-}
-
-.robot-presence[data-emotion='happy'] .spark-right {
-  animation-delay: 45ms;
-}
-
 .live-captions {
   display: flex;
   flex-direction: column;
@@ -551,7 +389,8 @@ button:active:not(:disabled) {
 
 .caption-word.is-spoken {
   color: var(--white);
-  text-shadow: 0 0 22px rgba(218, 235, 255, 0.12);
+  text-shadow: 0 0 22px var(--field-crest-faint);
+  transition: text-shadow 2600ms ease-out;
 }
 
 .assistant-caption.is-thinking {
@@ -616,7 +455,6 @@ button:active:not(:disabled) {
 .presence-status[data-phase='speaking'] {
   color: rgba(238, 244, 252, 0.78);
 }
-
 .inline-notice {
   display: flex;
   align-items: center;
@@ -690,7 +528,7 @@ button:active:not(:disabled) {
 }
 
 .voice-mode-button[data-mode='paused'] {
-  border-color: rgba(191, 233, 255, 0.23);
+  border-color: var(--field-crest-soft);
 }
 
 .voice-mode-button[data-mode='muted'] {
@@ -854,60 +692,6 @@ button:active:not(:disabled) {
   cursor: not-allowed;
   opacity: 0.2;
 }
-
-@keyframes listening-ring {
-  0%,
-  100% {
-    opacity: 0.48;
-    transform: scale(0.99);
-  }
-  50% {
-    opacity: 0.86;
-    transform: scale(1.012);
-  }
-}
-
-@keyframes thinking-tilt {
-  0%,
-  100% {
-    transform: perspective(700px) rotateZ(-1.5deg) scale(0.995);
-  }
-  50% {
-    transform: perspective(700px) rotateZ(1.5deg) scale(1.005);
-  }
-}
-
-@keyframes face-speak {
-  0%,
-  100% {
-    transform: perspective(700px) translateY(0) scale(1);
-  }
-  50% {
-    transform: perspective(700px) translateY(-2px) scale(1.012, 0.992);
-  }
-}
-
-@keyframes delight-bob {
-  0%,
-  100% {
-    transform: perspective(700px) translateY(0) rotateZ(0) scale(1);
-  }
-  50% {
-    transform: perspective(700px) translateY(-3px) rotateZ(-1deg) scale(1.015, 0.99);
-  }
-}
-
-@keyframes delight-spark {
-  from {
-    opacity: 0.18;
-    transform: translateY(3px) scale(0.96) rotate(-8deg);
-  }
-  to {
-    opacity: 0.8;
-    transform: translateY(-2px) scale(1.04) rotate(5deg);
-  }
-}
-
 @keyframes word-rise {
   from {
     opacity: 0;
@@ -975,7 +759,7 @@ button:active:not(:disabled) {
   }
 
   .robot-presence {
-    width: clamp(220px, 31vh, 300px);
+    width: clamp(300px, 62vh, 500px);
   }
 
   .live-captions {
@@ -1008,25 +792,6 @@ button:active:not(:disabled) {
   .reset-button span {
     display: none;
   }
-
-  .ambient-field::before {
-    width: 76vw;
-    opacity: 0.34;
-  }
-
-  .ambient-field::after {
-    width: 68vw;
-    opacity: 0.3;
-  }
-
-  .orbit-one {
-    width: 130vw;
-  }
-
-  .orbit-two {
-    width: 96vw;
-  }
-
   .agent-presence {
     width: 100%;
     padding-top: 72px;
@@ -1034,7 +799,7 @@ button:active:not(:disabled) {
   }
 
   .robot-presence {
-    width: clamp(220px, 68vw, 288px);
+    width: min(84vw, 360px);
   }
 
   .live-captions {
@@ -1084,7 +849,7 @@ button:active:not(:disabled) {
 
 @media (max-width: 370px) {
   .robot-presence {
-    width: 210px;
+    width: 288px;
   }
 
   .live-captions {
@@ -1110,9 +875,8 @@ button:active:not(:disabled) {
     animation-iteration-count: 1 !important;
   }
 
-  .robot-face,
-  .gideon-face,
-  .signal-halo {
+  .robot-presence,
+  .gideon-face {
     transition: none;
   }
 }

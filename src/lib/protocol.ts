@@ -11,7 +11,11 @@ export const REALTIME_PROTOCOL_VERSION = 1
 
 export type ClientFrame =
   | { t: 'hello'; version: number }
-  | { t: 'turn'; id: string; messages: Array<{ role: 'user' | 'assistant'; content: string }> }
+  | {
+      t: 'turn'
+      id: string
+      messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }
   | { t: 'ping'; at: number }

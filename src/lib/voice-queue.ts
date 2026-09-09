@@ -6,9 +6,10 @@
  * 1. The first spoken chunk is deliberately short. Waiting for a whole sentence
  *    before asking for audio meant the first sound landed a second or more late,
  *    so the opening chunk is cut at the first natural clause boundary instead.
- * 2. Audio for later chunks is generated *while earlier chunks are still
- *    playing*, a few requests deep, then played strictly in order. Generation is
- *    no longer serialised behind playback.
+ * 2. Audio for later chunks starts generating as soon as the previous provider
+ *    response arrives, while earlier chunks are still playing. Requests to the
+ *    free voice provider stay serialised because concurrent calls can sit in a
+ *    long queue or time out; playback itself remains strictly ordered.
  *
  * The queue also reports playback amplitude, which drives the eyes, and how far
  * through the text the voice has reached, which drives the caption highlight.
@@ -19,7 +20,7 @@ const FIRST_CHUNK_MAX = 96
 const FIRST_CHUNK_MIN = 28
 const CHUNK_MAX = 220
 const CHUNK_MIN = 90
-const MAX_INFLIGHT = 3
+const MAX_INFLIGHT = 1
 
 export interface SpeakableChunk {
   text: string
@@ -204,7 +205,7 @@ export class VoiceQueue {
     this.startDraining()
   }
 
-  /** Generation runs ahead of playback, bounded by MAX_INFLIGHT. */
+  /** Generation runs ahead of playback without overloading the voice provider. */
   private async generate(seq: number, text: string): Promise<Blob> {
     await this.acquire()
     try {
@@ -295,6 +296,12 @@ export class VoiceQueue {
 
       audio.onplaying = () => {
         this.setSpeaking(true)
+        const firstWordEnd = item.text.search(/\s/)
+        const initialProgress =
+          firstWordEnd > 0
+            ? Math.min(item.text.length, firstWordEnd + 1)
+            : Math.min(item.text.length, 1)
+        this.options.onProgress?.(item.startChar + initialProgress)
         this.attachMeter(audio)
         this.trackProgress(audio, item)
       }

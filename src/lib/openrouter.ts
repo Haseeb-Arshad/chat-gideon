@@ -1,6 +1,5 @@
-export const CHAT_MODEL = 'nvidia/nemotron-3.5-lightning:free'
+export const CHAT_MODEL = 'openai/gpt-4.1-mini'
 export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
-export const CHAT_SECONDARY_FALLBACK_MODEL = 'inception/mercury-2.5-preview'
 export const VOICE_MODEL = 'fish-audio/s2.1-pro-free:free'
 export const MAX_MESSAGE_LENGTH = 8_000
 export const MAX_VOICE_LENGTH = 1_800

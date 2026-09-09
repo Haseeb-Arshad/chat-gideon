@@ -191,7 +191,11 @@ export class RealtimeLink {
   }
 
   /** Starts one assistant turn. Frames are delivered to `handlers` as they land. */
-  startTurn(id: string, messages: ChatTurnMessage[], handlers: TurnHandlers): TurnHandle {
+  startTurn(
+    id: string,
+    messages: ChatTurnMessage[],
+    handlers: TurnHandlers,
+  ): TurnHandle {
     this.turns.set(id, handlers)
 
     if (this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
@@ -337,7 +341,11 @@ export class RealtimeLink {
     pending.resolve(new Blob([buffer], { type: pending.mime }))
   }
 
-  private async runHttpTurn(id: string, messages: ChatTurnMessage[], signal: AbortSignal) {
+  private async runHttpTurn(
+    id: string,
+    messages: ChatTurnMessage[],
+    signal: AbortSignal,
+  ) {
     const handlers = this.turns.get(id)
     if (!handlers) return
 

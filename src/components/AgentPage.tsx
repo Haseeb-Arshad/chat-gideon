@@ -12,15 +12,26 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
+import {
+  NEUTRAL_MOOD,
+  type EyeEmotion,
+  type Mood,
+  SPEAKER_WEIGHT,
+  blendMood,
+  deriveEmotion,
+  emotionForTurn,
+  nudgeMood,
+  scoreText,
+} from '../lib/mood'
 import { RealtimeLink } from '../lib/realtime-client'
 import { VoiceQueue } from '../lib/voice-queue'
-import { GideonEyes, type EyeEmotion, type EyePhase } from './GideonEyes'
+import { EmotionField } from './EmotionField'
+import { GideonEyes, type EyePhase } from './GideonEyes'
 
 /**
- * `replying` is the state the earlier build was missing: reply text is on screen
- * while the voice is still catching up. Previously nothing appeared until the
- * first audio chunk had been generated, which is what made every turn feel
- * seconds slow even when the first token had arrived in a few hundred ms.
+ * `replying` is the state between the first streamed token and audible playback.
+ * Voice turns reveal the caption from playback progress, so the text and voice
+ * share one timeline. Muted turns still receive the text immediately.
  */
 type Phase = 'idle' | 'listening' | 'thinking' | 'replying' | 'speaking' | 'paused'
 type VoiceMode = 'active' | 'paused' | 'muted'
@@ -62,27 +73,6 @@ function isStoredMessage(value: unknown): value is Message {
   )
 }
 
-function deriveEmotion(text: string): EyeEmotion {
-  const value = text.toLowerCase()
-  if (
-    /\b(ha|haha|hehe|lol|love|lovely|delight|wonderful|amazing|awesome|great|good|glad|happy|funny|joy|joke|laugh|smile|flattered)\b/.test(
-      value,
-    )
-  ) {
-    return 'happy'
-  }
-  if (/\b(sorry|sad|hurt|hard|difficult|afraid|worried|loss|unfortunately)\b/.test(value)) {
-    return 'concerned'
-  }
-  if (/\b(whoa|wow|really|seriously|incredible|unbelievable)\b/.test(value)) {
-    return 'surprised'
-  }
-  if (value.includes('?') || /\b(why|how|wonder|curious|maybe)\b/.test(value)) {
-    return 'curious'
-  }
-  return 'neutral'
-}
-
 /** The face has no separate `replying` pose; it reads as the speaking one. */
 function eyePhaseFor(phase: Phase): EyePhase {
   return phase === 'replying' ? 'speaking' : phase
@@ -99,21 +89,7 @@ function LivingPresence({
 }) {
   return (
     <div className="robot-presence" data-phase={phase} data-emotion={emotion} aria-hidden="true">
-      <div className="signal-halo halo-outer" />
-      <div className="signal-halo halo-inner" />
-      <div className="robot-face">
-        <div className="face-rim" />
-        <div className="face-core">
-          <div className="machine-mark machine-mark-top" />
-          <GideonEyes phase={eyePhaseFor(phase)} emotion={emotion} levelRef={levelRef} />
-          <div className="machine-mark machine-mark-bottom" />
-        </div>
-        <span className="face-tick tick-one" />
-        <span className="face-tick tick-two" />
-        <span className="face-tick tick-three" />
-      </div>
-      <span className="delight-spark spark-left">✦</span>
-      <span className="delight-spark spark-right">✦</span>
+      <GideonEyes phase={eyePhaseFor(phase)} emotion={emotion} levelRef={levelRef} />
     </div>
   )
 }
@@ -124,6 +100,12 @@ export function AgentPage() {
   const [phase, setPhaseState] = useState<Phase>('idle')
   const [voiceMode, setVoiceModeState] = useState<VoiceMode>('active')
   const [emotion, setEmotion] = useState<EyeEmotion>('neutral')
+  /**
+   * The running feel of the conversation, which is a different question from
+   * the pose the eyes are holding right now: the room keeps the colour of what
+   * has been said for a while, the face only reacts to the last thing.
+   */
+  const [mood, setMood] = useState<Mood>(NEUTRAL_MOOD)
   const [liveTranscript, setLiveTranscript] = useState('')
   const [assistantCaption, setAssistantCaption] = useState(WELCOME_MESSAGE.content)
   const [spokenChars, setSpokenChars] = useState(WELCOME_MESSAGE.content.length)
@@ -161,6 +143,11 @@ export function AgentPage() {
   const scheduleListen = useCallback((delay: number, preserveDeadline = false) => {
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
     restartTimerRef.current = setTimeout(() => startListeningRef.current(preserveDeadline), delay)
+  }, [])
+
+  /** Fold one utterance into the running mood. */
+  const feel = useCallback((text: string, weight = 1) => {
+    setMood((current) => blendMood(current, scoreText(text), weight))
   }, [])
 
   const stopVoice = useCallback(() => {
@@ -212,6 +199,13 @@ export function AgentPage() {
             setEmotion(deriveEmotion(lastAssistant.content))
           }
           if (lastUser) setUserCaption(lastUser.content)
+          setMood(
+            restored.reduce(
+              (acc, message) =>
+                blendMood(acc, scoreText(message.content), SPEAKER_WEIGHT[message.role]),
+              NEUTRAL_MOOD,
+            ),
+          )
         }
       }
     } catch {
@@ -267,6 +261,7 @@ export function AgentPage() {
       setSpokenChars(0)
       setCaptionTurn((current) => current + 1)
       setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
+      feel(text, SPEAKER_WEIGHT.user)
       setPhase('thinking')
 
       const userMessage: Message = {
@@ -280,6 +275,8 @@ export function AgentPage() {
       setMessages(context)
 
       const turnId = makeId()
+      let complete = ''
+      let spokenProgress = 0
       const voice =
         voiceModeRef.current === 'active'
           ? new VoiceQueue({
@@ -288,16 +285,27 @@ export function AgentPage() {
                 if (isSpeaking) setPhase('speaking')
                 else if (phaseRef.current === 'speaking') setPhase('replying')
               },
-              onLevel: (value) => {
-                levelRef.current = value
-              },
-              onProgress: (chars) => setSpokenChars(chars),
+               onLevel: (value) => {
+                 levelRef.current = value
+               },
+               onProgress: (chars) => {
+                 spokenProgress = Math.max(spokenProgress, chars)
+                 setSpokenChars(spokenProgress)
+                 const visible = complete.slice(0, Math.min(spokenProgress, complete.length))
+                 const boundary = visible.lastIndexOf(' ')
+                 const caption =
+                   visible.length < complete.length && !/\s$/.test(visible)
+                     ? boundary > 0
+                       ? visible.slice(0, boundary)
+                       : ''
+                     : visible.trimEnd()
+                 setAssistantCaption(caption)
+               },
               onError: (message) => setNotice(message),
             })
           : null
       voiceRef.current = voice
 
-      let complete = ''
       let sawDelta = false
 
       const finish = async (finalText: string) => {
@@ -310,15 +318,21 @@ export function AgentPage() {
         const next = [...context, assistantMessage]
         messagesRef.current = next
         setMessages(next)
-        setAssistantCaption(finalText)
-        setEmotion(deriveEmotion(`${text} ${finalText}`))
+        setEmotion(emotionForTurn(text, finalText))
+        feel(finalText, SPEAKER_WEIGHT.assistant)
 
         if (voice) {
           voice.finish()
           await voice.idle()
+        } else {
+          setAssistantCaption(finalText)
+          setSpokenChars(finalText.length)
         }
         if (voiceRef.current !== voice) return
 
+        // A voice turn reaches the complete caption only after its last chunk
+        // has finished, keeping the visible words and the audio in step.
+        setAssistantCaption(finalText)
         setSpokenChars(finalText.length)
         voiceRef.current = null
         turnRef.current = null
@@ -341,8 +355,7 @@ export function AgentPage() {
               sawDelta = true
               setPhase('replying')
             }
-            // The screen never waits on audio any more.
-            setAssistantCaption(complete)
+            if (!voice) setAssistantCaption(complete)
             voice?.feed(delta)
           },
           onDone: (finalText) => {
@@ -359,13 +372,14 @@ export function AgentPage() {
               setSpokenChars(0)
             }
             setEmotion('concerned')
+            setMood((current) => nudgeMood(current, 'concerned', 0.45))
             setPhase(voiceModeRef.current === 'active' ? 'idle' : 'paused')
             if (voiceModeRef.current === 'active') scheduleListen(700)
           },
         },
       )
     },
-    [scheduleListen, setPhase, stopVoice],
+    [feel, scheduleListen, setPhase, stopVoice],
   )
 
   // -- Microphone ----------------------------------------------------------
@@ -471,6 +485,7 @@ export function AgentPage() {
     setSpokenChars(WELCOME_MESSAGE.content.length)
     setUserCaption('')
     setEmotion('neutral')
+    setMood(NEUTRAL_MOOD)
     setNotice(null)
     setRetryText(null)
     setDraft('')
@@ -522,11 +537,11 @@ export function AgentPage() {
           ? { icon: <AudioLines size={20} />, label: 'Speaking', hint: 'Tap to mute' }
           : phase === 'thinking' || phase === 'replying'
             ? { icon: <Sparkles size={19} />, label: 'Replying', hint: 'Tap to mute' }
-            : {
+             : {
                 icon: <Mic size={20} />,
                 label: phase === 'listening' ? 'Listening' : 'Voice live',
-                hint: 'Tap to mute',
-              }
+               hint: 'Tap to mute',
+             }
 
   // Words already voiced are shown at full strength, so text arriving ahead of
   // the audio reads as intent rather than as lag.
@@ -545,11 +560,11 @@ export function AgentPage() {
       onPointerMove={handlePointerMove}
       onPointerLeave={resetGaze}
     >
-      <div className="ambient-field" aria-hidden="true">
-        <span className="ambient-orbit orbit-one" />
-        <span className="ambient-orbit orbit-two" />
-        <span className="ambient-grain" />
-      </div>
+      <EmotionField
+        mood={mood}
+        active={phase === 'listening' || phase === 'replying' || phase === 'speaking'}
+        levelRef={levelRef}
+      />
 
       <div className="floating-brand" aria-label="GIDEON">
         <span className="brand-seed" />
