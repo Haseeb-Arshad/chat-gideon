@@ -10,7 +10,7 @@
  */
 
 import { REALTIME_PATH } from '../lib/protocol'
-import { callerKey, limiter, originAllowed } from '../lib/guard'
+import { callerKey, limiter, originAllowed, rateLimited } from '../lib/guard'
 import { createRealtimeSession } from '../lib/realtime-session'
 
 /** Minimal structural view of `ws`, which ships without type declarations. */
@@ -114,9 +114,11 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
         }
 
         // Opening sockets is itself cheap enough to abuse, so the handshake
-        // spends from the same bucket a turn would.
+        // spends from the same bucket a config read would — but only where
+        // there is anybody to protect against.
+        const host = headerValue(request, 'host')
         const caller = callerKey({ get: (name) => headerValue(request, name) })
-        if (!limiter.check(caller, 'config').allowed) {
+        if (rateLimited(host) && !limiter.check(caller, 'config').allowed) {
           socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n')
           socket.destroy()
           return
@@ -133,7 +135,7 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
                 if (client.readyState === OPEN) client.send(data)
               },
             },
-            { caller },
+            { caller, host },
           )
 
           client.on('message', ((data: Buffer | ArrayBuffer, isBinary: boolean) => {

@@ -112,6 +112,13 @@ export class MicCapture {
    */
   private ducking = false
   private disposed = false
+  /**
+   * Whether an interruption was confirmed during the current playback.
+   *
+   * It decides what happens to audio captured while GIDEON was talking: kept
+   * when a person cut in, discarded when it was only echo.
+   */
+  private bargedIn = false
   /** A rolling window of recent frames, kept so speech can be back-dated. */
   private preRoll: Float32Array[] = []
   private preRollFrames = 0
@@ -245,7 +252,7 @@ export class MicCapture {
       const frameSize = Math.round((this.context.sampleRate * FRAME_MS) / 1000)
       this.preRollFrames = Math.max(
         1,
-        Math.round((this.options.preRollMs ?? 320) / FRAME_MS),
+        Math.round((this.options.preRollMs ?? 500) / FRAME_MS),
       )
       this.maxFrames = Math.round(
         ((this.options.maxUtteranceMs ?? 30_000) / 1000) * this.context.sampleRate,
@@ -281,8 +288,29 @@ export class MicCapture {
   setDucking(ducking: boolean) {
     if (this.ducking === ducking) return
     this.ducking = ducking
-    this.vad.duckDb = ducking ? (this.options.duckDb ?? 14) : 0
+    this.vad.duckDb = ducking ? (this.options.duckDb ?? 8) : 0
     this.barge.reset()
+
+    if (!ducking) {
+      if (this.bargedIn) {
+        // A confirmed interruption: everything recorded is the person talking
+        // over GIDEON, and it is the head of their sentence. Keep it.
+        this.bargedIn = false
+        return
+      }
+      /*
+       * Playback ended without anyone cutting in, so whatever the detector
+       * picked up during it was GIDEON's own voice leaking past the echo
+       * cancellation. Left in place it would be handed to the transcriber the
+       * next time speech ended and sent back as though the user had said it —
+       * GIDEON answering its own words. The recording is dropped and the
+       * detector restarted from silence.
+       */
+      this.vad.reset()
+      this.recording = null
+      this.recordedFrames = 0
+      this.preRoll = []
+    }
   }
 
   /** Forget the current utterance without dropping the stream. */
@@ -357,7 +385,10 @@ export class MicCapture {
       // report started against a raised threshold mid-playback. The callbacks
       // are withheld rather than the bookkeeping: announcing a speech start
       // here would set a live transcript running on GIDEON's own echo.
-      if (this.barge.push(result.probability)) this.options.onBargeIn?.()
+      if (this.barge.push(result.probability)) {
+        this.bargedIn = true
+        this.options.onBargeIn?.()
+      }
       return
     }
 
@@ -410,5 +441,6 @@ export class MicCapture {
     this.recording = null
     this.recordedFrames = 0
     this.preRoll = []
+    this.bargedIn = false
   }
 }

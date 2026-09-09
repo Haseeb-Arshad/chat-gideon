@@ -5,7 +5,9 @@ import {
   accessCodeValid,
   callerKey,
   gate,
+  isLocalHost,
   originAllowed,
+  rateLimited,
   takeToken,
 } from './guard'
 
@@ -14,7 +16,7 @@ function headers(values: Record<string, string>) {
   return { get: (name: string) => map.get(name.toLowerCase()) ?? null }
 }
 
-const ENV_KEYS = ['GIDEON_ACCESS_CODE', 'GIDEON_ALLOWED_ORIGINS'] as const
+const ENV_KEYS = ['GIDEON_ACCESS_CODE', 'GIDEON_ALLOWED_ORIGINS', 'GIDEON_RATE_LIMIT'] as const
 
 afterEach(() => {
   for (const key of ENV_KEYS) delete process.env[key]
@@ -138,6 +140,77 @@ describe('accessCodeValid', () => {
   })
 })
 
+describe('isLocalHost', () => {
+  it('recognises loopback in the shapes a Host header uses', () => {
+    for (const host of ['localhost', 'localhost:3000', '127.0.0.1:8080', '[::1]:3000', '::1']) {
+      expect(isLocalHost(host)).toBe(true)
+    }
+  })
+
+  it('does not mistake a real host for loopback', () => {
+    for (const host of ['gideon.example', 'localhost.evil.example', '10.0.0.4', null]) {
+      expect(isLocalHost(host)).toBe(false)
+    }
+  })
+})
+
+describe('rateLimited', () => {
+  it('stays out of the way on localhost by default', () => {
+    expect(rateLimited('localhost:3000')).toBe(false)
+  })
+
+  it('protects a public host by default', () => {
+    expect(rateLimited('gideon.example')).toBe(true)
+  })
+
+  it('can be forced either way', () => {
+    process.env.GIDEON_RATE_LIMIT = 'on'
+    expect(rateLimited('localhost:3000')).toBe(true)
+    process.env.GIDEON_RATE_LIMIT = 'off'
+    expect(rateLimited('gideon.example')).toBe(false)
+  })
+})
+
+describe('LIMITS', () => {
+  it('sits above what a person could produce by talking', () => {
+    /*
+     * The regression this pins: `turn` was 8 with a refill of one every two
+     * seconds, and since every barge-in starts a fresh turn, interrupting a
+     * few times in a row hit the limit and GIDEON refused to answer. These
+     * ceilings exist to stop a script, and a script is the only thing that can
+     * reach them.
+     */
+    // Ten interruptions inside ten seconds is frantic but human.
+    const limiter = new RateLimiter()
+    const start = 10_000
+    for (let i = 0; i < 10; i += 1) {
+      expect(limiter.check('me', 'turn', start + i * 1_000).allowed).toBe(true)
+    }
+
+    // A minute of hard conversation: a turn every three seconds, each with a
+    // dozen spoken chunks and a partial transcription every 850 ms.
+    for (let turn = 0; turn < 20; turn += 1) {
+      const at = start + turn * 3_000
+      expect(limiter.check('me', 'turn', at).allowed).toBe(true)
+      for (let chunk = 0; chunk < 12; chunk += 1) {
+        expect(limiter.check('me', 'speak', at + chunk * 60).allowed).toBe(true)
+      }
+      for (let partial = 0; partial < 4; partial += 1) {
+        expect(limiter.check('me', 'transcribe', at + partial * 850).allowed).toBe(true)
+      }
+    }
+  })
+
+  it('still refuses a script hammering one surface', () => {
+    const limiter = new RateLimiter()
+    let refused = false
+    for (let i = 0; i < LIMITS.turn.capacity + 5; i += 1) {
+      if (!limiter.check('bot', 'turn', 1_000).allowed) refused = true
+    }
+    expect(refused).toBe(true)
+  })
+})
+
 describe('gate', () => {
   it('rejects a bad origin before spending a token', () => {
     const request = { headers: headers({ origin: 'https://evil.example', host: 'gideon.example' }) }
@@ -158,5 +231,20 @@ describe('gate', () => {
       headers: headers({ origin: 'https://gideon.example', host: 'gideon.example' }),
     }
     expect(gate(request, 'config').ok).toBe(true)
+  })
+
+  it('does not meter a local request at all', () => {
+    const request = { headers: headers({ host: 'localhost:3000' }) }
+    // Far past every bucket; a machine talking to its own server is not a
+    // threat to itself.
+    for (let i = 0; i < LIMITS.turn.capacity * 3; i += 1) {
+      expect(gate(request, 'turn').ok).toBe(true)
+    }
+  })
+
+  it('still applies the access code locally, which is not about volume', () => {
+    process.env.GIDEON_ACCESS_CODE = 'secret'
+    const request = { headers: headers({ host: 'localhost:3000' }) }
+    expect(gate(request, 'turn').code).toBe('access_code_required')
   })
 })

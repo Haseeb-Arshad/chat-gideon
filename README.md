@@ -232,6 +232,16 @@ looping.
 quota either side of the boundary, and a voice turn is bursty enough for that
 to matter.
 
+**Ceilings a person cannot reach, and none at all on localhost.** The first
+version of the limit table was sized by guessing what seemed reasonable per
+surface, and it throttled the actual user: `turn` allowed eight and then one
+every two seconds, while every barge-in starts a fresh turn — so interrupting a
+few times in a row hit the limit and GIDEON answered "you are talking faster
+than I am allowed to answer". A guard that stops the person it is protecting is
+worse than no guard, because it fails in the one case that matters. The limits
+are now derived from what a *script* would have to exceed, and `auto` mode
+skips them entirely for loopback, where there is nobody to protect against.
+
 ---
 
 ## Run it
@@ -265,6 +275,7 @@ recogniser survives only as a fallback for a browser without it.
 | `TAVILY_API_KEY` | unset | Enables `web_search` |
 | `GIDEON_ACCESS_CODE` | unset | Required on every request when set |
 | `GIDEON_ALLOWED_ORIGINS` | same-origin | Only if the page is embedded elsewhere |
+| `GIDEON_RATE_LIMIT` | `auto` | `auto` meters public hosts only; `on`/`off` force it |
 | `PORT` | `3000` | Dev server and realtime socket |
 
 Never rename the key to a `VITE_` variable. Vite exposes `VITE_` variables to

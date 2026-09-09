@@ -21,7 +21,7 @@ import {
   type ClientToolBridge,
 } from './agent-core'
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
-import { accessCodeRequired, accessCodeValid, limiter } from './guard'
+import { accessCodeRequired, accessCodeValid, limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
 import {
   REALTIME_PROTOCOL_VERSION,
@@ -50,6 +50,8 @@ export interface SessionOptions {
    * with no limit on it at all.
    */
   caller?: string
+  /** The Host the socket was opened against, which decides whether to meter. */
+  host?: string | null
 }
 
 /**
@@ -71,6 +73,7 @@ export function createRealtimeSession(
   options: SessionOptions = {},
 ): RealtimeSession {
   const caller = options.caller || 'socket'
+  const metered = rateLimited(options.host ?? null)
   /**
    * Whether this socket has presented the access code.
    *
@@ -120,13 +123,15 @@ export function createRealtimeSession(
       return false
     }
 
+    if (!metered) return true
+
     const decision = limiter.check(caller, limit)
     if (!decision.allowed) {
       send({
         t: 'error',
         id,
         code: 'rate_limited',
-        message: 'You are talking faster than I am allowed to answer. Give me a moment.',
+        message: 'That is more than this GIDEON is configured to answer. Try again shortly.',
         retryable: true,
       })
       return false

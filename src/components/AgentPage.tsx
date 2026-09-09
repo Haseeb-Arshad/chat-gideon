@@ -919,6 +919,10 @@ export function AgentPage() {
         if (previous === result.state) return
 
         if (result.state === 'trailing') {
+          // Not while GIDEON is audible: the detector is running against a
+          // raised threshold on a signal that may be his own echo, and
+          // transcribing that would spend a request on nothing.
+          if (phaseRef.current === 'speaking') return
           // Silence has begun but the hangover has not expired. Transcribing
           // now runs the round trip concurrently with the wait instead of
           // after it, which is most of what makes a turn feel immediate.

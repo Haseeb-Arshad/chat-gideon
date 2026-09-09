@@ -36,12 +36,25 @@ export interface RateDecision {
 }
 
 /**
- * A turn costs more than a config read, and speech costs more than a turn, so
- * each surface gets its own bucket rather than sharing one global quota.
+ * Ceilings a person cannot reach, not budgets a conversation has to live within.
+ *
+ * The first version of this table was sized by guessing at what seemed
+ * reasonable per surface, and the result was that it throttled the actual user:
+ * `turn` allowed eight and then one every two seconds, while every barge-in
+ * starts a fresh turn, so interrupting a few times in a row hit the limit and
+ * GIDEON answered "you are talking faster than I am allowed to answer". A
+ * guard that stops the person it is meant to be protecting is worse than no
+ * guard, because it fails in the one case that matters.
+ *
+ * So these are now set from the other direction: what a *script* would have to
+ * exceed to be abusive, which is far above anything a human mouth can produce.
+ * One turn every couple of seconds is fast conversation; sixty in the bucket
+ * with two a second of refill cannot be reached by talking.
  */
 export const LIMITS = {
-  turn: { refillPerSecond: 0.5, capacity: 8 },
-  speak: { refillPerSecond: 2, capacity: 24 },
+  turn: { refillPerSecond: 2, capacity: 60 },
+  /** A long reply is a dozen chunks, and several turns can overlap. */
+  speak: { refillPerSecond: 10, capacity: 240 },
   /**
    * Transcription, on its own budget.
    *
@@ -50,8 +63,8 @@ export const LIMITS = {
    * chunk, so listening and talking were competing for the same tokens and a
    * normal conversation could rate-limit itself into going deaf.
    */
-  transcribe: { refillPerSecond: 3, capacity: 40 },
-  config: { refillPerSecond: 1, capacity: 10 },
+  transcribe: { refillPerSecond: 8, capacity: 200 },
+  config: { refillPerSecond: 2, capacity: 30 },
 } as const satisfies Record<string, BucketConfig>
 
 export type LimitName = keyof typeof LIMITS
@@ -155,6 +168,28 @@ export function allowedOrigins(): string[] {
     .split(',')
     .map((value) => value.trim().replace(/\/$/, ''))
     .filter(Boolean)
+}
+
+/** Loopback, in the shapes a Host header actually arrives in. */
+export function isLocalHost(host: string | null): boolean {
+  if (!host) return false
+  return /^(localhost|127\.0\.0\.1|\[::1\]|::1|0\.0\.0\.0)(:\d+)?$/i.test(host.trim())
+}
+
+/**
+ * Whether to meter this request at all.
+ *
+ * `auto`, the default, means "protect a public deployment and stay out of the
+ * way locally". The limiter exists so a public URL is not a free OpenRouter
+ * key; on a machine talking to its own server there is nobody to protect
+ * against and nothing to gain from getting in the way. `on` and `off` force it
+ * either direction for anyone who disagrees.
+ */
+export function rateLimited(host: string | null): boolean {
+  const mode = readEnv('GIDEON_RATE_LIMIT').toLowerCase()
+  if (mode === 'off') return false
+  if (mode === 'on') return true
+  return !isLocalHost(host)
 }
 
 /**
@@ -264,13 +299,16 @@ export function gate(
     }
   }
 
+  if (!rateLimited(headers.get('host'))) return PASS
+
   const decision = limiter.check(callerKey(headers), limit, now)
   if (!decision.allowed) {
     return {
       ok: false,
       status: 429,
       code: 'rate_limited',
-      message: 'You are talking faster than I am allowed to answer. Give me a moment.',
+      // Reached only by something scripted; a person cannot talk this fast.
+      message: 'That is more than this GIDEON is configured to answer. Try again shortly.',
       retryAfter: decision.retryAfter,
     }
   }
