@@ -49,6 +49,14 @@ import { LatencyHud } from './LatencyHud'
  */
 type Phase = 'idle' | 'listening' | 'thinking' | 'replying' | 'speaking' | 'paused'
 type VoiceMode = 'active' | 'paused' | 'muted'
+/**
+ * Why listening stopped.
+ *
+ * The dock used to explain every pause as thirty seconds of quiet, which is
+ * only ever true of the recogniser fallback's own timeout. A refused
+ * microphone read as though the user had simply gone silent.
+ */
+type PauseReason = 'quiet' | 'blocked' | 'failed' | null
 
 interface Message {
   id: string
@@ -183,6 +191,7 @@ export function AgentPage() {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [hudOpen, setHudOpen] = useState(false)
+  const [pauseReason, setPauseReason] = useState<PauseReason>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [links, setLinks] = useState<OfferedLink[]>([])
 
@@ -947,6 +956,7 @@ export function AgentPage() {
     const started = await capture.start()
     if (started) {
       setSpeechSupported(true)
+      setPauseReason(null)
       setVoiceMode('active')
       setPhase('listening')
       return
@@ -960,6 +970,7 @@ export function AgentPage() {
     // path by capability, so calling back into it while capture still reports
     // itself supported would loop. The next listen attempt picks the
     // recogniser on its own once the graph is known to be unavailable.
+    setPauseReason(capture.status === 'denied' ? 'blocked' : 'failed')
     setVoiceMode(capture.status === 'denied' ? 'paused' : 'muted')
     setPhase('paused')
     setSpeechSupported(capture.status !== 'unsupported' || speechRecognitionSupported())
@@ -1017,6 +1028,7 @@ export function AgentPage() {
         onError: (_code, message) => setNotice(message),
         onSilenceTimeout: () => {
           listenerRef.current = null
+          setPauseReason('quiet')
           // The sentence was never finished, so no guess about it can ever be
           // vindicated; keeping them alive would only spend tokens.
           for (const run of speculationRef.current.clear()) abandon(run.handle)
@@ -1167,7 +1179,11 @@ export function AgentPage() {
 
   const voiceControl =
     voiceMode === 'paused'
-      ? { icon: <Play size={19} fill="currentColor" />, label: 'Resume voice', hint: 'Paused after 30s' }
+      ? {
+          icon: <Play size={19} fill="currentColor" />,
+          label: 'Resume voice',
+          hint: pauseReason === 'blocked' ? 'Microphone blocked' : 'Tap to listen again',
+        }
       : voiceMode === 'muted'
         ? { icon: <MicOff size={19} />, label: 'Voice muted', hint: 'Tap to resume' }
         : phase === 'speaking'
@@ -1305,7 +1321,12 @@ export function AgentPage() {
         <div className="presence-status" aria-live="polite" data-phase={phase}>
           <span className="status-dot" />
           <span>{statusCopy}</span>
-          {voiceMode === 'paused' ? <small>30 seconds of quiet · tap Resume below</small> : null}
+          {voiceMode === 'paused' && pauseReason === 'quiet' ? (
+            <small>30 seconds of quiet · tap Resume below</small>
+          ) : null}
+          {voiceMode === 'paused' && pauseReason === 'blocked' ? (
+            <small>Microphone blocked · allow it, then tap Resume</small>
+          ) : null}
         </div>
 
         {notice ? (
