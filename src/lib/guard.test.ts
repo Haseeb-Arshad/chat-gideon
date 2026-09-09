@@ -111,6 +111,14 @@ describe('originAllowed', () => {
     expect(originAllowed(null, 'gideon.example')).toBe(true)
   })
 
+  it('demands the header when asked, which is what a socket upgrade needs', () => {
+    // The tolerance above is right for HTTP health checks and wrong for a
+    // socket: a command-line client sending no Origin was the one way to reach
+    // the turn endpoint without passing any check at all.
+    expect(originAllowed(null, 'gideon.example', true)).toBe(false)
+    expect(originAllowed('https://gideon.example', 'gideon.example', true)).toBe(true)
+  })
+
   it('rejects an unparseable origin rather than guessing', () => {
     expect(originAllowed('not a url', 'gideon.example')).toBe(false)
   })

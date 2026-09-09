@@ -44,6 +44,8 @@ export function streamChat(
    * the wrong day for most of the world for part of every day.
    */
   timezone?: string,
+  /** A guess at an unfinished sentence; the core refuses to act on one. */
+  speculative?: boolean,
 ): Response {
   const encoder = new TextEncoder()
 
@@ -53,7 +55,10 @@ export function streamChat(
         // No bridge on this path: a single HTTP response cannot ask the
         // browser a question mid-turn, so browser-run tools are unavailable
         // and the agent loop is told so rather than discovering it late.
-        for await (const frame of streamTurn(id, messages, signal, { timezone })) {
+        for await (const frame of streamTurn(id, messages, signal, {
+          timezone,
+          speculative,
+        })) {
           if (signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))
         }

@@ -177,48 +177,81 @@ function describeTime(timezone: string): ToolOutcome {
   return { ok: true, content: formatted }
 }
 
+/**
+ * Memory tools, each as one serialised read-modify-write.
+ *
+ * Going through `store.mutate` rather than `all()` then `save()` is what stops
+ * two turns finishing together from overwriting each other's list wholesale.
+ */
 async function runMemoryTool(
   name: string,
   args: Record<string, unknown>,
   store: MemoryStore,
 ): Promise<ToolOutcome> {
-  const memories = await store.all()
-
   if (name === 'remember') {
     const value = text(args, 'text')
     if (!value) return { ok: false, content: 'Nothing was given to remember.' }
     const kind = (text(args, 'kind') || 'fact') as MemoryKind
-    const { memories: next, result } = remember(memories, kind, value)
-    await store.save(next)
-    return {
-      ok: true,
-      content: result.status === 'merged' ? 'Updated what I already knew.' : 'Stored.',
-      summary: `Remembered: ${result.memory.text}`,
-    }
+
+    return store.mutate<ToolOutcome>((memories) => {
+      const { memories: next, result } = remember(memories, kind, value)
+      return {
+        memories: next,
+        result: {
+          ok: true,
+          content: result.status === 'merged' ? 'Updated what I already knew.' : 'Stored.',
+          summary: `Remembered: ${result.memory.text}`,
+        } satisfies ToolOutcome,
+      }
+    })
   }
 
   if (name === 'recall') {
     const query = text(args, 'query')
-    const hits = rank(memories, query).slice(0, 5)
-    if (!hits.length) return { ok: true, content: 'Nothing stored about that.' }
-    await store.save(touch(memories, hits.map((hit) => hit.memory)))
-    return {
-      ok: true,
-      content: hits.map((hit) => `- ${hit.memory.text}`).join('\n'),
-    }
+    return store.mutate<ToolOutcome>((memories) => {
+      const hits = rank(memories, query).slice(0, 5)
+      if (!hits.length) {
+        return {
+          memories,
+          result: { ok: true, content: 'Nothing stored about that.' } satisfies ToolOutcome,
+        }
+      }
+      return {
+        memories: touch(
+          memories,
+          hits.map((hit) => hit.memory),
+        ),
+        result: {
+          ok: true,
+          content: hits.map((hit) => `- ${hit.memory.text}`).join('\n'),
+        } satisfies ToolOutcome,
+      }
+    })
   }
 
   if (name === 'forget') {
     const query = text(args, 'query')
-    const hits = rank(memories, query).slice(0, 5)
-    if (!hits.length) return { ok: true, content: 'There was nothing stored about that.' }
-    const doomed = new Set(hits.map((hit) => hit.memory.id))
-    await store.save(memories.filter((memory) => !doomed.has(memory.id)))
-    return {
-      ok: true,
-      content: `Forgotten: ${hits.map((hit) => hit.memory.text).join('; ')}`,
-      summary: `Forgot ${hits.length} memor${hits.length === 1 ? 'y' : 'ies'}`,
-    }
+    return store.mutate<ToolOutcome>((memories) => {
+      const hits = rank(memories, query).slice(0, 5)
+      if (!hits.length) {
+        return {
+          memories,
+          result: {
+            ok: true,
+            content: 'There was nothing stored about that.',
+          } satisfies ToolOutcome,
+        }
+      }
+      const doomed = new Set(hits.map((hit) => hit.memory.id))
+      return {
+        memories: memories.filter((memory) => !doomed.has(memory.id)),
+        result: {
+          ok: true,
+          content: `Forgotten: ${hits.map((hit) => hit.memory.text).join('; ')}`,
+          summary: `Forgot ${hits.length} memor${hits.length === 1 ? 'y' : 'ies'}`,
+        } satisfies ToolOutcome,
+      }
+    })
   }
 
   return { ok: false, content: `Unknown memory tool ${name}.` }
@@ -345,8 +378,13 @@ export async function contextMemories(
   limit = 4,
 ): Promise<Memory[]> {
   if (!latestUserText.trim()) return []
-  const memories = await store.all()
-  const hits = rank(memories, latestUserText).slice(0, limit)
-  if (hits.length) await store.save(touch(memories, hits.map((hit) => hit.memory)))
-  return hits.map((hit) => hit.memory)
+  // This runs on every turn, which is exactly why it has to go through the
+  // serialised path: it was the most frequent writer, and therefore the one
+  // most likely to clobber a fact stored a moment earlier.
+  return store.mutate<Memory[]>((memories) => {
+    const hits = rank(memories, latestUserText).slice(0, limit)
+    if (!hits.length) return { memories, result: [] as Memory[] }
+    const used = hits.map((hit) => hit.memory)
+    return { memories: touch(memories, used), result: used }
+  })
 }

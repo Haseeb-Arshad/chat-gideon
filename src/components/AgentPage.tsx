@@ -127,6 +127,13 @@ interface RunningTurn {
   finished: boolean
   speculative: boolean
   cancelled: boolean
+  /**
+   * The stream ended in an error. Tracked separately from `cancelled` because
+   * the tracker matches on text alone: a guess that failed upstream can still
+   * be the one whose text the final transcript vindicates, and promoting it
+   * would settle an empty reply into history as though it had been spoken.
+   */
+  failed: boolean
   voice: VoiceQueue | null
   /**
    * Set by `promote` when the stream is still running, so the settle step is
@@ -344,6 +351,12 @@ export function AgentPage() {
       listenerRef.current?.abort()
       turnRef.current?.handle?.cancel()
       turnRef.current?.voice?.cancel()
+      // An unpromoted guess is not in `turnRef`, so cancelling that alone left
+      // it streaming into a component that no longer exists.
+      for (const run of speculationRef.current.clear()) {
+        run.handle.handle?.cancel()
+        run.handle.voice?.cancel()
+      }
       void captureRef.current?.dispose()
     }
   }, [scheduleListen, setVoiceMode])
@@ -558,6 +571,7 @@ export function AgentPage() {
         finished: false,
         speculative,
         cancelled: false,
+        failed: false,
         voice: null,
       }
 
@@ -597,6 +611,7 @@ export function AgentPage() {
           onError: (message, retryable) => {
             if (turn.cancelled) return
             turn.finished = true
+            turn.failed = true
             // A speculative failure is invisible on purpose. The real turn is
             // about to run anyway and will surface anything that is still wrong.
             if (turn.speculative) return
@@ -618,6 +633,7 @@ export function AgentPage() {
             if (voiceModeRef.current === 'active') scheduleListen(700)
           },
         },
+        { speculative },
       )
 
       turn.timeline.mark('turn_sent')
@@ -650,7 +666,12 @@ export function AgentPage() {
       for (const run of resolved.discard) abandon(run.handle)
 
       let turn = resolved.keep?.handle ?? null
-      if (turn && !turn.cancelled) {
+      if (turn && (turn.cancelled || turn.failed)) {
+        // The text matched, but there is no usable reply behind it.
+        abandon(turn)
+        turn = null
+      }
+      if (turn) {
         turn.timeline.speculation = 'hit'
         // Marked now rather than at creation: when the guess was sent, this
         // utterance had not finished, and the only timestamp available then
@@ -773,6 +794,9 @@ export function AgentPage() {
         onError: (_code, message) => setNotice(message),
         onSilenceTimeout: () => {
           listenerRef.current = null
+          // The sentence was never finished, so no guess about it can ever be
+          // vindicated; keeping them alive would only spend tokens.
+          for (const run of speculationRef.current.clear()) abandon(run.handle)
           setLiveTranscript('')
           setVoiceMode('paused')
           setPhase('paused')
@@ -785,6 +809,7 @@ export function AgentPage() {
           }
           if (reason === 'error') {
             listenerRef.current = null
+            for (const run of speculationRef.current.clear()) abandon(run.handle)
             setVoiceMode('paused')
             setPhase('paused')
           }
@@ -807,7 +832,15 @@ export function AgentPage() {
         setPhase('paused')
       }
     },
-    [considerSpeculation, ensureCapture, scheduleListen, sendMessage, setPhase, setVoiceMode],
+    [
+      abandon,
+      considerSpeculation,
+      ensureCapture,
+      scheduleListen,
+      sendMessage,
+      setPhase,
+      setVoiceMode,
+    ],
   )
 
   startListeningRef.current = startListening

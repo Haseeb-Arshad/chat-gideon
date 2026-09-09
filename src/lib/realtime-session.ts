@@ -21,6 +21,7 @@ import {
   type ClientToolBridge,
 } from './agent-core'
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
+import { accessCodeRequired, accessCodeValid, limiter } from './guard'
 import type { ToolOutcome } from './tools/registry'
 import {
   REALTIME_PROTOCOL_VERSION,
@@ -40,6 +41,17 @@ export interface RealtimeSession {
   close: () => void
 }
 
+export interface SessionOptions {
+  /**
+   * Who opened this socket, for rate limiting.
+   *
+   * The HTTP routes meter per caller through `gate()`; without this the
+   * socket — the primary transport — was the one path to the OpenRouter key
+   * with no limit on it at all.
+   */
+  caller?: string
+}
+
 /**
  * How long the server waits for the browser to fulfil a tool.
  *
@@ -54,7 +66,19 @@ interface PendingTool {
   timer: ReturnType<typeof setTimeout>
 }
 
-export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
+export function createRealtimeSession(
+  sink: RealtimeSink,
+  options: SessionOptions = {},
+): RealtimeSession {
+  const caller = options.caller || 'socket'
+  /**
+   * Whether this socket has presented the access code.
+   *
+   * Checked per frame rather than at the upgrade, because the browser cannot
+   * attach a header to the handshake. Until it is satisfied the socket can do
+   * nothing but say hello.
+   */
+  let authorised = !accessCodeRequired()
   /** Aborts keyed by turn id, so a cancel only kills the turn it names. */
   const turns = new Map<string, AbortController>()
   /** Tool calls the browser has been asked to run and has not answered yet. */
@@ -76,6 +100,38 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
     const controller = new AbortController()
     turns.set(id, controller)
     return controller
+  }
+
+  /**
+   * One gate for every frame that costs money.
+   *
+   * Same buckets as the HTTP routes, so a caller cannot get a second budget
+   * simply by preferring the socket.
+   */
+  const allowed = (id: string, limit: 'turn' | 'speak') => {
+    if (!authorised) {
+      send({
+        t: 'error',
+        id,
+        code: 'access_code_required',
+        message: 'This GIDEON is behind an access code.',
+        retryable: false,
+      })
+      return false
+    }
+
+    const decision = limiter.check(caller, limit)
+    if (!decision.allowed) {
+      send({
+        t: 'error',
+        id,
+        code: 'rate_limited',
+        message: 'You are talking faster than I am allowed to answer. Give me a moment.',
+        retryable: true,
+      })
+      return false
+    }
+    return true
   }
 
   const settleTool = (call: string, outcome: ToolOutcome) => {
@@ -141,6 +197,7 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
       for await (const event of streamTurn(frame.id, messages, controller.signal, {
         timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : undefined,
         bridge,
+        speculative: frame.speculative === true,
       })) {
         if (closed || controller.signal.aborted) return
         send(event)
@@ -167,33 +224,39 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
     }
 
     const controller = controllerFor(frame.id)
-    const result = await fetchVoice(text, controller.signal)
-    if (closed || controller.signal.aborted) return
-
-    if (!result.ok || !result.body) {
-      if (result.code === 'aborted') return
-      send({
-        t: 'error',
-        id: frame.id,
-        code: result.code,
-        message: result.message,
-        retryable: result.retryable,
-      })
-      return
-    }
-
-    // Header first, binary immediately after. WebSocket preserves the order.
-    send({
-      t: 'audio',
-      id: frame.id,
-      seq: frame.seq,
-      mime: result.mime,
-      bytes: result.body.byteLength,
-    })
     try {
-      sink.sendBinary(new Uint8Array(result.body))
-    } catch {
-      closed = true
+      const result = await fetchVoice(text, controller.signal)
+      if (closed || controller.signal.aborted) return
+
+      if (!result.ok || !result.body) {
+        if (result.code === 'aborted') return
+        send({
+          t: 'error',
+          id: frame.id,
+          code: result.code,
+          message: result.message,
+          retryable: result.retryable,
+        })
+        return
+      }
+
+      // Header first, binary immediately after. WebSocket preserves the order.
+      send({
+        t: 'audio',
+        id: frame.id,
+        seq: frame.seq,
+        mime: result.mime,
+        bytes: result.body.byteLength,
+      })
+      try {
+        sink.sendBinary(new Uint8Array(result.body))
+      } catch {
+        closed = true
+      }
+    } finally {
+      // One controller per spoken chunk, and a reply is many chunks, so
+      // forgetting this grew the map for the life of the connection.
+      turns.delete(frame.id)
     }
   }
 
@@ -205,6 +268,21 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
 
       switch (frame.t) {
         case 'hello': {
+          if (!authorised) {
+            authorised = accessCodeValid(
+              typeof frame.access === 'string' ? frame.access : null,
+            )
+            if (!authorised) {
+              send({
+                t: 'error',
+                id: null,
+                code: 'access_code_required',
+                message: 'This GIDEON is behind an access code.',
+                retryable: false,
+              })
+              return
+            }
+          }
           warmUpstream()
           const config = getPublicConfig()
           send({
@@ -218,9 +296,11 @@ export function createRealtimeSession(sink: RealtimeSink): RealtimeSession {
           return
         }
         case 'turn':
+          if (!allowed(frame.id, 'turn')) return
           void runTurn(frame)
           return
         case 'speak':
+          if (!allowed(frame.id, 'speak')) return
           void runSpeak(frame)
           return
         case 'tool_reply': {

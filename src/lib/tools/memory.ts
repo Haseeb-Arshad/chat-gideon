@@ -33,6 +33,43 @@ export interface Memory {
 export interface MemoryStore {
   all: () => Promise<Memory[]>
   save: (memories: Memory[]) => Promise<void>
+  /**
+   * Read, transform and write as one indivisible step.
+   *
+   * Every caller computes a *whole replacement list* from what it read, so an
+   * unguarded read-modify-write does not merely interleave — it silently drops
+   * the other writer's work entirely. And this is not a rare race: memory is
+   * touched on every single turn to record which facts were useful, so two
+   * turns finishing near each other is the normal case rather than the corner
+   * one. Serialising the whole cycle, not just the file write, is the only
+   * thing that actually makes it safe.
+   */
+  mutate: <T>(change: (memories: Memory[]) => { memories: Memory[]; result: T }) => Promise<T>
+}
+
+/**
+ * Shared serialisation for the stores below.
+ *
+ * The queue is a plain promise chain. It is deliberately kept alive across a
+ * failed mutation, so one bad change cannot wedge every later one behind a
+ * rejected promise.
+ */
+abstract class SerialisedStore implements MemoryStore {
+  private queue: Promise<unknown> = Promise.resolve()
+
+  abstract all(): Promise<Memory[]>
+  abstract save(memories: Memory[]): Promise<void>
+
+  mutate<T>(change: (memories: Memory[]) => { memories: Memory[]; result: T }): Promise<T> {
+    const run = this.queue.then(async () => {
+      const current = await this.all()
+      const { memories, result } = change(current)
+      await this.save(memories)
+      return result
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
 }
 
 /** Words too common to tell two facts apart. */
@@ -234,11 +271,12 @@ export function isMemory(value: unknown): value is Memory {
  * parallel: two turns finishing together would otherwise race on the same file
  * and the loser's fact would vanish.
  */
-export class JsonMemoryStore implements MemoryStore {
+export class JsonMemoryStore extends SerialisedStore {
   private cache: Memory[] | null = null
-  private writing: Promise<void> = Promise.resolve()
 
-  constructor(private readonly path: string) {}
+  constructor(private readonly path: string) {
+    super()
+  }
 
   async all(): Promise<Memory[]> {
     if (this.cache) return this.cache
@@ -256,27 +294,26 @@ export class JsonMemoryStore implements MemoryStore {
 
   async save(memories: Memory[]): Promise<void> {
     this.cache = memories
-    this.writing = this.writing.then(async () => {
-      try {
-        const { mkdir, writeFile, rename } = await import('node:fs/promises')
-        const { dirname } = await import('node:path')
-        await mkdir(dirname(this.path), { recursive: true })
-        // Written aside and renamed so a crash mid-write cannot leave a
-        // truncated file where the whole memory used to be.
-        const temporary = `${this.path}.tmp`
-        await writeFile(temporary, JSON.stringify(memories, null, 2), 'utf8')
-        await rename(temporary, this.path)
-      } catch {
-        // A read-only or ephemeral filesystem costs persistence, not the turn:
-        // the in-process cache still serves this session.
-      }
-    })
-    return this.writing
+    try {
+      const { mkdir, writeFile, rename } = await import('node:fs/promises')
+      const { dirname } = await import('node:path')
+      await mkdir(dirname(this.path), { recursive: true })
+      // Written aside and renamed so a crash mid-write cannot leave a
+      // truncated file where the whole memory used to be. The temporary name
+      // carries the process id because a second process sharing this file
+      // would otherwise rename the same path out from under us.
+      const temporary = `${this.path}.${process.pid}.tmp`
+      await writeFile(temporary, JSON.stringify(memories, null, 2), 'utf8')
+      await rename(temporary, this.path)
+    } catch {
+      // A read-only or ephemeral filesystem costs persistence, not the turn:
+      // the in-process cache still serves this session.
+    }
   }
 }
 
 /** Nothing is kept, and nothing fails. For a host with no writable disk. */
-export class EphemeralMemoryStore implements MemoryStore {
+export class EphemeralMemoryStore extends SerialisedStore {
   private memories: Memory[] = []
 
   async all() {

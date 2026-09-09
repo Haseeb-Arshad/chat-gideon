@@ -219,6 +219,18 @@ export interface TurnOptions {
   timezone?: string
   /** Absent on the HTTP fallback, where the server cannot ask a question. */
   bridge?: ClientToolBridge | null
+  /**
+   * A guess at an unfinished sentence, which may be discarded unheard.
+   *
+   * Speculation is only safe while a wrong guess is *unobservable*, and a tool
+   * call is the one thing in a turn that is not: a timer really starts, a fact
+   * really persists, a link really appears. So a speculative turn is offered
+   * the tools — it has to be, or it would confidently answer "what time is it"
+   * without looking, and that answer would match the final transcript and be
+   * committed — but the moment it reaches for one, the turn is abandoned
+   * instead of executed. The real turn that follows does the work properly.
+   */
+  speculative?: boolean
 }
 
 /**
@@ -423,6 +435,14 @@ export async function* streamTurn(
 
     if (!calls.length) break
     if (signal.aborted) return
+
+    if (options.speculative) {
+      // Nothing has been executed and nothing will be. The guess is reported
+      // as unusable so the browser discards it rather than promoting an answer
+      // that was about to depend on work that never happened.
+      yield errorFrame(id, 'speculation_needs_tools', 'That guess needed to act, so it was dropped.')
+      return
+    }
 
     history.push({
       role: 'assistant',

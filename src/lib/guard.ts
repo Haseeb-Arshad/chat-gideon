@@ -155,8 +155,21 @@ export function allowedOrigins(): string[] {
  * uptime monitoring without stopping anything: a hostile script cannot forge or
  * omit the header from a browser anyway. The rate limiter is what bounds abuse.
  */
-export function originAllowed(origin: string | null, host: string | null): boolean {
-  if (!origin) return true
+export function originAllowed(
+  origin: string | null,
+  host: string | null,
+  /**
+   * Demand the header rather than tolerating its absence.
+   *
+   * The tolerance above is correct for HTTP, where a health checker or curl
+   * legitimately sends no Origin. It is wrong for a socket upgrade: the only
+   * legitimate client is a browser, browsers always send one, and treating its
+   * absence as trustworthy is exactly the hole a command-line client walks
+   * through to reach the turn endpoint unmetered.
+   */
+  requireOrigin = false,
+): boolean {
+  if (!origin) return !requireOrigin
 
   let hostname: string
   try {

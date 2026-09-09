@@ -21,13 +21,29 @@ export interface TurnMessage {
 }
 
 export type ClientFrame =
-  | { t: 'hello'; version: number }
+  | {
+      t: 'hello'
+      version: number
+      /**
+       * The shared access code, when the server is configured to want one.
+       *
+       * It travels in a frame rather than a header because the browser
+       * WebSocket API cannot set headers, and in the body rather than the URL
+       * because query strings end up in access logs.
+       */
+      access?: string
+    }
   | {
       t: 'turn'
       id: string
       messages: TurnMessage[]
       /** The browser's timezone, so "today" means the user's today. */
       timezone?: string
+      /**
+       * This turn is a guess at a sentence the user has not finished, and may
+       * be thrown away. The server must not let it change anything.
+       */
+      speculative?: boolean
     }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }

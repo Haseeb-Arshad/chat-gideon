@@ -83,6 +83,16 @@ export class MicCapture {
    */
   private ducking = false
   private disposed = false
+  /**
+   * Bumped by every stop and dispose.
+   *
+   * `start()` is a sequence of awaits around a permission prompt, which a user
+   * can leave open indefinitely. Without this, muting while the prompt is up
+   * did nothing — teardown found nothing to tear down — and the prompt
+   * resolving afterwards built a graph nobody held a reference to, leaving the
+   * recording indicator lit for the life of the page.
+   */
+  private generation = 0
 
   constructor(private readonly options: CaptureOptions = {}) {
     this.vad = new VoiceActivityDetector(options.vad)
@@ -110,6 +120,8 @@ export class MicCapture {
     }
 
     this.status = 'starting'
+    const generation = this.generation
+    const superseded = () => this.disposed || this.generation !== generation
 
     try {
       // The browser's own echo cancellation is the first line of defence
@@ -123,6 +135,10 @@ export class MicCapture {
         },
       })
     } catch (error) {
+      if (superseded()) {
+        this.status = 'idle'
+        return false
+      }
       const name = (error as Error)?.name ?? ''
       if (PERMISSION_ERRORS.has(name)) {
         this.status = 'denied'
@@ -140,6 +156,15 @@ export class MicCapture {
       return false
     }
 
+    // The prompt may have been answered long after a stop; the stream it
+    // returned has to be released rather than wired up.
+    if (superseded()) {
+      for (const track of this.stream?.getTracks() ?? []) track.stop()
+      this.stream = null
+      this.status = 'idle'
+      return false
+    }
+
     try {
       const Ctor =
         window.AudioContext ||
@@ -151,8 +176,9 @@ export class MicCapture {
       if (this.context.state === 'suspended') await this.context.resume()
 
       await this.context.audioWorklet.addModule(workletUrl())
-      if (this.disposed) {
+      if (superseded()) {
         await this.teardown()
+        this.status = 'idle'
         return false
       }
 
@@ -191,12 +217,14 @@ export class MicCapture {
   }
 
   async stop() {
+    this.generation += 1
     await this.teardown()
     if (this.status !== 'denied' && this.status !== 'unsupported') this.status = 'idle'
   }
 
   async dispose() {
     this.disposed = true
+    this.generation += 1
     await this.teardown()
   }
 

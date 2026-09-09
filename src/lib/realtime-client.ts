@@ -51,6 +51,23 @@ export interface ChatTurnMessage {
 
 /** Remembered per tab so a host without upgrades is only probed once. */
 const FALLBACK_KEY = 'gideon-transport-fallback'
+/**
+ * Where a gated deployment's access code is kept.
+ *
+ * Read rather than prompted for: the code exists so a public demo link can be
+ * shared with a few people, not as a login, and a page that demands one before
+ * saying anything would be a worse first impression than one that simply
+ * explains it is gated.
+ */
+const ACCESS_KEY = 'gideon-access'
+
+function accessCode(): string | undefined {
+  try {
+    return localStorage.getItem(ACCESS_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 const OPEN_TIMEOUT_MS = 1_600
 const PING_INTERVAL_MS = 20_000
 
@@ -101,6 +118,13 @@ export class RealtimeLink {
   private disposed = false
 
   private readonly turns = new Map<string, TurnHandlers>()
+  /**
+   * Turns that are guesses. A tool request arriving for one of these is refused
+   * rather than run: the server already declines to execute tools for a
+   * speculative turn, and this is the second half of that guarantee, held on
+   * the side that actually owns the timers and the screen.
+   */
+  private readonly speculativeTurns = new Set<string>()
   private readonly audio = new Map<string, PendingAudio>()
   private pendingAudioKey: string | null = null
 
@@ -163,7 +187,7 @@ export class RealtimeLink {
       if (this.openTimer) clearTimeout(this.openTimer)
       this.openTimer = null
       this.reconnectDelay = 600
-      this.send({ t: 'hello', version: REALTIME_PROTOCOL_VERSION })
+      this.send({ t: 'hello', version: REALTIME_PROTOCOL_VERSION, access: accessCode() })
       this.setTransport('socket')
       this.pingTimer = setInterval(() => this.send({ t: 'ping', at: Date.now() }), PING_INTERVAL_MS)
     }
@@ -184,6 +208,10 @@ export class RealtimeLink {
     socket.onclose = () => {
       this.clearSocketTimers()
       this.socket = null
+      // Anything in flight died with the connection. Settling it here is what
+      // stops a turn hanging in `thinking` forever and a voice chunk promise
+      // blocking the queue's drain for the life of the page.
+      this.abortInFlight('The connection dropped mid-answer.')
       if (this.disposed) return
       if (this.transport === 'connecting') {
         this.degrade()
@@ -217,26 +245,39 @@ export class RealtimeLink {
     id: string,
     messages: ChatTurnMessage[],
     handlers: TurnHandlers,
+    options: { speculative?: boolean } = {},
   ): TurnHandle {
     this.turns.set(id, handlers)
+    if (options.speculative) this.speculativeTurns.add(id)
+
+    const forget = () => {
+      this.turns.delete(id)
+      this.speculativeTurns.delete(id)
+    }
 
     if (this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
-      this.send({ t: 'turn', id, messages, timezone: localTimezone() })
+      this.send({
+        t: 'turn',
+        id,
+        messages,
+        timezone: localTimezone(),
+        speculative: options.speculative,
+      })
       return {
         id,
         cancel: () => {
-          this.turns.delete(id)
+          forget()
           this.send({ t: 'cancel', id })
         },
       }
     }
 
     const controller = new AbortController()
-    void this.runHttpTurn(id, messages, controller.signal)
+    void this.runHttpTurn(id, messages, controller.signal, options.speculative)
     return {
       id,
       cancel: () => {
-        this.turns.delete(id)
+        forget()
         controller.abort()
       },
     }
@@ -274,6 +315,24 @@ export class RealtimeLink {
     })
     if (!response.ok) throw new Error(await readErrorMessage(response))
     return response.blob()
+  }
+
+  /**
+   * Fails every outstanding turn and audio request.
+   *
+   * Retryable on purpose: a dropped socket is the textbook case where trying
+   * again is the right move, and the link is already reconnecting underneath.
+   */
+  private abortInFlight(message: string) {
+    const turns = [...this.turns.entries()]
+    this.turns.clear()
+    this.speculativeTurns.clear()
+    for (const [, handlers] of turns) handlers.onError(message, true)
+
+    const audio = [...this.audio.values()]
+    this.audio.clear()
+    this.pendingAudioKey = null
+    for (const pending of audio) pending.reject(new Error(message))
   }
 
   private setTransport(next: LinkTransport) {
@@ -324,7 +383,7 @@ export class RealtimeLink {
         })
         return
       case 'tool_request':
-        void this.fulfilTool(frame.call, frame.name, frame.args)
+        void this.fulfilTool(frame.id, frame.call, frame.name, frame.args)
         return
       case 'audio':
         this.pendingAudioKey = `${frame.id}`
@@ -342,6 +401,7 @@ export class RealtimeLink {
       case 'done': {
         const handlers = this.turns.get(frame.id)
         this.turns.delete(frame.id)
+        this.speculativeTurns.delete(frame.id)
         handlers?.onDone(frame.text)
         return
       }
@@ -355,6 +415,7 @@ export class RealtimeLink {
         if (frame.id) {
           const handlers = this.turns.get(frame.id)
           this.turns.delete(frame.id)
+          this.speculativeTurns.delete(frame.id)
           handlers?.onError(frame.message, frame.retryable)
         }
         return
@@ -372,9 +433,12 @@ export class RealtimeLink {
    * open waiting for one, and letting it time out would cost the user eight
    * seconds of silence to learn what a single frame could have told it.
    */
-  private async fulfilTool(call: string, name: string, args: unknown) {
+  private async fulfilTool(turnId: string, call: string, name: string, args: unknown) {
     let result = { ok: false, content: `The browser cannot run ${name}.` }
-    if (this.runClientTool) {
+    // A cancelled turn, or a guess: either way nothing may actually happen.
+    if (!this.turns.has(turnId) || this.speculativeTurns.has(turnId)) {
+      result = { ok: false, content: 'That turn is no longer live.' }
+    } else if (this.runClientTool) {
       try {
         result = await this.runClientTool(name, args)
       } catch (error) {
@@ -401,6 +465,7 @@ export class RealtimeLink {
     id: string,
     messages: ChatTurnMessage[],
     signal: AbortSignal,
+    speculative?: boolean,
   ) {
     const handlers = this.turns.get(id)
     if (!handlers) return
@@ -409,7 +474,7 @@ export class RealtimeLink {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, messages, timezone: localTimezone() }),
+        body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative }),
         signal,
       })
 
