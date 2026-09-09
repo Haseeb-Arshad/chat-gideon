@@ -258,10 +258,29 @@ memory ranking and eviction, URL scheme rejection, rate-limit buckets, origin
 and constant-time access-code checks, dash-stripping across a token stream, and
 the mood plane.
 
-Deploying anywhere that cannot hold a WebSocket (Vercel and other serverless
-hosts) silently drops to the HTTP path and loses browser-run tools. A
-long-lived Node host — Fly.io, Railway, a VPS — exercises the real
-architecture.
+### Where the socket actually runs
+
+Be clear about this one, because it is the difference between the architecture
+and a demo of it. The WebSocket host is currently a **Vite dev-server plugin**
+(`realtime-plugin.ts`, `apply: 'serve'`). So:
+
+| | Socket | Browser tools | Everything else |
+| --- | --- | --- | --- |
+| `npm run dev` | yes | yes | yes |
+| `npm run build && npm start` | no | no | yes |
+
+The built server drops to the HTTP frame path, which carries identical frames
+and loses only the tools the browser has to run. That is a deliberate fallback
+rather than a break — but it does mean the production build is not yet
+exercising the transport that the design is built around.
+
+The reason is mundane: Nitro's `node` preset calls `serve({ fetch })` itself and
+never hands back the underlying HTTP server, so there is no seam to attach an
+`upgrade` handler to. The fix is a production entry that owns the listener and
+delegates non-upgrade requests to Nitro's fetch handler — the session itself
+needs no changes, because `createRealtimeSession` already takes nothing but a
+sink and the core imports no framework. Until that lands, treat a deployed link
+as the HTTP path and run it locally to see the socket.
 
 ---
 
@@ -269,6 +288,8 @@ architecture.
 
 Honest list, in the order I would do them:
 
+- **A production socket host**, so the built server exercises the realtime
+  transport rather than its fallback. See the note above.
 - **Streaming speech-to-text** behind the `SpeechSource` seam, which is what
   ends the Chrome/Edge restriction and puts endpointing entirely under our
   control.
