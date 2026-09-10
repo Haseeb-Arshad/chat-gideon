@@ -70,8 +70,20 @@ diverges from the one you are having.
 ### 3. It acts, and hands you the receipt
 
 The turn is an agent loop, not a chat completion. It can read the clock,
-remember durable facts about you, recall and forget them, search the web, set a
-timer, and put a link on screen.
+remember durable facts about you, recall and forget them, research anything
+current, set a timer, and put a link on screen.
+
+Questions about the world go to a research desk rather than to the model you
+are talking to. The speaking model is chosen for how fast its first word
+arrives; the desk (`gpt-5.6-luna`, with `nemotron-3-ultra` behind it) searches
+the live web through Exa, reads a page when a passage leaves the answer
+ambiguous, checks dates, and hands back a short brief with its sources, which
+land in the ledger as links. Research is read-only, so a speculative turn may
+start it: the search begins while you are still finishing the question. If
+that guess is thrown away, the search is not. It keeps running for a few
+seconds, and the real turn joins it instead of starting over. GIDEON says
+"one moment" the instant it goes to look, and a slow run is hedged: after seven
+seconds Exa's direct answer races it, and the first usable answer wins.
 
 Two of those can only happen in the browser — a timer has to live where the
 page lives, a link has to be offered to whoever is looking at the screen — so
@@ -128,7 +140,7 @@ Browser ────────────────────────
 Node server (the same core runs in the Vite dev host and a built Nitro server)
   transcription ──► OpenRouter /audio/transcriptions (parakeet, nova-3 behind it)
   agent loop ──► OpenRouter (streamed, tools attached)
-       ├─ server tools: clock · memory · web search
+       ├─ server tools: clock · memory · research ──► research model ──► Exa
        └─ client tools: tool_request ──► browser ──► tool_reply
   memory: IDF-ranked facts, merged on restatement, evicted by usefulness
   guard: origin · optional access code · per-caller token buckets
@@ -272,7 +284,10 @@ recogniser survives only as a fallback for a browser without it.
 | `OPENROUTER_STT_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Transcription; fastest measured |
 | `OPENROUTER_STT_FALLBACK_MODEL` | `deepgram/nova-3` | Used if the primary fails |
 | `GIDEON_MEMORY_PATH` | `.gideon/memory.json` | Where facts persist; `none` for no disk |
-| `TAVILY_API_KEY` | unset | Enables `web_search` |
+| `EXA_API_KEY` | unset | Enables live `research` |
+| `OPENROUTER_RESEARCH_MODEL` | `openai/gpt-5.6-luna` | The research desk |
+| `OPENROUTER_RESEARCH_FALLBACK_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Used if the desk's model fails |
+| `OPENROUTER_RESEARCH_EFFORT` | `none` | The desk's reasoning; measured below |
 | `GIDEON_ACCESS_CODE` | unset | Required on every request when set |
 | `GIDEON_ALLOWED_ORIGINS` | same-origin | Only if the page is embedded elsewhere |
 | `GIDEON_RATE_LIMIT` | `auto` | `auto` meters public hosts only; `on`/`off` force it |
@@ -280,6 +295,27 @@ recogniser survives only as a fallback for a browser without it.
 
 Never rename the key to a `VITE_` variable. Vite exposes `VITE_` variables to
 browser code; GIDEON keeps this credential in server routes only.
+
+### Measure research
+
+```bash
+npm run benchmark:research
+```
+
+Two live checks, skipped by `npm test` because they spend real money. The first
+asks the speaking model six questions and fails if a question about the world
+is answered without research, or a piece of small talk is sent to it. The
+second times the research desk; without `EXA_API_KEY` it swaps Exa for a fixed
+page so the model loop can still be measured. With a correct source, on
+10 September 2026:
+
+| Research effort | Searches | Brief ready |
+| --- | --- | --- |
+| `none` (default) | 1 | 3.5 to 6.4 s |
+| `low` | 3 to 4 | 6.2 to 7.5 s |
+
+The briefs were the same; `low` spent the difference cross-checking sources
+that already agreed. Given a page for the wrong day, both noticed and said so.
 
 ### Controls
 

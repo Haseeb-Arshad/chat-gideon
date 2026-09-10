@@ -20,6 +20,7 @@ import { SpokenText } from './speech'
 import type { ServerFrame } from './protocol'
 import {
   CLIENT_TOOLS,
+  READ_ONLY_TOOLS,
   TOOL_SCHEMAS,
   contextMemories,
   runServerTool,
@@ -57,7 +58,9 @@ Plain text only. Markdown, headings, bullets and emoji do not survive being read
 
 Never use em dashes or en dashes. Use a comma, a full stop, or two sentences.
 
-You have tools. Use one only when the answer genuinely depends on it, because every tool call is silence the user has to sit through. Anything about the current date or time needs get_time; you do not otherwise know what day it is. Anything that changes over time, or that you would otherwise be guessing at, needs web_search.
+You have tools. Use one only when the answer genuinely depends on it, because every tool call is silence the user has to sit through. Anything about the current date or time needs get_time; you do not otherwise know what day it is.
+
+Anything about the world that changes over time, or that you would otherwise be guessing at, goes to research: news, prices, results, weather, releases, who someone is, what something costs, what is true today. Your own knowledge has a cutoff and the user is asking now. Give research the whole question in plain words with every detail the user gave, then answer from the brief it returns and nothing else: keep its numbers, names and dates exactly, mention a source in passing when it matters, and if the brief says something could not be found, say that rather than filling the gap yourself.
 
 Remember something when the user tells you a durable fact about themselves, and recall when the answer depends on one. Never say that you are remembering, recalling, searching or checking. Do the call and then just answer.
 
@@ -67,6 +70,9 @@ function readEnv(name: string, fallback: string) {
   const value = process.env[name]?.trim()
   return value || fallback
 }
+
+/** The same lookup, shaped for tools that treat a missing value as unset. */
+const configValue = (name: string) => readEnv(name, '') || undefined
 
 function serverHeaders() {
   const apiKey = readEnv('OPENROUTER_API_KEY', '')
@@ -163,7 +169,7 @@ export function memoryStore(): MemoryStore {
 /** Which tools this build can actually run, for the `ready` frame. */
 export function availableTools(bridged = false): string[] {
   return TOOL_SCHEMAS.filter((schema) => {
-    if (schema.name === 'web_search') return Boolean(readEnv('TAVILY_API_KEY', ''))
+    if (schema.name === 'research') return Boolean(readEnv('EXA_API_KEY', ''))
     if (schema.client) return bridged
     return true
   }).map((schema) => schema.name)
@@ -228,13 +234,17 @@ export interface TurnOptions {
   /**
    * A guess at an unfinished sentence, which may be discarded unheard.
    *
-   * Speculation is only safe while a wrong guess is *unobservable*, and a tool
-   * call is the one thing in a turn that is not: a timer really starts, a fact
-   * really persists, a link really appears. So a speculative turn is offered
-   * the tools — it has to be, or it would confidently answer "what time is it"
-   * without looking, and that answer would match the final transcript and be
-   * committed — but the moment it reaches for one, the turn is abandoned
-   * instead of executed. The real turn that follows does the work properly.
+   * Speculation is only safe while a wrong guess is *unobservable*, and most
+   * tool calls are not: a timer really starts, a fact really persists, a link
+   * really appears. So a speculative turn is offered every tool — it has to
+   * be, or it would confidently answer "what time is it" without looking, and
+   * that answer would match the final transcript and be committed — but the
+   * moment it reaches for one that leaves a trace, the turn is abandoned
+   * instead of executed, and the real turn does the work properly.
+   *
+   * Read-only tools are the exception, and research is the one that matters:
+   * a search started on a guess costs a search and nothing else, and it is
+   * exactly the slow thing worth starting before the sentence has finished.
    */
   speculative?: boolean
 }
@@ -247,6 +257,25 @@ export interface TurnOptions {
  * recall then act — and a model that wants a third is usually looping.
  */
 const MAX_TOOL_ROUNDS = 2
+
+/**
+ * What GIDEON says before it goes to look something up.
+ *
+ * Research takes seconds, not milliseconds, and a voice that goes silent that
+ * long sounds like it has hung up. Chosen by the call id, so the choice varies
+ * from turn to turn without any randomness a test would have to fight.
+ */
+export const RESEARCH_FILLERS = [
+  'One moment, let me look.',
+  'Let me look that up.',
+  'Give me a second to check.',
+]
+
+function holdingLine(seed: string) {
+  let hash = 0
+  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) | 0
+  return RESEARCH_FILLERS[Math.abs(hash) % RESEARCH_FILLERS.length]
+}
 
 interface UpstreamMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -308,6 +337,11 @@ export async function* streamTurn(
   let complete = ''
   let started = false
   let useTools = true
+  // A research tool with no key behind it would only buy a holding line and
+  // an apology, so a server without one does not offer it at all.
+  const offeredTools = toolDefinitions().filter(
+    (tool) => tool.function.name !== 'research' || Boolean(readEnv('EXA_API_KEY', '')),
+  )
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     const pending = new Map<number, PendingCall>()
@@ -323,7 +357,7 @@ export async function* streamTurn(
           messages: history,
           // The last permitted round has no way to act on a tool call, so it is
           // not offered any; otherwise a turn could end on an unanswered one.
-          ...(useTools && round < MAX_TOOL_ROUNDS ? { tools: toolDefinitions() } : {}),
+          ...(useTools && round < MAX_TOOL_ROUNDS ? { tools: offeredTools } : {}),
           // First-token latency matters more to a voice turn than peak token rate.
           provider: { sort: 'latency', allow_fallbacks: true },
           reasoning: { effort: 'none', exclude: true },
@@ -374,6 +408,10 @@ export async function* streamTurn(
     }
 
     let roundContent = ''
+    // A round after a tool call picks the reply up where the last one stopped,
+    // and the model starts it as though nothing came before: without this the
+    // caption reads "forecast.Sunny" and the history keeps it that way.
+    let separate = round > 0
     const reader = upstream.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -409,8 +447,10 @@ export async function* streamTurn(
           if (finished) break
           if (raw) {
             roundContent += raw
-            const text = spoken.push(raw)
+            let text = spoken.push(raw)
             if (text) {
+              if (separate && /\S$/.test(complete) && /^\S/.test(text)) text = ` ${text}`
+              separate = false
               complete += text
               yield { t: 'delta', id, text }
             }
@@ -422,8 +462,10 @@ export async function* streamTurn(
         const raw = readPayload(buffer)
         if (raw) {
           roundContent += raw
-          const text = spoken.push(raw)
+          let text = spoken.push(raw)
           if (text) {
+            if (separate && /\S$/.test(complete) && /^\S/.test(text)) text = ` ${text}`
+            separate = false
             complete += text
             yield { t: 'delta', id, text }
           }
@@ -445,7 +487,7 @@ export async function* streamTurn(
     if (!calls.length) break
     if (signal.aborted) return
 
-    if (options.speculative) {
+    if (options.speculative && calls.some((call) => !READ_ONLY_TOOLS.has(call.name))) {
       // Nothing has been executed and nothing will be. The guess is reported
       // as unusable so the browser discards it rather than promoting an answer
       // that was about to depend on work that never happened.
@@ -453,9 +495,24 @@ export async function* streamTurn(
       return
     }
 
+    // Only when nothing has been said yet: a model that opened with a sentence
+    // of its own has already filled the silence. The line goes through the
+    // same cleaner as the model's words, so the caption, the voice and the
+    // history all carry it, and it goes into the model's own turn so the answer
+    // that follows does not say it again.
+    let holding = ''
+    if (!complete.trim() && calls.some((call) => call.name === 'research')) {
+      holding = holdingLine(calls[0].id || id)
+      const text = spoken.push(`${holding} `)
+      if (text) {
+        complete += text
+        yield { t: 'delta', id, text }
+      }
+    }
+
     history.push({
       role: 'assistant',
-      content: roundContent,
+      content: roundContent || holding,
       tool_calls: calls.map((call, index) => ({
         id: call.id || `call_${round}_${index}`,
         type: 'function' as const,
@@ -480,22 +537,37 @@ export async function* streamTurn(
           }
         }
       } else {
+        if (call.name === 'research') {
+          // Research is the one tool slow enough that the silence needs
+          // explaining. The browser shows this line until the result replaces it.
+          yield {
+            t: 'action',
+            id,
+            call: callId,
+            name: call.name,
+            summary: 'Looking that up…',
+            ok: true,
+            pending: true,
+          }
+        }
         outcome = await runServerTool(call.name, args, {
           store: memoryStore(),
           timezone: options.timezone || 'UTC',
           signal,
+          env: configValue,
         })
       }
 
       if (signal.aborted) return
-      if (outcome.summary) {
+      if (outcome.summary || call.name === 'research') {
         yield {
           t: 'action',
           id,
           call: callId,
           name: call.name,
-          summary: outcome.summary,
+          summary: outcome.summary ?? 'Research came back empty',
           ok: outcome.ok,
+          ...(outcome.links?.length ? { links: outcome.links } : {}),
         }
       }
 

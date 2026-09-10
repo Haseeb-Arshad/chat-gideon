@@ -28,7 +28,7 @@ import {
   nudgeMood,
   scoreText,
 } from '../lib/mood'
-import { RealtimeLink, type TurnHandle } from '../lib/realtime-client'
+import { RealtimeLink, type ActionEvent, type TurnHandle } from '../lib/realtime-client'
 import { SpeculationTracker, looksUnfinished } from '../lib/speculation'
 import {
   ClientToolRunner,
@@ -102,6 +102,8 @@ interface LedgerEntry {
   summary: string
   ok: boolean
   at: number
+  /** Still happening. The entry is replaced in place when the result arrives. */
+  pending?: boolean
 }
 
 const STORAGE_KEY = 'gideon-conversation-v2'
@@ -164,6 +166,11 @@ interface RunningTurn {
    */
   failed: boolean
   voice: VoiceQueue | null
+  /**
+   * What a speculative turn did while nobody could see it. Held back so a
+   * guess that is thrown away leaves no trace, and replayed if it is kept.
+   */
+  actions: ActionEvent[]
   /**
    * Set by `promote` when the stream is still running, so the settle step is
    * driven by whichever of the two happens second.
@@ -313,12 +320,41 @@ export function AgentPage() {
     captureRef.current?.setDucking(false)
   }, [])
 
-  const note = useCallback((summary: string, ok = true) => {
-    setLedger((current) => [
-      ...current.slice(-5),
-      { id: `${Date.now().toString(36)}-${current.length}`, summary, ok, at: Date.now() },
-    ])
+  const note = useCallback((summary: string, ok = true, key?: string, pending = false) => {
+    setLedger((current) => {
+      const id = key ?? `${Date.now().toString(36)}-${current.length}`
+      const entry: LedgerEntry = { id, summary, ok, at: Date.now(), pending }
+      // A keyed entry updates itself: "Looking that up…" becomes the result
+      // rather than sitting above it as a second line.
+      if (key && current.some((existing) => existing.id === key)) {
+        return current.map((existing) => (existing.id === key ? entry : existing))
+      }
+      return [...current.slice(-5), entry]
+    })
   }, [])
+
+  /** What GIDEON is busy with while the turn is silent, for the status line. */
+  const [working, setWorking] = useState<string | null>(null)
+
+  /** Puts one of a live turn's actions in front of the user. */
+  const showAction = useCallback(
+    (turn: RunningTurn, action: ActionEvent) => {
+      note(action.summary, action.ok, `${turn.id}:${action.call}`, action.pending)
+      setWorking(action.pending ? 'Looking that up…' : null)
+      if (!action.links.length) return
+      setLinks((current) =>
+        [
+          ...current,
+          ...action.links.map((link) => ({
+            id: `${turn.id}:${action.call}:${link.url}`,
+            url: link.url,
+            title: link.title,
+          })),
+        ].slice(-4),
+      )
+    },
+    [note],
+  )
 
   // -- Browser-run tools ---------------------------------------------------
 
@@ -560,6 +596,8 @@ export function AgentPage() {
     (turn: RunningTurn, finalText: string, context: Message[]) => {
       turnRef.current = turn
       turn.speculative = false
+      // Whatever the guess did while it was invisible, it did for real.
+      for (const action of turn.actions.splice(0)) showAction(turn, action)
 
       setNotice(null)
       setRetryText(null)
@@ -663,7 +701,7 @@ export function AgentPage() {
       if (turn.finished) void settle()
       else turn.onFinish = settle
     },
-    [feel, scheduleListen, setPhase],
+    [feel, scheduleListen, setPhase, showAction],
   )
 
   /**
@@ -688,6 +726,7 @@ export function AgentPage() {
         cancelled: false,
         failed: false,
         voice: null,
+        actions: [],
       }
 
       if (!speculative) {
@@ -710,14 +749,20 @@ export function AgentPage() {
             else setAssistantCaption(turn.complete)
           },
           onAction: (action) => {
+            if (turn.cancelled) return
             // A speculative turn is invisible, and so are its actions: the guess
             // may yet be thrown away, and a ledger entry for work nobody asked
-            // for would be a lie about what happened.
-            if (turn.cancelled || turn.speculative) return
-            note(action.summary, action.ok)
+            // for would be a lie about what happened. They are held instead,
+            // and `promote` replays them if the guess turns out to be the answer.
+            if (turn.speculative) {
+              turn.actions.push(action)
+              return
+            }
+            showAction(turn, action)
           },
           onDone: (finalText) => {
             if (turn.cancelled) return
+            setWorking(null)
             turn.complete = finalText || turn.complete
             turn.finished = true
             turn.timeline.mark('reply_done')
@@ -725,6 +770,7 @@ export function AgentPage() {
           },
           onError: (message, retryable) => {
             if (turn.cancelled) return
+            setWorking(null)
             turn.finished = true
             turn.failed = true
             // A speculative failure is invisible on purpose. The real turn is
@@ -754,7 +800,7 @@ export function AgentPage() {
       turn.timeline.mark('turn_sent')
       return turn
     },
-    [note, scheduleListen, setPhase],
+    [showAction, scheduleListen, setPhase],
   )
 
   const sendMessage = useCallback(
@@ -1236,8 +1282,8 @@ export function AgentPage() {
       : {
           idle: voiceMode === 'muted' ? 'Voice muted' : 'Here with you',
           listening: liveTranscript ? 'I hear you' : 'Listening…',
-          thinking: 'Thinking with you…',
-          replying: 'Replying',
+          thinking: working ?? 'Thinking with you…',
+          replying: working ?? 'Replying',
           speaking: 'Speaking · cut in any time',
           paused: 'Quiet pause',
         }[phase]
@@ -1418,7 +1464,12 @@ export function AgentPage() {
       {ledger.length || links.length ? (
         <section className="action-ledger" aria-label="What GIDEON did">
           {ledger.map((entry) => (
-            <p className="ledger-entry" data-ok={entry.ok} key={entry.id}>
+            <p
+              className="ledger-entry"
+              data-ok={entry.ok}
+              data-pending={entry.pending ? 'true' : undefined}
+              key={entry.id}
+            >
               <Check size={13} strokeWidth={2.5} />
               <span>{entry.summary}</span>
             </p>

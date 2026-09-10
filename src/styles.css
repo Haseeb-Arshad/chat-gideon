@@ -382,6 +382,20 @@ button:active:not(:disabled) {
   color: rgba(63, 201, 160, 0.68);
 }
 
+.ledger-entry[data-pending='true'] {
+  opacity: 0.7;
+}
+
+.ledger-entry[data-pending='true'] svg {
+  animation: ledger-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes ledger-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .ledger-entry[data-ok='false'] {
   color: rgba(255, 183, 172, 0.62);
 }
@@ -429,6 +443,10 @@ button:active:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   .ledger-link {
     transition: none;
+  }
+
+  .ledger-entry[data-pending='true'] svg {
+    animation: none;
   }
 }
 

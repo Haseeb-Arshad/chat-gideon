@@ -75,7 +75,18 @@ export type ServerFrame =
    * GIDEON did something. One line per action, for the ledger the user can
    * read back — an agent that acts has to be auditable.
    */
-  | { t: 'action'; id: string; call: string; name: string; summary: string; ok: boolean }
+  | {
+      t: 'action'
+      id: string
+      call: string
+      name: string
+      summary: string
+      ok: boolean
+      /** Still happening; a later frame with the same `call` replaces this one. */
+      pending?: boolean
+      /** Where the result came from, for the user to open if they want to. */
+      links?: Array<{ title: string; url: string; publishedDate?: string }>
+    }
   /** Asks the browser to run a tool only it can run. Socket transport only. */
   | { t: 'tool_request'; id: string; call: string; name: string; args: unknown }
   | { t: 'error'; id: string | null; code: string; message: string; retryable: boolean }

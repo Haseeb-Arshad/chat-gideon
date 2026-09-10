@@ -21,6 +21,7 @@ import {
   touch,
   type MemoryKind,
 } from './memory'
+import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 
 export interface ToolSchema {
   name: string
@@ -28,6 +29,11 @@ export interface ToolSchema {
   parameters: Record<string, unknown>
   /** Fulfilled by the browser rather than the server. */
   client?: boolean
+  /**
+   * Leaves no trace: nothing stored, started, or shown. Only these may run in
+   * a speculative turn, because only for these is a wrong guess unobservable.
+   */
+  readOnly?: boolean
 }
 
 export interface ToolOutcome {
@@ -39,6 +45,8 @@ export interface ToolOutcome {
   content: string
   /** One line for the action ledger, or nothing to keep it out of the ledger. */
   summary?: string
+  /** Pages the user may want to open themselves: where an answer came from. */
+  links?: ResearchSource[]
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -47,6 +55,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     description:
       "The current date and time in the user's timezone. Use this before answering anything about today, now, or how long until something.",
     parameters: { type: 'object', properties: {}, required: [] },
+    readOnly: true,
   },
   {
     name: 'remember',
@@ -93,16 +102,21 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
   {
-    name: 'web_search',
+    name: 'research',
     description:
-      'Search the web for something you do not know or that changes over time. Returns short snippets. Summarise them in a sentence or two, spoken plainly, and say where it came from.',
+      'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources. Use it for anything current or anything you would otherwise be guessing at: news, prices, scores, weather, releases, people, places, products, what something is or how it works today. Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'The search query.' },
+        question: {
+          type: 'string',
+          description:
+            'The full question, self-contained, including names, places, and dates the user mentioned.',
+        },
       },
-      required: ['query'],
+      required: ['question'],
     },
+    readOnly: true,
   },
   {
     name: 'set_timer',
@@ -136,6 +150,10 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 
 export const CLIENT_TOOLS = new Set(
   TOOL_SCHEMAS.filter((schema) => schema.client).map((schema) => schema.name),
+)
+
+export const READ_ONLY_TOOLS = new Set(
+  TOOL_SCHEMAS.filter((schema) => schema.readOnly).map((schema) => schema.name),
 )
 
 /** Shape for the OpenRouter/OpenAI `tools` parameter. */
@@ -257,84 +275,42 @@ async function runMemoryTool(
   return { ok: false, content: `Unknown memory tool ${name}.` }
 }
 
-interface SearchHit {
-  title: string
-  snippet: string
-  url: string
-}
-
 /**
- * Web search through Tavily, when a key is configured.
+ * Delegates a live question to the researcher and shapes its brief for a
+ * model that is about to speak.
  *
- * Deliberately soft-failing. Search is the one tool with an external
- * dependency, and a GIDEON that cannot search should say so in one sentence
- * rather than break every turn that touches the outside world.
+ * Soft-failing on purpose. Research is the one tool with two external
+ * dependencies, and a GIDEON that cannot look something up should say so in a
+ * sentence rather than break every turn that touches the outside world.
  */
-async function runSearch(
+async function runResearch(
   args: Record<string, unknown>,
-  signal: AbortSignal,
+  context: ToolContext,
 ): Promise<ToolOutcome> {
-  const key = process.env.TAVILY_API_KEY?.trim()
-  if (!key) {
+  const question = text(args, 'question') || text(args, 'query')
+  if (!question) return { ok: false, content: 'No question was given to research.' }
+
+  const deps = defaultDeps(context.env)
+  const result = await research(question, { signal: context.signal, timezone: context.timezone }, deps)
+  if (!result.ok) {
     return {
       ok: false,
-      content:
-        'Web search is not configured on this server, so you do not have live information. Say so plainly and answer from what you already know.',
+      content: result.brief,
+      summary: deps.exaKey ? 'Could not look that up' : 'Research is not set up here',
     }
   }
 
-  const query = text(args, 'query')
-  if (!query) return { ok: false, content: 'No search query was given.' }
-
-  try {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        query,
-        max_results: 4,
-        // A voice reply is two sentences long; a page of prose per result would
-        // only be thrown away by the model.
-        search_depth: 'basic',
-        include_answer: true,
-      }),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(7_000)]),
-    })
-
-    if (!response.ok) {
-      return { ok: false, content: 'The search service refused that request.' }
-    }
-
-    const body = (await response.json()) as {
-      answer?: string
-      results?: Array<{ title?: string; content?: string; url?: string }>
-    }
-
-    const hits: SearchHit[] = (body.results ?? []).slice(0, 4).map((result) => ({
-      title: (result.title ?? '').slice(0, 120),
-      snippet: (result.content ?? '').slice(0, 320),
-      url: result.url ?? '',
-    }))
-
-    if (!hits.length && !body.answer) {
-      return { ok: true, content: 'The search came back with nothing useful.' }
-    }
-
-    const lines = [
-      body.answer ? `Summary: ${body.answer}` : '',
-      ...hits.map((hit) => `- ${hit.title}: ${hit.snippet} (${hit.url})`),
-    ].filter(Boolean)
-
-    return {
-      ok: true,
-      content: lines.join('\n'),
-      summary: `Searched the web for "${query}"`,
-    }
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') {
-      return { ok: false, content: 'The search took too long, so there is no live result.' }
-    }
-    return { ok: false, content: 'The search could not be reached.' }
+  const where =
+    result.via === 'cache'
+      ? 'already had'
+      : result.via === 'answer'
+        ? 'looked up'
+        : `checked ${result.searches} search${result.searches === 1 ? '' : 'es'} for`
+  return {
+    ok: true,
+    content: result.brief,
+    summary: `Researched · ${where} "${question.length > 72 ? `${question.slice(0, 70)}…` : question}"`,
+    links: result.sources,
   }
 }
 
@@ -343,6 +319,8 @@ export interface ToolContext {
   /** From the browser, so "today" means the user's today. */
   timezone: string
   signal: AbortSignal
+  /** Configuration from the host, which may be a Worker rather than a process. */
+  env: EnvReader
 }
 
 /** Runs one server-side tool. Client tools never reach this. */
@@ -358,8 +336,8 @@ export async function runServerTool(
     case 'recall':
     case 'forget':
       return runMemoryTool(name, args, context.store)
-    case 'web_search':
-      return runSearch(args, context.signal)
+    case 'research':
+      return runResearch(args, context)
     default:
       return { ok: false, content: `There is no tool called ${name}.` }
   }

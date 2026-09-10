@@ -31,13 +31,23 @@ export interface LinkConfig {
   tools: string[]
 }
 
+export interface ActionEvent {
+  call: string
+  name: string
+  summary: string
+  ok: boolean
+  /** Still in progress; the frame that follows with the same `call` is the result. */
+  pending: boolean
+  links: Array<{ title: string; url: string; publishedDate?: string }>
+}
+
 export interface TurnHandlers {
   onStart?: () => void
   onDelta: (text: string) => void
   onDone: (text: string) => void
   onError: (message: string, retryable: boolean) => void
   /** GIDEON did something worth showing in the ledger. */
-  onAction?: (action: { call: string; name: string; summary: string; ok: boolean }) => void
+  onAction?: (action: ActionEvent) => void
 }
 
 export interface TurnHandle {
@@ -382,6 +392,8 @@ export class RealtimeLink {
           name: frame.name,
           summary: frame.summary,
           ok: frame.ok,
+          pending: frame.pending === true,
+          links: Array.isArray(frame.links) ? frame.links : [],
         })
         return
       case 'tool_request':
