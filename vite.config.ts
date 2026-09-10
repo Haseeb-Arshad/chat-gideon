@@ -28,8 +28,11 @@ const config = defineConfig(({ command, mode }) => ({
           // `node-middleware` rather than the default `node` preset: it exports
           // a plain Node request handler instead of starting its own listener,
           // which is the only way `server/serve.mjs` can own the HTTP server
-          // and attach the realtime socket's upgrade handler to it.
-          nitro({ preset: 'node-middleware' }),
+          // and attach the realtime socket's upgrade handler to it. A Vercel
+          // build gets Vercel's own output instead: it runs the app as
+          // functions, which cannot hold the socket, so the browser falls
+          // back to the HTTP path there.
+          nitro({ preset: process.env.VERCEL ? 'vercel' : 'node-middleware' }),
         ]
       : []),
     viteReact(),
