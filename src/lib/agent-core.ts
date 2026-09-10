@@ -11,6 +11,7 @@ import {
   CHAT_FALLBACK_MODEL,
   TRANSCRIBE_FALLBACK_MODEL,
   TRANSCRIBE_MODEL,
+  VOICE,
   VOICE_MODEL,
   providerErrorMessage,
   type ChatMessageInput,
@@ -625,7 +626,7 @@ export async function fetchVoice(text: string, signal: AbortSignal): Promise<Voi
       body: JSON.stringify({
         model: readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL),
         input: `${VOICE_STYLE} ${text}`,
-        voice: readEnv('OPENROUTER_VOICE', 'alloy'),
+        voice: readEnv('OPENROUTER_VOICE', VOICE),
         response_format: 'mp3',
       }),
       signal,

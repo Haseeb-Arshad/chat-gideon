@@ -279,8 +279,8 @@ recogniser survives only as a fallback for a browser without it.
 | `OPENROUTER_API_KEY` | required | Server-only bearer token |
 | `OPENROUTER_CHAT_MODEL` | `openai/gpt-4.1-mini` | Must support tool calling for GIDEON to act |
 | `OPENROUTER_CHAT_FALLBACK_MODEL` | `minimax/minimax-m3:free` | Free fallback |
-| `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro-free:free` | Speech synthesis |
-| `OPENROUTER_VOICE` | `alloy` | Voice identifier |
+| `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro` | Speech synthesis; the free tier is the same model, far slower to start |
+| `OPENROUTER_VOICE` | `933563129e564b19a115bedd57b7406a` | A Fish voice id; the default is "Sarah" |
 | `OPENROUTER_STT_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Transcription; fastest measured |
 | `OPENROUTER_STT_FALLBACK_MODEL` | `deepgram/nova-3` | Used if the primary fails |
 | `GIDEON_MEMORY_PATH` | `.gideon/memory.json` | Where facts persist; `none` for no disk |

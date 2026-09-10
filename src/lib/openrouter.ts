@@ -1,6 +1,17 @@
 export const CHAT_MODEL = 'openai/gpt-4.1-mini'
 export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
-export const VOICE_MODEL = 'fish-audio/s2.1-pro-free:free'
+/**
+ * Fish S2.1 Pro, the paid tier rather than the free one. The free tier is the
+ * same model behind a congested queue: on 10 September 2026 it took 6 to 9.6
+ * seconds to start speaking, or timed out, where the paid tier started in 0.4
+ * to 0.9 seconds with every voice tried.
+ */
+export const VOICE_MODEL = 'fish-audio/s2.1-pro'
+/**
+ * "Sarah" from the Fish voice library, its most used English female voice.
+ * Any 32-character Fish voice id works in its place.
+ */
+export const VOICE = '933563129e564b19a115bedd57b7406a'
 /**
  * Speech to text, chosen by measurement.
  *
