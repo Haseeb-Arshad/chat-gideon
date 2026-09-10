@@ -294,14 +294,21 @@ describe('hedging a slow run', () => {
 
   it('keeps waiting for the research model when the direct answer fails', async () => {
     const answerCalls: string[] = []
+    let modelCalls = 0
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/answer')) {
         answerCalls.push(url)
         return json({ error: 'down' }, 500)
       }
+      if (url.endsWith('/search')) return json(searchFixture({ query: 'slow' }))
       await sleep(40)
-      return json(textTurn('Forty-two, from the research desk.'))
+      modelCalls += 1
+      return json(
+        modelCalls === 1
+          ? toolCallTurn([{ name: 'search', args: { query: 'slow' } }])
+          : textTurn('Forty-two, from the research desk.'),
+      )
     }) as unknown as typeof globalThis.fetch
 
     const result = await research(
@@ -313,6 +320,55 @@ describe('hedging a slow run', () => {
     expect(result.via).toBe('agent')
     expect(result.brief).toContain('research desk')
     expect(answerCalls).toHaveLength(1)
+  })
+})
+
+describe('what counts as a brief', () => {
+  const almanac = () => ({
+    answer: 'Forty-two, per the almanac.',
+    citations: [{ title: 'Almanac', url: 'https://almanac.test/42' }],
+  })
+
+  it('makes a model that writes its tool call out as text write the brief instead', async () => {
+    const { fetch, calls } = scripted({
+      model: [
+        toolCallTurn([{ name: 'search', args: { query: 'q' } }]),
+        textTurn('<tool_call>\n{"name": "search", "arguments": {"query": "q again"}}\n</tool_call>'),
+        textTurn('Forty-two.\nSources: Result for q https://example.org/q'),
+      ],
+      search: searchFixture,
+    })
+
+    const result = await research('what is q', { signal: new AbortController().signal }, deps(fetch), null)
+    expect(result.via).toBe('agent')
+    expect(result.brief).toBe('Forty-two.\nSources: Result for q https://example.org/q')
+    const writing = calls.filter((call) => call.url.includes('openrouter'))[2].body
+    expect(writing.tools).toBeUndefined()
+    const messages = writing.messages as Array<{ role: string; content: string }>
+    expect(messages.at(-1)?.content).toMatch(/Write the brief now/)
+  })
+
+  it('gives up on a model that will not write a brief, and lets the direct answer stand in', async () => {
+    const markup = textTurn('<tool_call>{"name": "read", "arguments": {"url": "https://example.org/q"}}</tool_call>')
+    const { fetch } = scripted({
+      model: [toolCallTurn([{ name: 'search', args: { query: 'q' } }]), markup, markup],
+      search: searchFixture,
+      answer: almanac,
+    })
+
+    const result = await research('what is q', { signal: new AbortController().signal }, deps(fetch), null)
+    expect(result.via).toBe('answer')
+    expect(result.brief).toContain('almanac')
+    expect(result.brief).not.toContain('tool_call')
+  })
+
+  it('will not pass off an answer from memory as research', async () => {
+    const { fetch, calls } = scripted({ model: [textTurn('Forty-two, as I recall.')], answer: almanac })
+
+    const result = await research('what is q', { signal: new AbortController().signal }, deps(fetch), null)
+    expect(result.via).toBe('answer')
+    expect(result.brief).not.toContain('recall')
+    expect(calls.filter((call) => call.url.includes('openrouter'))).toHaveLength(1)
   })
 })
 

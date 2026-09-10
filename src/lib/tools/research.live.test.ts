@@ -114,7 +114,8 @@ describe.skipIf(!live)('live research', () => {
           ms: result.ms,
           brief: result.brief.split('\n')[0].slice(0, 100),
         })
-        expect(result.ok).toBe(true)
+        // Soft, so one failed run does not hide how the others went.
+        expect.soft(result.ok).toBe(true)
       }
     }
   })

@@ -361,6 +361,15 @@ function citedSources(brief: string, seen: Map<string, ResearchSource>): Researc
   return (cited.length ? cited : [...seen.values()]).slice(0, 6)
 }
 
+/**
+ * A tool call written out as text in a model's own markup instead of being
+ * made. Nemotron did this in every measured run when it wanted another search.
+ */
+const TOOL_MARKUP = /<\/?tool_call>|<\|tool_call|\[TOOL_CALLS\]|<function[=\s>]|"name"\s*:\s*"(search|read)"/i
+
+const WRITE_NOW =
+  'Write the brief now, in plain text, from the results above. Do not call any more tools.'
+
 interface AgentBrief {
   brief: string
   sources: ResearchSource[]
@@ -383,9 +392,11 @@ async function runAgent(
   const seen = new Map<string, ResearchSource>()
   let searches = 0
   let modelUsed = deps.model
+  let writing = false
 
-  for (let round = 0; round <= MAX_ROUNDS; round += 1) {
-    const last = round === MAX_ROUNDS
+  // One round past the cap, for a model that has to be told to write.
+  for (let round = 0; round <= MAX_ROUNDS + 1; round += 1) {
+    const last = writing || round >= MAX_ROUNDS
     const response = await deps.fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: deps.openrouterHeaders,
@@ -416,8 +427,19 @@ async function runAgent(
     const content = typeof message?.content === 'string' ? message.content.trim() : ''
 
     if (!calls.length || last) {
-      if (!content) throw new Error('research model returned nothing')
-      return { brief: content, sources: citedSources(content, seen), searches, model: modelUsed }
+      const looked = searches > 0 || seen.size > 0
+      if (content && looked && !TOOL_MARKUP.test(content)) {
+        return { brief: content, sources: citedSources(content, seen), searches, model: modelUsed }
+      }
+      // Two things are not a brief: an answer given before any lookup, which is
+      // the model's memory and exactly what this desk exists to replace, and a
+      // tool call written out as text, which read aloud is noise. A model that
+      // looked gets one round to write properly; one that never looked is given
+      // up on, and the direct answer stands in.
+      if (writing || !looked) throw new Error('research model produced no grounded brief')
+      writing = true
+      history.push({ role: 'user', content: WRITE_NOW })
+      continue
     }
 
     history.push({ role: 'assistant', content, tool_calls: calls })
