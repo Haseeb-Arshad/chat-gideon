@@ -171,6 +171,8 @@ interface RunningTurn {
    * guess that is thrown away leaves no trace, and replayed if it is kept.
    */
   actions: ActionEvent[]
+  /** The history entry this reply settled into, once it has. */
+  messageId?: string
   /**
    * Set by `promote` when the stream is still running, so the settle step is
    * driven by whichever of the two happens second.
@@ -210,6 +212,13 @@ export function AgentPage() {
   const [assistantCaption, setAssistantCaption] = useState(WELCOME_MESSAGE.content)
   const [spokenChars, setSpokenChars] = useState(WELCOME_MESSAGE.content.length)
   const [captionTurn, setCaptionTurn] = useState(0)
+  /**
+   * The history entry whose words are still being spoken. A reply joins the
+   * history the moment its text has all arrived, usually a second or more
+   * before its voice has finished, so until then it is drawn from the caption
+   * the audio reveals rather than printed whole ahead of the voice.
+   */
+  const [voicingId, setVoicingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [retryText, setRetryText] = useState<string | null>(null)
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -556,18 +565,34 @@ export function AgentPage() {
     captureRef.current?.setDucking(false)
     levelRef.current = 0
 
+    // A reply that had finished arriving is already in the history, in full.
+    // It is replaced by what was heard rather than joined by it, and dropped
+    // outright if not a word of it was.
+    const history = messagesRef.current
+    const settledAt = turn.messageId
+      ? history.findIndex((message) => message.id === turn.messageId)
+      : -1
+    setVoicingId(null)
+
     if (spoken) {
       const assistantMessage: Message = {
-        id: makeId(),
+        id: turn.messageId ?? makeId(),
         role: 'assistant',
         content: `${spoken} [interrupted]`,
         createdAt: new Date().toISOString(),
       }
-      const next = [...messagesRef.current, assistantMessage]
+      const next =
+        settledAt >= 0
+          ? history.map((message, index) => (index === settledAt ? assistantMessage : message))
+          : [...history, assistantMessage]
       messagesRef.current = next
       setMessages(next)
       setAssistantCaption(spoken)
       setSpokenChars(spoken.length)
+    } else if (settledAt >= 0) {
+      const next = history.filter((_, index) => index !== settledAt)
+      messagesRef.current = next
+      setMessages(next)
     }
 
     // No `scheduleListen` here: the microphone never closed, and the person is
@@ -663,6 +688,8 @@ export function AgentPage() {
           createdAt: new Date().toISOString(),
         }
         const next = [...context, assistantMessage]
+        turn.messageId = assistantMessage.id
+        if (voice) setVoicingId(assistantMessage.id)
         messagesRef.current = next
         setMessages(next)
         setEmotion(emotionForTurn(finalText, turn.complete))
@@ -671,6 +698,7 @@ export function AgentPage() {
         if (voice) {
           voice.finish()
           await voice.idle()
+          setVoicingId((current) => (current === assistantMessage.id ? null : current))
         } else {
           setAssistantCaption(turn.complete)
           setSpokenChars(turn.complete.length)
@@ -1322,9 +1350,20 @@ export function AgentPage() {
    *
    * Nothing appears twice: a user line joins `messages` the moment its turn is
    * promoted, and the reply joins on settle, so the live entry below is only
-   * ever the one that genuinely has nowhere else to live.
+   * ever the one that genuinely has nowhere else to live. A reply that has
+   * settled but is still being spoken keeps the live entry's key and caption,
+   * so its words keep arriving with the voice instead of all at once.
    */
   const stream: StreamEntry[] = messages.map((message) => {
+    if (message.id === voicingId) {
+      return {
+        id: `live-${captionTurn}`,
+        role: 'assistant',
+        content: assistantCaption,
+        cut: false,
+        live: true,
+      }
+    }
     const cut = INTERRUPTED.test(message.content)
     return {
       id: message.id,
@@ -1438,6 +1477,7 @@ export function AgentPage() {
                     data-current={current}
                     key={entry.id}
                   >
+                    <span className="turn-who">Gideon</span>
                     {entry.live && !entry.content ? (
                       <span className="thought-pulse">•••</span>
                     ) : entry.live ? (

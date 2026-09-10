@@ -829,43 +829,37 @@ button:active:not(:disabled) {
   min-height: 100%;
 }
 
+/*
+ * One size for every line, yours and GIDEON's alike. A reply drawn at twice
+ * the size of the question it answers reads as the page shouting over you, so
+ * the line in play is marked by brightness alone and nothing changes shape.
+ */
 .turn-said {
   max-width: 100%;
   margin: 0;
-  transition:
-    color 460ms ease-out,
-    font-size 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  font-family: var(--font-display);
+  font-size: clamp(1.02rem, 1.7vw, 1.28rem);
+  font-weight: 400;
+  letter-spacing: -0.018em;
+  line-height: 1.36;
+  text-wrap: pretty;
+  transition: color 460ms ease-out;
 }
 
 .turn-said[data-role='gideon'] {
-  color: rgba(216, 223, 234, 0.4);
-  font-family: var(--font-display);
-  font-size: clamp(0.94rem, 1.5vw, 1.14rem);
-  font-weight: 400;
-  letter-spacing: -0.016em;
-  line-height: 1.36;
-  text-wrap: pretty;
+  color: rgba(216, 223, 234, 0.42);
 }
 
-/* The line being said right now: full size, full strength. */
 .turn-said[data-role='gideon'][data-current='true'] {
-  color: rgba(228, 233, 242, 0.86);
-  font-size: clamp(1.42rem, 2.6vw, 2.08rem);
-  letter-spacing: -0.034em;
-  line-height: 1.24;
-  text-wrap: balance;
+  color: rgba(228, 233, 242, 0.9);
 }
 
 .turn-said[data-role='user'] {
-  color: rgba(188, 197, 210, 0.34);
-  font-size: clamp(0.72rem, 1.1vw, 0.84rem);
-  line-height: 1.45;
+  color: rgba(188, 197, 210, 0.4);
 }
 
-/* What you are saying grows as you say it, then settles back on the reply. */
 .turn-said[data-role='user'][data-current='true'] {
-  color: rgba(207, 216, 229, 0.7);
-  font-size: clamp(0.94rem, 1.6vw, 1.14rem);
+  color: rgba(207, 216, 229, 0.8);
 }
 
 .turn-who {
@@ -896,7 +890,7 @@ button:active:not(:disabled) {
 .caption-word {
   display: inline-block;
   margin-right: 0.24em;
-  animation: word-rise 220ms ease-out both;
+  animation: word-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .caption-word.is-spoken {
@@ -1247,8 +1241,8 @@ button:active:not(:disabled) {
     margin-top: 14px;
   }
 
-  .turn-said[data-role='gideon'][data-current='true'] {
-    font-size: clamp(1.15rem, 2vw, 1.65rem);
+  .turn-said {
+    font-size: clamp(0.98rem, 1.6vw, 1.16rem);
   }
 }
 
@@ -1294,13 +1288,8 @@ button:active:not(:disabled) {
     margin-top: 16px;
   }
 
-  .turn-said[data-role='gideon'] {
-    font-size: 0.9rem;
-  }
-
-  .turn-said[data-role='gideon'][data-current='true'] {
-    font-size: clamp(1.2rem, 6vw, 1.55rem);
-    line-height: 1.32;
+  .turn-said {
+    font-size: clamp(0.98rem, 4.2vw, 1.1rem);
   }
 
   .voice-dock {
@@ -1343,8 +1332,8 @@ button:active:not(:disabled) {
     height: 138px;
   }
 
-  .turn-said[data-role='gideon'][data-current='true'] {
-    font-size: 1.13rem;
+  .turn-said {
+    font-size: 0.98rem;
   }
 
   .dock-row .text-composer {
