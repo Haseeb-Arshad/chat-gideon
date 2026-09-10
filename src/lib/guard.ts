@@ -16,6 +16,8 @@
  * full quota in the last second of one window and again in the first second of
  * the next, and a voice turn is bursty enough that the distinction is real.
  */
+import { runtimeEnv } from './runtime-env'
+
 export interface BucketConfig {
   /** Sustained rate, in tokens per second. */
   refillPerSecond: number
@@ -151,7 +153,7 @@ export function callerKey(headers: {
 }
 
 function readEnv(name: string): string {
-  return process.env[name]?.trim() || ''
+  return runtimeEnv(name) || process.env[name]?.trim() || ''
 }
 
 /**

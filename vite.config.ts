@@ -3,13 +3,17 @@ import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import { nitro } from 'nitro/vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
 
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 import { realtimePlugin } from './realtime-plugin'
 
-const config = defineConfig(({ command, mode }) => ({
+const config = defineConfig(({ command, mode }) => {
+  const isCloudflare = mode === 'cloudflare'
+
+  return {
   // Honour PORT so a second instance, or a host that assigns one, does not
   // collide with the default. The realtime socket is served from this same
   // server, so the port has to come from one place.
@@ -19,11 +23,12 @@ const config = defineConfig(({ command, mode }) => ({
   },
   resolve: { tsconfigPaths: true },
   plugins: [
+    ...(isCloudflare ? [cloudflare({ viteEnvironment: { name: 'ssr' } })] : []),
     devtools(),
-    realtimePlugin(),
+    ...(isCloudflare ? [] : [realtimePlugin()]),
     tailwindcss(),
     tanstackStart(),
-    ...(command === 'build' && mode !== 'test'
+    ...(command === 'build' && mode !== 'test' && !isCloudflare
       ? [
           // `node-middleware` rather than the default `node` preset: it exports
           // a plain Node request handler instead of starting its own listener,
@@ -37,6 +42,7 @@ const config = defineConfig(({ command, mode }) => ({
       : []),
     viteReact(),
   ],
-}))
+  }
+})
 
 export default config

@@ -1,0 +1,21 @@
+OPENROUTER_API_KEY=replace_with_your_openrouter_key
+OPENROUTER_SITE_URL=http://localhost:5173
+OPENROUTER_CHAT_MODEL=openai/gpt-4.1-mini
+OPENROUTER_CHAT_FALLBACK_MODEL=minimax/minimax-m3:free
+OPENROUTER_VOICE_MODEL=fish-audio/s2.1-pro
+OPENROUTER_VOICE=933563129e564b19a115bedd57b7406a
+OPENROUTER_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3
+OPENROUTER_STT_FALLBACK_MODEL=deepgram/nova-3
+
+# Optional live research. Leave empty if research is not needed yet.
+EXA_API_KEY=
+
+# Optional public-demo guard. Keep this out of source control.
+GIDEON_ACCESS_CODE=
+GIDEON_ALLOWED_ORIGINS=http://localhost:5173
+GIDEON_RATE_LIMIT=auto
+
+# Optional durable memory mirror. The Worker still uses DO storage if these
+# are absent, which keeps local development functional.
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=replace_with_service_role_key

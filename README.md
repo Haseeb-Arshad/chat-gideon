@@ -137,12 +137,13 @@ Browser ────────────────────────
                                         │ caption + eye level read this clock
         │ WebSocket (JSON frames + binary audio)
 ────────┼─────────────────────────────────────────────────────────────────────
-Node server (the same core runs in the Vite dev host and a built Nitro server)
+  Cloudflare Worker (the same core runs in the Node dev host and Worker)
   transcription ──► OpenRouter /audio/transcriptions (parakeet, nova-3 behind it)
   agent loop ──► OpenRouter (streamed, tools attached)
        ├─ server tools: clock · memory · research ──► research model ──► Exa
        └─ client tools: tool_request ──► browser ──► tool_reply
   memory: IDF-ranked facts, merged on restatement, evicted by usefulness
+          └─ Durable Object storage, optionally mirrored to Supabase
   guard: origin · optional access code · per-caller token buckets
 ```
 
@@ -296,6 +297,26 @@ recogniser survives only as a fallback for a browser without it.
 Never rename the key to a `VITE_` variable. Vite exposes `VITE_` variables to
 browser code; GIDEON keeps this credential in server routes only.
 
+### Compare chat models
+
+The repository includes a repeatable, no-thinking streaming benchmark for
+Mercury 2.5, GPT-4.1, and GPT-4.1 mini:
+
+```bash
+npm run benchmark:models -- --reps=3
+```
+
+It runs the same three-turn conversation for every model and reports time to
+first text (TTFT), total response time, post-first-token generation time,
+provider-reported output tokens per second, success rate, and whether reasoning
+was observed. The benchmark sends `reasoning: { effort: "none", exclude: true }`
+and does not change the model configured for the app. Use `--json` for raw rows
+or `--models inception/mercury-2.5` for a focused rerun.
+
+To opt into Mercury locally, set `OPENROUTER_CHAT_MODEL=inception/mercury-2.5`
+in `.env`; keep a known-good fallback in `OPENROUTER_CHAT_FALLBACK_MODEL` until
+the Inception provider is reachable from the deployment region.
+
 ### Measure research
 
 ```bash
@@ -327,20 +348,22 @@ that already agreed. Given a page for the wrong day, both noticed and said so.
 - Thirty seconds of quiet pauses the microphone.
 
 Conversation history stays in this browser's local storage. Memories are the
-only thing that leaves it, and only to the server you are running — where they
-are written as plain JSON to `GIDEON_MEMORY_PATH` (`.gideon/memory.json` by
-default, gitignored). There is no database and no third-party store; swapping
-`JsonMemoryStore` for a real one means implementing three methods behind the
-`MemoryStore` interface, which is why that interface exists.
+only thing that leaves it, and only to the server you are running. The local
+Node server writes them to `GIDEON_MEMORY_PATH` (`.gideon/memory.json` by
+default, gitignored). The Cloudflare Worker keeps the active session's memory
+in Durable Object storage and mirrors it to Supabase when the Worker bindings
+are configured. See [`backend/worker/README.md`](backend/worker/README.md).
 
 ---
 
 ## Verify
 
 ```bash
-npm test          # 184 tests
+npm test          # 253 tests, plus 2 live checks it skips
 npx tsc --noEmit
 npm run build
+npm run build:cloudflare
+npx wrangler deploy --dry-run
 ```
 
 The suite covers the parts where being wrong is silent: VAD state transitions
@@ -349,7 +372,25 @@ memory ranking and eviction, URL scheme rejection, rate-limit buckets, origin
 and constant-time access-code checks, dash-stripping across a token stream, and
 the mood plane.
 
-### Deploying
+### Deploying on Cloudflare (recommended)
+
+The repository now builds as one full-stack Worker. TanStack Start serves the
+frontend, the Worker adapter serves the HTTP APIs, and `GideonSession` provides
+the WebSocket backend. No separate frontend server is required.
+
+```powershell
+npx wrangler login
+npm run deploy:cloudflare
+```
+
+Put `OPENROUTER_API_KEY`, `EXA_API_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY` in Wrangler secrets. Apply
+[`001_gideon_memories.sql`](backend/worker/supabase/migrations/001_gideon_memories.sql)
+in Supabase before enabling the database mirror. Cloudflare and Supabase free
+tiers cover small personal demos within their quotas; OpenRouter model,
+transcription, voice, and Exa usage can still be billable or rate-limited.
+
+### Deploying with Node
 
 ```bash
 npm run build
@@ -365,9 +406,9 @@ exports a plain request handler instead. Dev and production then call the same
 `attachRealtime`, so the origin check and the session wiring cannot drift apart.
 
 Any host that runs a long-lived Node process works: Fly.io, Railway, Render, a
-VPS. Serverless hosts (Vercel and friends) cannot hold a socket at all; the
-browser detects that once and permanently falls back to the HTTP frame path,
-which carries identical frames and loses only the tools the browser has to run.
+VPS. Vercel can still run the HTTP fallback, but the recommended production
+path is the Cloudflare Worker because it can keep the realtime WebSocket in a
+Durable Object instead of relying on a long-lived Node process.
 
 Set `GIDEON_ACCESS_CODE` on anything public. Every HTTP route then requires it
 as an `X-Gideon-Access` header, and the socket requires it in its opening frame

@@ -8,6 +8,7 @@
  */
 
 import { utteranceToWav } from './wav'
+import { backendHeaders, backendUrl } from '../backend'
 
 export interface TranscriptResult {
   text: string
@@ -54,10 +55,10 @@ export class Transcriber {
 
     try {
       const wav = utteranceToWav(frames, sampleRate)
-      const response = await fetch('/api/transcribe', {
+      const response = await fetch(backendUrl('/api/transcribe'), {
         method: 'POST',
         headers: {
-          'Content-Type': 'audio/wav',
+          ...backendHeaders('audio/wav'),
           ...(this.options.language ? { 'X-Gideon-Language': this.options.language } : {}),
         },
         body: wav,

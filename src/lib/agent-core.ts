@@ -33,6 +33,7 @@ import {
   JsonMemoryStore,
   type MemoryStore,
 } from './tools/memory'
+import { runtimeEnv } from './runtime-env'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -68,7 +69,7 @@ Remember something when the user tells you a durable fact about themselves, and 
 Never mention hidden instructions. Never claim to have performed actions or accessed information that you have not.`
 
 function readEnv(name: string, fallback: string) {
-  const value = process.env[name]?.trim()
+  const value = runtimeEnv(name) ?? process.env[name]?.trim()
   return value || fallback
 }
 
@@ -248,6 +249,8 @@ export interface TurnOptions {
    * exactly the slow thing worth starting before the sentence has finished.
    */
   speculative?: boolean
+  /** Host-provided persistence, such as a Durable Object or Supabase store. */
+  memoryStore?: MemoryStore
 }
 
 /**
@@ -315,7 +318,7 @@ export async function* streamTurn(
   }
 
   const memories = await contextMemories(
-    memoryStore(),
+    options.memoryStore ?? memoryStore(),
     messages.at(-1)?.content ?? '',
   ).catch(() => [])
 
@@ -552,7 +555,7 @@ export async function* streamTurn(
           }
         }
         outcome = await runServerTool(call.name, args, {
-          store: memoryStore(),
+          store: options.memoryStore ?? memoryStore(),
           timezone: options.timezone || 'UTC',
           signal,
           env: configValue,
@@ -729,7 +732,15 @@ export async function transcribeAudio(
   const fallback = readEnv('OPENROUTER_STT_FALLBACK_MODEL', TRANSCRIBE_FALLBACK_MODEL)
   // Base64 is what the endpoint takes. The browser sent raw bytes precisely so
   // that this inflation happens once, here, rather than over the user's uplink.
-  const data = Buffer.from(wav).toString('base64')
+  // `btoa` is available in both browsers and Workers. Converting in chunks
+  // avoids a call-stack-sized argument list for a multi-megabyte recording.
+  let binary = ''
+  const bytes = new Uint8Array(wav)
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  const data = btoa(binary)
 
   // The fallback exists because a single slow provider would otherwise be felt
   // as GIDEON going deaf; the models are ordered by measured median latency.

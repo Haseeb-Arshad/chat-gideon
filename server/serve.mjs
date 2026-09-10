@@ -10,6 +10,15 @@
  */
 
 import { createServer } from 'node:http'
+
+// `vite dev` loads .env for us; this production entry is launched directly by
+// Node, so load the same local configuration when the file exists. Deployment
+// hosts can still provide ordinary process environment variables instead.
+try {
+  process.loadEnvFile?.('.env')
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error
+}
 import { middleware } from '../.output/server/index.mjs'
 import { attachRealtime } from '../.output/realtime/host.mjs'
 import { REALTIME_PATH } from '../.output/realtime/host.mjs'

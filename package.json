@@ -8,9 +8,16 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && vite build --config vite.realtime.config.ts",
+    "dev:cloudflare": "vite dev --mode cloudflare",
+    "build:cloudflare": "vite build --mode cloudflare && tsc --noEmit",
+    "preview:cloudflare": "vite preview --mode cloudflare",
+    "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
+    "deploy": "npm run deploy:cloudflare",
+    "cf:typegen": "wrangler types",
     "preview": "node server/serve.mjs",
     "start": "node server/serve.mjs",
     "test": "vitest run",
+    "benchmark:models": "node scripts/benchmark-models.mjs",
     "benchmark:research": "vitest run src/lib/tools/research.live.test.ts --mode live"
   },
   "dependencies": {
@@ -33,6 +40,8 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.6",
+    "@cloudflare/workers-types": "^5.20260908.1",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@testing-library/dom": "^10.4.1",
@@ -45,7 +54,8 @@
     "nitro": "npm:nitro-nightly@^3.0.1-20260828-140537-5d83475c",
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.130.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

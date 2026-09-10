@@ -23,6 +23,7 @@ import {
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
 import { accessCodeRequired, accessCodeValid, limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
+import type { MemoryStore } from './tools/memory'
 import {
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
@@ -37,7 +38,8 @@ export interface RealtimeSink {
 }
 
 export interface RealtimeSession {
-  handleMessage: (raw: string) => void
+  /** Resolves when the frame's async work has finished. */
+  handleMessage: (raw: string) => Promise<void>
   close: () => void
 }
 
@@ -52,6 +54,10 @@ export interface SessionOptions {
   caller?: string
   /** The Host the socket was opened against, which decides whether to meter. */
   host?: string | null
+  /** Durable store selected by the host for this browser session. */
+  memoryStore?: MemoryStore
+  /** Restored authorization state for a hibernated Worker socket. */
+  authorised?: boolean
 }
 
 /**
@@ -81,7 +87,7 @@ export function createRealtimeSession(
    * attach a header to the handshake. Until it is satisfied the socket can do
    * nothing but say hello.
    */
-  let authorised = !accessCodeRequired()
+  let authorised = options.authorised ?? !accessCodeRequired()
   /** Aborts keyed by turn id, so a cancel only kills the turn it names. */
   const turns = new Map<string, AbortController>()
   /** Tool calls the browser has been asked to run and has not answered yet. */
@@ -224,6 +230,7 @@ export function createRealtimeSession(
         timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : undefined,
         bridge,
         speculative: frame.speculative === true,
+        memoryStore: options.memoryStore,
       })) {
         if (closed || controller.signal.aborted) return
         send(event)
@@ -287,7 +294,7 @@ export function createRealtimeSession(
   }
 
   return {
-    handleMessage(raw: string) {
+    async handleMessage(raw: string) {
       if (closed) return
       const frame = decodeFrame<ClientFrame>(raw)
       if (!frame || typeof frame.t !== 'string') return
@@ -323,12 +330,10 @@ export function createRealtimeSession(
         }
         case 'turn':
           if (!allowed(frame.id, 'turn')) return
-          void guarded(frame.id, runTurn(frame))
-          return
+          return guarded(frame.id, runTurn(frame))
         case 'speak':
           if (!allowed(frame.id, 'speak')) return
-          void guarded(frame.id, runSpeak(frame))
-          return
+          return guarded(frame.id, runSpeak(frame))
         case 'tool_reply': {
           settleTool(frame.call, {
             ok: Boolean(frame.ok),

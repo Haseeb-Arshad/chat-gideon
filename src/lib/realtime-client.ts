@@ -12,13 +12,13 @@
  */
 
 import {
-  REALTIME_PATH,
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
   encodeFrame,
   type ClientFrame,
   type ServerFrame,
 } from './protocol'
+import { accessCode, backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
 
 export type LinkTransport = 'idle' | 'connecting' | 'socket' | 'http'
 
@@ -62,23 +62,6 @@ export interface ChatTurnMessage {
 
 /** Remembered per tab so a host without upgrades is only probed once. */
 const FALLBACK_KEY = 'gideon-transport-fallback'
-/**
- * Where a gated deployment's access code is kept.
- *
- * Read rather than prompted for: the code exists so a public demo link can be
- * shared with a few people, not as a login, and a page that demands one before
- * saying anything would be a worse first impression than one that simply
- * explains it is gated.
- */
-const ACCESS_KEY = 'gideon-access'
-
-function accessCode(): string | undefined {
-  try {
-    return localStorage.getItem(ACCESS_KEY) ?? undefined
-  } catch {
-    return undefined
-  }
-}
 const OPEN_TIMEOUT_MS = 1_600
 const PING_INTERVAL_MS = 20_000
 
@@ -89,11 +72,6 @@ function localTimezone(): string {
   } catch {
     return 'UTC'
   }
-}
-
-function socketUrl() {
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${scheme}//${window.location.host}${REALTIME_PATH}`
 }
 
 function rememberFallback() {
@@ -172,7 +150,7 @@ export class RealtimeLink {
 
     let socket: WebSocket
     try {
-      socket = new WebSocket(socketUrl())
+      socket = new WebSocket(backendWebSocketUrl())
     } catch {
       this.degrade()
       return
@@ -318,9 +296,9 @@ export class RealtimeLink {
       })
     }
 
-    const response = await fetch('/api/voice', {
+    const response = await fetch(backendUrl('/api/voice'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: backendHeaders('application/json'),
       body: JSON.stringify({ text }),
       signal,
     })
@@ -485,9 +463,9 @@ export class RealtimeLink {
     if (!handlers) return
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(backendUrl('/api/chat'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: backendHeaders('application/json'),
         body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative }),
         signal,
       })

@@ -29,6 +29,7 @@ import {
   scoreText,
 } from '../lib/mood'
 import { RealtimeLink, type ActionEvent, type TurnHandle } from '../lib/realtime-client'
+import { backendHeaders, backendUrl } from '../lib/backend'
 import { SpeculationTracker, looksUnfinished } from '../lib/speculation'
 import {
   ClientToolRunner,
@@ -414,9 +415,9 @@ export function AgentPage() {
 
     // The HTTP fallback never receives a `ready` frame, so config is fetched
     // directly; that request doubles as an upstream warm-up on the server.
-    void fetch('/api/config')
-      .then((response) => response.json())
-      .then((data: PublicConfig) => setConfig((current) => current ?? data))
+    void fetch(backendUrl('/api/config'), { headers: backendHeaders() })
+      .then((response) => response.json() as Promise<PublicConfig>)
+      .then((data) => setConfig((current) => current ?? data))
       .catch(() => undefined)
 
     return () => {
