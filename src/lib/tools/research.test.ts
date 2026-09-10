@@ -240,6 +240,13 @@ describe('research', () => {
     expect(result.brief).toMatch(/could not be completed/)
   })
 
+  it('does not mistake a direct answer with no text for an answer', async () => {
+    const { fetch } = scripted({ model: [{ status: 502 }], answer: () => ({ citations: [] }) })
+    const result = await research('what is it', { signal: new AbortController().signal }, deps(fetch), null)
+    expect(result.ok).toBe(false)
+    expect(result.brief).toMatch(/could not be completed/)
+  })
+
   it('never rejects, and reports a cancellation as one', async () => {
     const controller = new AbortController()
     const { fetch } = hangingModel()

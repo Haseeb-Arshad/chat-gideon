@@ -225,7 +225,8 @@ async function exaAnswer(
     answer?: unknown
     citations?: Array<{ title?: string; url?: string; publishedDate?: string }>
   }
-  const answer = typeof body.answer === 'string' ? body.answer : JSON.stringify(body.answer ?? '')
+  // Structured output is never requested, so anything but a string is no answer.
+  const answer = typeof body.answer === 'string' ? body.answer : ''
   return { answer, sources: toSources(body.citations ?? []) }
 }
 

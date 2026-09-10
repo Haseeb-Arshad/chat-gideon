@@ -80,6 +80,8 @@ describe.skipIf(!live)('live research', () => {
     const today = new Date().toLocaleDateString('en-GB', { dateStyle: 'full', timeZone: 'Europe/London' })
     const deps: ResearchDeps = {
       ...base,
+      // Times the research model itself, so nothing is allowed to race it.
+      timing: { ...base.timing, hedgeAfterMs: 60_000, budgetMs: 60_000 },
       exaKey: stubbed ? 'stub' : base.exaKey,
       fetch: stubbed
         ? async (input, init) =>
