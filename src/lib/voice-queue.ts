@@ -192,6 +192,15 @@ export class VoiceQueue {
     for (const release of this.waiting.splice(0)) release()
   }
 
+  /** Lower the voice without losing the place, while an interruption is checked. */
+  duck() {
+    this.player.duck()
+  }
+
+  unduck() {
+    this.player.unduck()
+  }
+
   private drainBuffer(flush: boolean) {
     const { chunks, remainder } = splitSpeakable(this.buffer, {
       flush,

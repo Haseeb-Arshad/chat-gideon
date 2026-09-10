@@ -20,11 +20,17 @@ import {
   type VadConfig,
   type VadFrameResult,
 } from './vad'
+import { SileroStream, loadSilero } from './silero'
 import { WORKLET_NAME, workletUrl } from './worklet-source'
 
 /** 16 kHz mono in 20 ms frames: what every streaming recogniser wants. */
 export const TARGET_SAMPLE_RATE = 16_000
 export const FRAME_MS = 20
+/**
+ * Below this much speech, as Silero heard it, a finished utterance is the room
+ * rather than a person: five windows, a short word at most.
+ */
+const MIN_NEURAL_SPEECH_MS = 160
 
 export interface Utterance {
   /** The whole utterance, pre-roll included, at `sampleRate`. */
@@ -62,6 +68,11 @@ export interface CaptureOptions extends CaptureHandlers {
   vad?: Partial<VadConfig>
   /** Raised while GIDEON speaks so his own voice cannot interrupt him. */
   duckDb?: number
+  /**
+   * Run Silero beside the energy detector once it has loaded. On unless turned
+   * off; the energy detector works alone until then, and wherever it fails.
+   */
+  neuralVad?: boolean
   /**
    * Audio kept from before speech was declared.
    *
@@ -104,6 +115,10 @@ export class MicCapture {
   private node: AudioWorkletNode | null = null
   private readonly vad: VoiceActivityDetector
   private readonly barge = new BargeInDetector()
+  /** Silero, once loaded; null until then, and wherever it cannot load. */
+  private silero: SileroStream | null = null
+  /** Whether Silero was already listening when this utterance began. */
+  private sileroHeardStart = false
   private level = 0
   /**
    * True while GIDEON's voice is coming out of the speakers. It raises the
@@ -267,6 +282,7 @@ export class MicCapture {
       this.source.connect(this.node)
 
       this.status = 'running'
+      if (this.options.neuralVad !== false) void this.attachSilero(generation)
       return true
     } catch {
       await this.teardown()
@@ -282,6 +298,12 @@ export class MicCapture {
    */
   setHangover(ms: number | null) {
     this.vad.hangoverOverrideMs = ms
+  }
+
+  private async attachSilero(generation: number) {
+    const model = await loadSilero()
+    if (!model || this.disposed || this.generation !== generation) return
+    this.silero = new SileroStream(model, this.rate)
   }
 
   /** Called when GIDEON starts and stops being audible. */
@@ -313,10 +335,27 @@ export class MicCapture {
     }
   }
 
+  /**
+   * A suspected interruption turned out not to be one: a fan, a keyboard, a
+   * cough. GIDEON carries on talking, so what was recorded since is thrown
+   * away as though it had been echo, and the detectors start again from
+   * silence. The duck stays up, because playback never stopped.
+   */
+  dismissBargeIn() {
+    this.bargedIn = false
+    this.vad.reset()
+    this.barge.reset()
+    this.silero?.reset()
+    this.recording = null
+    this.recordedFrames = 0
+    this.preRoll = []
+  }
+
   /** Forget the current utterance without dropping the stream. */
   resetUtterance() {
     this.vad.reset()
     this.barge.reset()
+    this.silero?.reset()
     this.recording = null
     this.recordedFrames = 0
     this.preRoll = []
@@ -359,6 +398,8 @@ export class MicCapture {
       }
     }
 
+    if (pcm) this.silero?.push(pcm)
+
     // Attack fast, release slow: a level meter that decays as fast as it rises
     // flickers, and one that rises slowly misses the start of every word.
     const target = Math.min(1, message.peak * 2.6)
@@ -377,6 +418,8 @@ export class MicCapture {
       this.recording = [...this.preRoll]
       this.recordedFrames = this.recording.reduce((sum, frame) => sum + frame.length, 0)
       this.preRoll = []
+      this.sileroHeardStart = Boolean(this.silero)
+      this.silero?.markUtterance()
     }
 
     if (this.ducking) {
@@ -385,7 +428,13 @@ export class MicCapture {
       // report started against a raised threshold mid-playback. The callbacks
       // are withheld rather than the bookkeeping: announcing a speech start
       // here would set a live transcript running on GIDEON's own echo.
-      if (this.barge.push(result.probability)) {
+      // Loud is not enough on its own: a fan is loud. Once Silero is running,
+      // a frame counts towards an interruption only as far as both detectors
+      // agree, so noise fails on shape and GIDEON's own echo fails on level.
+      const probability = this.silero
+        ? Math.min(result.probability, this.silero.recent)
+        : result.probability
+      if (this.barge.push(probability)) {
         this.bargedIn = true
         this.options.onBargeIn?.()
       }
@@ -395,7 +444,14 @@ export class MicCapture {
     if (result.onSpeechStart) this.options.onSpeechStart?.()
 
     if (result.onSpeechEnd) {
-      const utterance = this.recording
+      // Sound Silero never once heard as speech is the room, not the person:
+      // a keyboard, a chair, the fan changing speed. It is dropped here,
+      // before it costs a transcription or, worse, becomes a turn.
+      const noise =
+        this.silero !== null &&
+        this.sileroHeardStart &&
+        this.silero.speechMs < MIN_NEURAL_SPEECH_MS
+      const utterance = this.recording && !noise
         ? {
             frames: this.recording,
             sampleRate: this.rate,
@@ -437,6 +493,9 @@ export class MicCapture {
     }
     this.vad.reset()
     this.barge.reset()
+    // Detached rather than reset: a restart may run at a different rate.
+    this.silero = null
+    this.sileroHeardStart = false
     this.level = 0
     this.recording = null
     this.recordedFrames = 0

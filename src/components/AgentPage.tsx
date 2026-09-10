@@ -109,6 +109,15 @@ interface LedgerEntry {
 
 const STORAGE_KEY = 'gideon-conversation-v2'
 
+/**
+ * How much of a suspected interruption is heard before it is transcribed.
+ * With the half second of pre-roll that is a word or two, and short enough
+ * that GIDEON is not whispering for long over nothing.
+ */
+const CONFIRM_AFTER_MS = 600
+/** Past this, a transcription is not coming back in time to matter. */
+const CONFIRM_TIMEOUT_MS = 2_500
+
 /** How an interrupted reply is marked in history, for the model's benefit. */
 const INTERRUPTED = /s*[interrupted]$/
 
@@ -275,6 +284,11 @@ export function AgentPage() {
   const vadStateRef = useRef<string>('silence')
   /** Set once `runPartial` exists; called from the interrupt handler above it. */
   const runPartialRef = useRef<() => void>(() => undefined)
+  /** An interruption being checked: GIDEON is whispering until it is decided. */
+  const suspicionRef = useRef<{ turnId: string; timer: ReturnType<typeof setTimeout> } | null>(
+    null,
+  )
+  const suspectRef = useRef<() => void>(() => undefined)
   /** The moment the detector last heard speech stop, for the hangover mark. */
   const speechEndRef = useRef(0)
 
@@ -552,6 +566,10 @@ export function AgentPage() {
    * conversation quietly diverges from the one you are having.
    */
   const interrupt = useCallback(() => {
+    if (suspicionRef.current) {
+      clearTimeout(suspicionRef.current.timer)
+      suspicionRef.current = null
+    }
     const turn = turnRef.current
     if (!turn || turn.speculative) return
 
@@ -608,6 +626,64 @@ export function AgentPage() {
       partialTimerRef.current = setInterval(() => runPartialRef.current(), 850)
     }
   }, [abandon, setPhase])
+
+  /**
+   * Something that might be the user started while GIDEON was talking.
+   *
+   * Stopping on sound alone let a fan, a keyboard or a cough cut GIDEON off
+   * mid-sentence. So the first reaction is only to drop the voice to a
+   * whisper, and the decision is made by what was said: once there is enough
+   * of the interruption to transcribe, real words stop GIDEON for good, and
+   * none bring the voice back up from where it had got to. LiveKit calls the
+   * second case resuming a false interruption.
+   */
+  const suspectInterruption = useCallback(() => {
+    const turn = turnRef.current
+    if (!turn || turn.speculative || !turn.voice) {
+      interrupt()
+      return
+    }
+    if (suspicionRef.current) return
+    turn.voice.duck()
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        const capture = captureRef.current
+        const transcriber = transcriberRef.current
+        const snapshot = capture?.snapshot()
+        let heardWords = false
+        if (snapshot && transcriber) {
+          const controller = new AbortController()
+          const cutoff = setTimeout(() => controller.abort(), CONFIRM_TIMEOUT_MS)
+          try {
+            const result = await transcriber.run(
+              snapshot.frames,
+              snapshot.sampleRate,
+              controller.signal,
+            )
+            heardWords = /\p{L}{2,}/u.test(result?.text ?? '')
+          } finally {
+            clearTimeout(cutoff)
+          }
+        }
+        // Settled by something else meanwhile: an interrupt, a new turn, or the
+        // reply simply finishing.
+        if (suspicionRef.current?.turnId !== turn.id) return
+        suspicionRef.current = null
+        if (turnRef.current !== turn || turn.cancelled) return
+
+        if (heardWords) {
+          interrupt()
+        } else {
+          turn.voice?.unduck()
+          capture?.dismissBargeIn()
+        }
+      })()
+    }, CONFIRM_AFTER_MS)
+    suspicionRef.current = { turnId: turn.id, timer }
+  }, [interrupt])
+
+  suspectRef.current = suspectInterruption
 
   // -- One turn ------------------------------------------------------------
 
@@ -1079,7 +1155,7 @@ export function AgentPage() {
         stopPartials()
       },
 
-      onBargeIn: () => interrupt(),
+      onBargeIn: () => suspectRef.current(),
 
       onLevel: (level) => {
         // Only meaningful while listening; during playback the meter belongs

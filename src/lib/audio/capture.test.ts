@@ -222,3 +222,74 @@ describe('MicCapture hangover control', () => {
     expect(h.utterances).toHaveLength(1)
   })
 })
+
+describe('MicCapture with Silero', () => {
+  /** A stand-in for the model: fixed readings, so the rules are what is tested. */
+  function withSilero(h: Harness, recent: number, speechMs = 0) {
+    const fake = {
+      recent,
+      speechMs,
+      speechRunMs: speechMs,
+      push() {},
+      markUtterance() {
+        fake.speechMs = fake.speechRunMs
+      },
+      reset() {},
+    }
+    ;(h.capture as unknown as { silero: unknown }).silero = fake
+    return fake
+  }
+
+  it('does not let loud noise interrupt GIDEON when Silero hears no speech', () => {
+    const h = harness({ duckDb: 0 })
+    withSilero(h, 0.1)
+    feed(h, ROOM, 40)
+    h.capture.setDucking(true)
+    // Loud and sustained, which on its own is exactly what used to interrupt.
+    feed(h, VOICE, 40)
+    expect(h.barges).toBe(0)
+  })
+
+  it('still lets a real voice interrupt', () => {
+    const h = harness({ duckDb: 0 })
+    withSilero(h, 0.97)
+    feed(h, ROOM, 40)
+    h.capture.setDucking(true)
+    feed(h, VOICE, 20)
+    expect(h.barges).toBeGreaterThan(0)
+  })
+
+  it('throws away what was recorded when a suspected interruption is dismissed', () => {
+    const h = harness({ duckDb: 0 })
+    withSilero(h, 0.97)
+    feed(h, ROOM, 40)
+    h.capture.setDucking(true)
+    feed(h, VOICE, 20)
+    expect(h.barges).toBeGreaterThan(0)
+
+    // It was not the user after all, and GIDEON finishes its sentence.
+    h.capture.dismissBargeIn()
+    feed(h, ROOM, 10)
+    h.capture.setDucking(false)
+    feed(h, ROOM, 60)
+    expect(h.utterances).toEqual([])
+  })
+
+  it('drops a sound Silero never heard as speech instead of making it a turn', () => {
+    const h = harness()
+    withSilero(h, 0.05, 0)
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 40)
+    feed(h, ROOM, 60)
+    expect(h.utterances).toEqual([])
+  })
+
+  it('keeps an utterance Silero heard as speech', () => {
+    const h = harness()
+    withSilero(h, 0.95, 800)
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 40)
+    feed(h, ROOM, 60)
+    expect(h.utterances).toHaveLength(1)
+  })
+})

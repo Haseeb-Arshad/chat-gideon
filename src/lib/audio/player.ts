@@ -38,6 +38,13 @@ interface Scheduled {
 const SCHEDULE_LEAD = 0.06
 /** A hard cut is a click; this is the shortest fade that is not one. */
 const FADE_MS = 60
+/**
+ * Where the voice sits while a possible interruption is checked: low enough to
+ * talk over, loud enough that nothing seems to have broken.
+ */
+const DUCK_LEVEL = 0.15
+const DUCK_MS = 120
+const RESTORE_MS = 260
 
 export class ScheduledPlayer {
   private context: AudioContext | null = null
@@ -51,6 +58,8 @@ export class ScheduledPlayer {
   private speaking = false
   private stopped = false
   private levelValue = 0
+  /** 1 normally; lower while an interruption is being checked. */
+  private volume = 1
 
   constructor(private readonly handlers: PlayerHandlers = {}) {}
 
@@ -92,6 +101,7 @@ export class ScheduledPlayer {
 
     const context = new Ctor({ latencyHint: 'interactive' })
     const gain = context.createGain()
+    gain.gain.value = this.volume
     const analyser = context.createAnalyser()
     analyser.fftSize = 256
     analyser.smoothingTimeConstant = 0.7
@@ -161,6 +171,35 @@ export class ScheduledPlayer {
       const remaining = this.cursor - context.currentTime
       if (remaining <= 0) break
       await new Promise((resolve) => setTimeout(resolve, Math.min(120, remaining * 1000 + 20)))
+    }
+  }
+
+  /**
+   * Drops the voice to a whisper without stopping it, while something that
+   * might be the user is checked. Queued chunks keep their place, so nothing
+   * is lost if it turns out to have been a fan.
+   */
+  duck(level = DUCK_LEVEL) {
+    this.rampTo(level, DUCK_MS)
+  }
+
+  /** Back to full voice, from wherever it has got to. */
+  unduck() {
+    this.rampTo(1, RESTORE_MS)
+  }
+
+  private rampTo(value: number, ms: number) {
+    this.volume = value
+    const context = this.context
+    const gain = this.gain
+    if (!context || !gain || this.stopped) return
+    const now = context.currentTime
+    try {
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(value, now + ms / 1000)
+    } catch {
+      // A context that is closing cannot be ramped, and no longer matters.
     }
   }
 

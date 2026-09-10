@@ -61,6 +61,22 @@ His own voice cannot trigger it. The detector's threshold is raised while the
 speakers are live, on top of the browser's echo cancellation, so the residual
 is quiet and a real interruption is not.
 
+Background noise cannot either. Loudness alone let a desk fan interrupt him:
+fed six seconds of synthetic fan while he was talking, the energy detector
+declared thirty-three interruptions. So a small neural network,
+[Silero VAD](https://github.com/snakers4/silero-vad), runs in the browser beside
+it and scores every 32 ms of audio for how much it sounds like speech. A frame
+only counts towards an interruption when both agree: loud enough to be the
+person at the microphone, and speech-shaped enough to be a person at all. Fans
+and keyboards peak between 0.06 and 0.18 on Silero's scale of 0 to 1; speech
+scores 1.0, even over the same fan. Sounds it never hears as speech are also
+dropped before they can become a turn.
+
+And even then he does not stop on sound alone. A suspected interruption drops
+his voice to a whisper, the first 600 ms of it are transcribed, and only real
+words stop him. If there are none, he comes back to full volume where he left
+off, which LiveKit calls resuming a false interruption.
+
 The part that matters for the *next* turn: the interrupted reply is truncated in
 history to **the words that were actually heard**, read off the playback clock,
 and marked `[interrupted]`. Leaving the full text in place would mean GIDEON
@@ -359,7 +375,7 @@ are configured. See [`backend/worker/README.md`](backend/worker/README.md).
 ## Verify
 
 ```bash
-npm test          # 253 tests, plus 2 live checks it skips
+npm test          # 267 tests, plus 2 live checks it skips
 npx tsc --noEmit
 npm run build
 npm run build:cloudflare

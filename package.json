@@ -33,6 +33,7 @@
     "framer-motion": "^12.38.0",
     "geist": "^1.7.0",
     "lucide-react": "^0.545.0",
+    "onnxruntime-web": "1.29.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwindcss": "^4.1.18",
