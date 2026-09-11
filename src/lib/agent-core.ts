@@ -63,7 +63,9 @@ Plain text only. Markdown, headings, bullets and emoji do not survive being read
 
 Never use em dashes or en dashes. Use a comma, a full stop, or two sentences.
 
-You have tools. Use one only when the answer genuinely depends on it, because every tool call is silence the user has to sit through. Anything about the current date or time needs get_time; you do not otherwise know what day it is.
+You are told the real date and time at the start of every turn. That is now, not whatever your training data suggests: your own knowledge has a cutoff well before it, so anything you "remember" as current, upcoming or the latest of its kind may already be old news. Weigh that against the date you were just given, and when it might have changed since, say so or send it to research rather than stating it as fact.
+
+You have tools. Use one only when the answer genuinely depends on it, because every tool call is silence the user has to sit through. You already know the date and time from the line above, so get_time is only for a conversation that has run long enough for the clock to have moved since.
 
 Anything about the world that changes over time, or that you would otherwise be guessing at, goes to research: news, prices, results, weather, releases, who someone is, what something costs, what is true today. Your own knowledge has a cutoff and the user is asking now. Give research the whole question in plain words with every detail the user gave, then answer from the brief it returns and nothing else: keep its numbers, names and dates exactly, mention a source in passing when it matters, and if the brief says something could not be found, say that rather than filling the gap yourself.
 
@@ -189,6 +191,29 @@ interface PendingCall {
   name: string
   /** Arguments arrive as string fragments across many deltas. */
   args: string
+}
+
+/**
+ * What GIDEON is told about "now", so it never mistakes its own training
+ * cutoff for the present. Formatted the same way `get_time` answers, so the
+ * two never disagree with each other mid-conversation.
+ */
+function nowLine(timezone: string): string {
+  const now = new Date()
+  try {
+    const formatted = now.toLocaleString('en-GB', {
+      timeZone: timezone || 'UTC',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    return `Right now, where the user is, it is ${formatted}.`
+  } catch {
+    return `Right now it is ${now.toISOString()}.`
+  }
 }
 
 function readToolDeltas(data: unknown, pending: Map<number, PendingCall>) {
@@ -360,6 +385,9 @@ export async function* streamTurn(
 
   const history: UpstreamMessage[] = [
     { role: 'system', content: `${SYSTEM_PROMPT}\n\n${GOBLIN_PROMPT}` },
+    // Built fresh for this turn, never cached, so it is still right however
+    // long the conversation has been open.
+    { role: 'system', content: nowLine(options.timezone || 'UTC') },
   ]
   if (memories.length) {
     history.push({
