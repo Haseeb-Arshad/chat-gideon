@@ -186,8 +186,9 @@ describe('research', () => {
     expect(modelCalls[0].body.tool_choice).toBe('required')
     expect(modelCalls[0].body.models).toEqual(['test/fallback'])
     expect(modelCalls[0].body.reasoning).toEqual({ effort: 'none', exclude: true })
-    // A quick run never pays for the hedge.
-    expect(calls.some((call) => call.url.endsWith('/answer'))).toBe(false)
+    // The direct answer is asked for once, at the start, so a hedge is ready if
+    // one is needed; a quick run keeps the research model's brief regardless.
+    expect(calls.filter((call) => call.url.endsWith('/answer'))).toHaveLength(1)
   })
 
   it('reads a page when asked and feeds the text back', async () => {
@@ -420,9 +421,11 @@ describe('sharing a run', () => {
     )
     caller.abort()
     await pending
-    expect(aborted).toEqual([false])
+    // The research model and the direct answer held in reserve both keep
+    // going through the grace period, then both are stopped.
+    expect(aborted).toEqual([false, false])
     await sleep(80)
-    expect(aborted).toEqual([true])
+    expect(aborted).toEqual([true, true])
   })
 })
 

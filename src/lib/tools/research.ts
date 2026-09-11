@@ -181,7 +181,11 @@ async function exaSearch(
     headers: exaHeaders(deps),
     body: JSON.stringify({
       query,
-      type: 'auto',
+      // Measured on 11 September 2026 over fourteen spoken questions: `fast`
+      // answered in 0.34 seconds at the median and 0.84 at p90, against 1.8 at
+      // p90 for `auto`, and graded the most accurate of Exa's and Parallel's
+      // search modes (8.8 of 10, current in 92% of sets, against 8.4 and 85%).
+      type: 'fast',
       numResults: RESULTS_PER_SEARCH,
       ...(since ? { startPublishedDate: since } : {}),
       // Highlights rather than page text: the passages that answer the query,
@@ -316,7 +320,7 @@ function researcherPrompt(now: number, timezone: string) {
 
   return `You are the research desk for a spoken assistant. Today is ${today}. Your job is to find out the answer to a question about the world, accurately, and hand back a brief that another model will read aloud.
 
-Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Read a page when a passage leaves the answer ambiguous. Stop as soon as you are sure; every round is silence for a person who is waiting.
+Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. Stop as soon as you are sure; every round is silence for a person who is waiting.
 
 Brief. Plain text, under 180 words, no markdown. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters. If sources disagree, say which says what. If you could not find it, say so plainly rather than guessing, and say what you did find. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
 }
@@ -532,12 +536,17 @@ const never = new Promise<never>(() => undefined)
 /**
  * The researcher, with a direct answer held in reserve.
  *
- * Past `hedgeAfterMs` a direct answer starts racing the research model, and
- * whichever produces a usable answer first is kept. A hedge that fails is
- * ignored rather than reported, and the research model gets until the budget.
- * This is the tail-latency trick from distributed systems, applied to a person
- * waiting for an answer: the ordinary case pays nothing, and the slowest runs
- * stop being the ones the user remembers.
+ * Past `hedgeAfterMs` a direct answer races the research model, and whichever
+ * produces a usable answer first is kept. A hedge that fails is ignored rather
+ * than reported, and the research model gets until the budget. This is the
+ * tail-latency trick from distributed systems, applied to a person waiting for
+ * an answer: the slowest runs stop being the ones the user remembers.
+ *
+ * The direct answer is asked for at the start, not at the deadline, so that
+ * when a hedge is needed it is already there. Asked for only at the deadline it
+ * arrived about 1.8 seconds later, which is silence on exactly the turns that
+ * were already slow. It still cannot win before `hedgeAfterMs`: on the same
+ * questions it was graded below the research model, 7.1 against 7.4.
  */
 async function hedgedRun(
   question: string,
@@ -552,23 +561,15 @@ async function hedgedRun(
   const agentStop = new AbortController()
   const hedgeStop = new AbortController()
 
-  let hedge: Promise<Outcome> | null = null
-  let hedgeStarted: (value: Promise<Outcome>) => void = () => undefined
-  const hedgeReady = new Promise<Promise<Outcome>>((resolve) => {
-    hedgeStarted = resolve
+  const hedge = directAnswer(
+    deps,
+    question,
+    AbortSignal.any([signal, hedgeStop.signal, AbortSignal.timeout(hedgeAfterMs + answerTimeoutMs)]),
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const hedgeDue = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, hedgeAfterMs)
   })
-  const startHedge = () => {
-    if (!hedge) {
-      hedge = directAnswer(
-        deps,
-        question,
-        AbortSignal.any([signal, hedgeStop.signal, AbortSignal.timeout(answerTimeoutMs)]),
-      )
-      hedgeStarted(hedge)
-    }
-    return hedge
-  }
-  const timer = setTimeout(startHedge, hedgeAfterMs)
 
   const agent = runAgent(
     question,
@@ -580,7 +581,7 @@ async function hedgedRun(
     () => null,
   )
   // Only a usable hedge competes; a failed one leaves the research model to finish.
-  const hedgeWin = hedgeReady.then((pending) => pending).then((outcome) => (outcome.ok ? outcome : never))
+  const hedgeWin = hedgeDue.then(() => hedge).then((outcome) => (outcome.ok ? outcome : never))
 
   try {
     const first = await Promise.race([agent, hedgeWin])
@@ -595,7 +596,7 @@ async function hedgedRun(
     // The research model failed or ran out of time. Whatever the direct
     // answer produces is now the answer, and it may already be on its way.
     if (signal.aborted) return finish(failed(signal))
-    return finish(await startHedge())
+    return finish(await hedge)
   } finally {
     clearTimeout(timer)
   }

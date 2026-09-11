@@ -202,10 +202,12 @@ describe('research through the agent loop', () => {
     expect(messages.find((message) => message.role === 'tool')?.content).toContain('high of 17C')
     expect(messages.filter((message) => message.role === 'assistant').at(-1)?.content).toBe(said[0])
 
-    // Exa was asked by the research model, with the key, not by the speaking model.
+    // Exa was asked by the research desk, with the key, not by the speaking
+    // model: one search, and the direct answer held in reserve.
     const exa = calls.filter((call) => call.url.includes('api.exa.ai'))
-    expect(exa).toHaveLength(1)
-    expect(exa[0].headers['x-api-key']).toBe('exa-test')
+    expect(exa.filter((call) => call.url.endsWith('/search'))).toHaveLength(1)
+    expect(exa.filter((call) => call.url.endsWith('/answer'))).toHaveLength(1)
+    expect(exa.every((call) => call.headers['x-api-key'] === 'exa-test')).toBe(true)
   })
 
   it('adds no holding line when the model already said something', async () => {
