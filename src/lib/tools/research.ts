@@ -79,6 +79,8 @@ export interface ResearchSource {
   title: string
   url: string
   publishedDate?: string
+  /** The page's own lead picture, when the search reported one. */
+  image?: string
 }
 
 export type ResearchPath = 'agent' | 'answer' | 'cache' | 'none'
@@ -148,6 +150,7 @@ interface ExaResult {
   publishedDate?: string
   highlights?: string[]
   text?: string
+  image?: string
 }
 
 type Recency = 'day' | 'week' | 'month' | 'year' | 'any'
@@ -230,17 +233,21 @@ async function exaAnswer(
   return { answer, sources: toSources(body.citations ?? []) }
 }
 
-function toSources(results: Array<{ title?: string; url?: string; publishedDate?: string }>) {
+function toSources(
+  results: Array<{ title?: string; url?: string; publishedDate?: string; image?: string }>,
+) {
   const seen = new Set<string>()
   const sources: ResearchSource[] = []
   for (const result of results) {
     const url = (result.url ?? '').trim()
     if (!/^https?:\/\//.test(url) || seen.has(url)) continue
     seen.add(url)
+    const image = typeof result.image === 'string' ? result.image.trim() : ''
     sources.push({
       title: (result.title ?? '').trim().slice(0, 120) || hostname(url),
       url,
       ...(result.publishedDate ? { publishedDate: result.publishedDate.slice(0, 10) } : {}),
+      ...(image.startsWith('https://') ? { image } : {}),
     })
   }
   return sources

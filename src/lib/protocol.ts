@@ -12,6 +12,8 @@
  * back to the browser rather than discovering it half way through a turn.
  */
 
+import type { Card } from './cards'
+
 export const REALTIME_PATH = '/api/realtime'
 export const REALTIME_PROTOCOL_VERSION = 2
 
@@ -84,9 +86,19 @@ export type ServerFrame =
       ok: boolean
       /** Still happening; a later frame with the same `call` replaces this one. */
       pending?: boolean
+      /** What is being worked on, such as the question being researched. */
+      detail?: string
       /** Where the result came from, for the user to open if they want to. */
       links?: Array<{ title: string; url: string; publishedDate?: string }>
     }
+  /**
+   * Something GIDEON looked up, laid out for the screen, or null when there is
+   * nothing worth showing. May arrive after `done`, because it is drawn beside
+   * the spoken answer rather than before it.
+   */
+  | { t: 'card'; id: string; call: string; card: Card | null }
+  /** A change to what is on screen that the model asked for. */
+  | { t: 'stage'; id: string; op: 'clear' }
   /** Asks the browser to run a tool only it can run. Socket transport only. */
   | { t: 'tool_request'; id: string; call: string; name: string; args: unknown }
   | { t: 'error'; id: string | null; code: string; message: string; retryable: boolean }

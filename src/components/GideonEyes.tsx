@@ -277,6 +277,8 @@ const REACTIONS: Record<string, Gesture> = {
   // Settling in to talk.
   speaking: { duration: 0.7, rise: 0.35, hold: 0.1, lift: -2.5, open: 1.05 },
   paused: { duration: 1.2, rise: 0.5, hold: 0.2, lift: 3, open: 0.86, gazeY: 0.3 },
+  // Something to look at has appeared: a small lift and a widening.
+  attend: { duration: 0.9, rise: 0.3, hold: 0.2, lift: -3, open: 1.08, spread: 2 },
 }
 
 /** Out-and-back envelope with a hold at the peak, minimum-jerk on both legs. */
@@ -356,9 +358,15 @@ export interface GideonEyesProps {
    * updates a second never re-render React.
    */
   levelRef?: RefObject<number>
+  /**
+   * Somewhere to look instead of at the pointer, in the same -1 to 1 gaze
+   * space, or null to follow the pointer as usual. A ref for the same reason
+   * as `levelRef`: the page steers it several times during one movement.
+   */
+  attentionRef?: RefObject<{ x: number; y: number } | null>
 }
 
-export function GideonEyes({ phase, emotion, levelRef }: GideonEyesProps) {
+export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEyesProps) {
   const leftNodes = useRef<EyeNodes>(emptyNodes())
   const rightNodes = useRef<EyeNodes>(emptyNodes())
   const haloRef = useRef<SVGEllipseElement>(null)
@@ -426,6 +434,7 @@ export function GideonEyes({ phase, emotion, levelRef }: GideonEyesProps) {
     let gesture: ActiveGesture | null = null
     let gestureIn = exponentialInterval(5)
     let lastPhase = input.current.phase
+    let attending = false
 
     let amplitude = 0
     let elapsed = 0
@@ -509,9 +518,25 @@ export function GideonEyes({ phase, emotion, levelRef }: GideonEyesProps) {
       }
 
       // -- Gaze --------------------------------------------------------------
+      // Something to look at outranks the pointer, and is looked at briskly:
+      // a glance that trails a second behind the thing it is following reads
+      // as distracted rather than interested.
+      const attention = attentionRef?.current ?? null
+      if ((attention !== null) !== attending) {
+        attending = attention !== null
+        if (attending && !rm) fire(REACTIONS.attend)
+      }
+      follow.x.frequency = attention ? 2.6 : 1.5
+      follow.y.frequency = attention ? 2.6 : 1.5
       const followAmount = FOLLOW[p] ?? 0.8
-      const fx = follow.x.step(pointer.x * followAmount, dt)
-      const fy = follow.y.step(pointer.y * followAmount * 0.85, dt)
+      const fx = follow.x.step(
+        attention ? clamp(attention.x, -1.2, 1.2) : pointer.x * followAmount,
+        dt,
+      )
+      const fy = follow.y.step(
+        attention ? clamp(attention.y, -1.2, 1.2) : pointer.y * followAmount * 0.85,
+        dt,
+      )
 
       if (!rm) {
         // Ocular drift: a random walk that is always being pulled back home.
@@ -680,7 +705,7 @@ export function GideonEyes({ phase, emotion, levelRef }: GideonEyesProps) {
       window.removeEventListener('pointerleave', onPointerLeave)
       window.removeEventListener('blur', onPointerLeave)
     }
-  }, [levelRef])
+  }, [levelRef, attentionRef])
 
   // A resting pose rendered straight into the markup, so the face is already
   // there before the first animation frame — server output and a tab opened in

@@ -825,8 +825,22 @@ button:active:not(:disabled) {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: clamp(13px, 2.1vh, 21px);
   min-height: 100%;
+}
+
+/*
+ * The lines at their natural height, inside a flow that is at least as tall as
+ * the frame. The flow cannot be measured for growth while a conversation is
+ * still short, because its minimum height hides it; this can, and it is what
+ * the rise animates.
+ */
+.transcript-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(13px, 2.1vh, 21px);
+  width: 100%;
+  will-change: transform;
 }
 
 /*
@@ -1353,6 +1367,611 @@ button:active:not(:disabled) {
   .robot-presence,
   .gideon-face {
     transition: none;
+  }
+}
+
+/* -- Research stage ------------------------------------------------------- */
+
+/*
+ * Open while any card is on screen. The face docks in the top-left corner,
+ * the brand it would sit on steps aside, and the transcript shrinks to its
+ * last line or two under the cards.
+ */
+.floating-brand {
+  transition: opacity 500ms ease-out, transform 500ms ease-out;
+}
+
+.presence-shell[data-stage='open'] .floating-brand {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+.agent-presence[data-stage='open'] {
+  align-self: stretch;
+  width: 100%;
+  padding-top: clamp(92px, 12vh, 132px);
+  padding-bottom: 4px;
+}
+
+.agent-presence[data-stage='open'] .robot-presence {
+  position: fixed;
+  z-index: 12;
+  top: 14px;
+  left: clamp(12px, 2.6vw, 38px);
+  width: clamp(128px, 12vw, 176px);
+}
+
+.presence-travel,
+.presence-scale {
+  width: 100%;
+}
+
+/* Scaling from the corner is what lets one translate describe the whole trip. */
+.presence-scale {
+  transform-origin: 0 0;
+}
+
+.research-stage {
+  position: relative;
+  flex: none;
+  width: 100%;
+  height: clamp(300px, 54vh, 580px);
+  /* The cards size and place themselves against the stage, not the window. */
+  container-type: size;
+}
+
+.agent-presence[data-stage='open'] .transcript-frame {
+  height: clamp(78px, 12vh, 116px);
+  margin-top: clamp(10px, 2vh, 22px);
+}
+
+.agent-presence[data-stage='open'] .transcript {
+  padding-top: 18px;
+}
+
+/*
+ * A card: its place (this element), its float (.glass-float) and its glass
+ * (.glass-pane). Only the glass fades or blurs; see ResearchStage.tsx.
+ */
+.glass-card {
+  --card-w: min(700px, calc(100cqw - 160px));
+  --peek: max(56px, calc(var(--card-w) * 0.15));
+  --slot: translateX(0) scale(1);
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: var(--card-w);
+  transform: translate(-50%, -50%) var(--slot);
+  transition: transform 780ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The one before steps back to the right edge and shows its left side. */
+.glass-card[data-slot='peek'] {
+  --slot: translateX(calc(50cqw - var(--peek) + var(--card-w) * 0.44)) scale(0.88);
+  z-index: 2;
+}
+
+.glass-card[data-slot='behind'] {
+  --slot: translateX(calc(50cqw + var(--card-w) * 0.42)) scale(0.8);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.glass-card[data-leaving='true'] {
+  pointer-events: none;
+}
+
+.glass-float {
+  width: 100%;
+  transform: perspective(1400px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: glass-bob 7s ease-in-out infinite;
+}
+
+.glass-pane {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-height: 100cqh;
+  overflow: hidden;
+  border-radius: 30px;
+  background:
+    radial-gradient(90% 70% at var(--sheen-x, 22%) var(--sheen-y, 0%), rgba(255, 255, 255, 0.13), transparent 62%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.028) 46%, rgba(255, 255, 255, 0.058));
+  -webkit-backdrop-filter: blur(30px) saturate(175%);
+  backdrop-filter: blur(30px) saturate(175%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 42px 90px -32px rgba(0, 0, 0, 0.72),
+    0 16px 36px -16px rgba(0, 0, 0, 0.5);
+  color: var(--white);
+  /* Backwards, not both: once it has arrived, the slot rules own its opacity. */
+  animation: glass-in 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: opacity 600ms ease-out, filter 600ms ease-out;
+}
+
+/* The rim: a hairline brighter where the light catches it, like a nickel edge. */
+.glass-pane::before {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 200deg,
+    rgba(255, 255, 255, 0.62),
+    rgba(255, 255, 255, 0.08) 22%,
+    rgba(255, 255, 255, 0.3) 48%,
+    rgba(255, 255, 255, 0.06) 72%,
+    rgba(255, 255, 255, 0.62)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+
+/* While the desk works, a band of light crosses the glass. */
+.glass-pane[data-state='searching']::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.085) 50%, transparent 70%);
+  background-size: 260% 100%;
+  animation: glass-sweep 1.9s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+  pointer-events: none;
+}
+
+.glass-card[data-slot='peek'] .glass-pane {
+  opacity: 0.62;
+  filter: saturate(0.8) brightness(0.86);
+}
+
+.glass-card[data-slot='peek']:hover .glass-pane {
+  opacity: 0.84;
+}
+
+.glass-card[data-slot='behind'] .glass-pane {
+  opacity: 0;
+}
+
+.glass-card[data-leaving='true'] .glass-pane {
+  animation: glass-out 440ms cubic-bezier(0.4, 0, 1, 1) calc(var(--leave-i, 0) * 80ms) both;
+}
+
+/* A peeking card is one big button; the count says how many wait behind it. */
+.peek-hit {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 30px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.peek-hit span {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(230, 236, 245, 0.7);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+
+.card-close {
+  position: absolute;
+  z-index: 5;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(230, 236, 245, 0.66);
+  cursor: pointer;
+  transition: background 180ms ease-out, color 180ms ease-out, transform 180ms ease-out;
+}
+
+.card-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--white);
+}
+
+/* -- Searching ------------------------------------------------------------ */
+
+.card-searching {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: clamp(26px, 4.2cqw, 44px);
+  padding-right: 64px;
+}
+
+.card-kicker {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: rgba(191, 233, 255, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.search-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ice);
+  box-shadow: 0 0 12px var(--ice);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+
+.card-query {
+  margin: 0;
+  color: rgba(240, 244, 250, 0.92);
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 3.6cqw, 2.25rem);
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.search-lines {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.search-lines i {
+  display: block;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.search-lines i:nth-child(2) {
+  width: 78%;
+}
+
+.search-lines i:nth-child(3) {
+  width: 52%;
+}
+
+/* -- The card ------------------------------------------------------------- */
+
+.card-media {
+  position: relative;
+  flex: 0 0 36%;
+  min-height: min(360px, 100cqh);
+  margin: 0;
+  overflow: hidden;
+}
+
+.glass-pane[data-kind='news'] .card-media {
+  flex-basis: 40%;
+}
+
+.card-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Portraits keep the face, which is nearly always in the upper third. */
+  object-position: 50% 22%;
+  animation: media-in 1000ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* Where the picture meets the glass, it fades into it rather than stopping. */
+.card-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 58%, rgba(8, 10, 14, 0.4));
+  pointer-events: none;
+}
+
+.card-media figcaption {
+  position: absolute;
+  z-index: 1;
+  bottom: 12px;
+  left: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.card-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: clamp(26px, 4cqw, 42px);
+  padding-right: clamp(52px, 5cqw, 60px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.card-body::-webkit-scrollbar {
+  display: none;
+}
+
+.card-body > * {
+  animation: card-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(140ms + var(--i, 0) * 80ms);
+}
+
+.card-title {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 4.6cqw, 2.8rem);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.card-subtitle {
+  margin: -2px 0 0;
+  color: rgba(214, 222, 234, 0.62);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.card-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.card-figure strong {
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 11cqw, 5.4rem);
+  font-weight: 300;
+  line-height: 0.92;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-figure span {
+  color: rgba(191, 233, 255, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.card-summary {
+  margin: 2px 0 0;
+  color: rgba(226, 232, 241, 0.8);
+  font-size: 0.94rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* The facts stagger in themselves, so their list is only a grid. */
+.card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 22px;
+  margin: 8px 0 0;
+  animation: none;
+}
+
+.card-fact {
+  padding: 11px 0 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  animation: card-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(140ms + var(--i, 0) * 80ms);
+  transition: border-color 400ms ease-out;
+}
+
+.card-fact dt {
+  margin-bottom: 4px;
+  color: rgba(191, 233, 255, 0.55);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.card-fact dd {
+  margin: 0;
+  color: rgba(236, 240, 247, 0.84);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  transition: color 400ms ease-out, text-shadow 400ms ease-out;
+}
+
+/* A fact GIDEON has just said aloud. */
+.card-fact[data-said='true'] {
+  border-top-color: rgba(191, 233, 255, 0.34);
+}
+
+.card-fact[data-said='true'] dd {
+  color: #fff;
+  text-shadow: 0 0 18px rgba(191, 233, 255, 0.42);
+}
+
+.card-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-sources a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(226, 232, 241, 0.68);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-decoration: none;
+  transition: background 180ms ease-out, color 180ms ease-out;
+}
+
+.card-sources a:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* A narrow stage stacks the picture over the words. */
+@container (max-width: 600px) {
+  .glass-pane {
+    flex-direction: column;
+  }
+
+  .card-media {
+    flex: 0 0 auto;
+    height: 34cqh;
+    min-height: 150px;
+  }
+
+  .card-media::after {
+    background: linear-gradient(180deg, transparent 55%, rgba(8, 10, 14, 0.42));
+  }
+
+  .card-body {
+    padding: 22px;
+    padding-right: 22px;
+  }
+
+  .card-facts {
+    column-gap: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .agent-presence[data-stage='open'] {
+    padding-top: 86px;
+  }
+
+  .agent-presence[data-stage='open'] .robot-presence {
+    top: 12px;
+    left: 10px;
+    width: 112px;
+  }
+
+  .research-stage {
+    height: clamp(320px, 56vh, 540px);
+  }
+
+  .glass-card {
+    --card-w: calc(100cqw - 36px);
+    --peek: 14px;
+  }
+
+  .glass-pane {
+    border-radius: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-float {
+    animation: none;
+    transform: none;
+  }
+
+  .glass-card,
+  .glass-float,
+  .glass-pane {
+    transition: none;
+  }
+
+  .glass-pane[data-state='searching']::after {
+    animation: none;
+  }
+}
+
+@keyframes glass-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+    filter: blur(18px);
+  }
+}
+
+@keyframes glass-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+    filter: blur(12px);
+  }
+}
+
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(6px);
+  }
+}
+
+@keyframes media-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(14px);
+  }
+}
+
+@keyframes glass-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -4px;
+  }
+}
+
+@keyframes glass-sweep {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
   }
 }
 

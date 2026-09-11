@@ -190,7 +190,8 @@ describe('research through the agent loop', () => {
         },
       ],
     })
-    expect(frames.at(-1)).toMatchObject({
+    // Not necessarily the last frame: the card drawn from the brief may follow it.
+    expect(frames.find((frame) => frame.t === 'done')).toMatchObject({
       t: 'done',
       text: `${said[0]} Light rain, and a high of seventeen.`,
     })
@@ -223,7 +224,10 @@ describe('research through the agent loop', () => {
     const frames = await collect('weather in Paris today', false)
     expect(deltas(frames).some((text) => RESEARCH_FILLERS.includes(text))).toBe(false)
     // The two rounds read as one reply, not "forecast.Sunny".
-    expect(frames.at(-1)).toMatchObject({ t: 'done', text: 'Checking the forecast. Sunny, twenty-two.' })
+    expect(frames.find((frame) => frame.t === 'done')).toMatchObject({
+      t: 'done',
+      text: 'Checking the forecast. Sunny, twenty-two.',
+    })
   })
 
   it('does not offer research at all without a key behind it', async () => {

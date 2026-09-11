@@ -19,6 +19,7 @@ import {
   type ServerFrame,
 } from './protocol'
 import { accessCode, backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
+import type { Card } from './cards'
 
 export type LinkTransport = 'idle' | 'connecting' | 'socket' | 'http'
 
@@ -38,6 +39,8 @@ export interface ActionEvent {
   ok: boolean
   /** Still in progress; the frame that follows with the same `call` is the result. */
   pending: boolean
+  /** What is being worked on, such as the question being researched. */
+  detail: string
   links: Array<{ title: string; url: string; publishedDate?: string }>
 }
 
@@ -126,15 +129,26 @@ export class RealtimeLink {
   private runClientTool:
     | ((name: string, args: unknown) => Promise<{ ok: boolean; content: string }>)
     | null = null
+  /**
+   * Cards and stage changes go to the page directly, not through the turn's
+   * handlers: a card is drawn beside the reply and often arrives after `done`,
+   * by which point the turn has already been let go.
+   */
+  private onCard: ((turnId: string, call: string, card: Card | null) => void) | null = null
+  private onStage: ((turnId: string, op: 'clear') => void) | null = null
 
   constructor(options: {
     onTransportChange?: (transport: LinkTransport) => void
     onConfig?: (config: LinkConfig) => void
     runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
+    onCard?: (turnId: string, call: string, card: Card | null) => void
+    onStage?: (turnId: string, op: 'clear') => void
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
     this.onConfig = options.onConfig ?? null
     this.runClientTool = options.runClientTool ?? null
+    this.onCard = options.onCard ?? null
+    this.onStage = options.onStage ?? null
   }
 
   connect() {
@@ -371,8 +385,19 @@ export class RealtimeLink {
           summary: frame.summary,
           ok: frame.ok,
           pending: frame.pending === true,
+          detail: typeof frame.detail === 'string' ? frame.detail : '',
           links: Array.isArray(frame.links) ? frame.links : [],
         })
+        return
+      case 'card':
+        this.onCard?.(
+          frame.id,
+          frame.call,
+          frame.card && typeof frame.card === 'object' ? frame.card : null,
+        )
+        return
+      case 'stage':
+        if (frame.op === 'clear') this.onStage?.(frame.id, frame.op)
         return
       case 'tool_request':
         void this.fulfilTool(frame.id, frame.call, frame.name, frame.args)

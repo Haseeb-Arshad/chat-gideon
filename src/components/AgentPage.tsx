@@ -12,8 +12,9 @@ import {
   Square,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
+import type { Card } from '../lib/cards'
 import { MicCapture, captureSupported, type Utterance } from '../lib/audio/capture'
 import { Transcriber } from '../lib/audio/transcriber'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
@@ -42,6 +43,7 @@ import { VoiceQueue } from '../lib/voice-queue'
 import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
+import { ResearchStage, type StageEntry } from './ResearchStage'
 
 /**
  * `replying` is the state between the first streamed token and audible playback.
@@ -121,6 +123,26 @@ const CONFIRM_TIMEOUT_MS = 2_500
 /** How an interrupted reply is marked in history, for the model's benefit. */
 const INTERRUPTED = /s*[interrupted]$/
 
+/**
+ * Someone saying they are finished with what is on screen.
+ *
+ * The model has `clear_screen` for every other way of putting it. These common
+ * ones are matched here so the cards go the moment the sentence ends, without
+ * a model round trip to decide something this obvious.
+ */
+const DONE_WITH_IT =
+  /\b(that['’]?s all|i['’]?m (done|finished)|we['’]?re done|done with (it|this|that)|(close|clear|hide|dismiss) (it|this|that|them|the (cards?|screen))|never ?mind|something else|change the subject)\b/i
+
+/** A card's dissolve, and the beat between cards when several go at once. */
+const CARD_LEAVE_MS = 460
+const CARD_LEAVE_STAGGER_MS = 80
+/** How long a searching pane waits for a card the server never sent. */
+const CARD_GIVE_UP_MS = 12_000
+/** The front card, the one peeking, and two more held behind them. */
+const MAX_STAGE = 4
+/** Where the docked face looks: across and down, at the card in the middle. */
+const CARD_GAZE = { x: 0.85, y: 0.45 }
+
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
   role: 'assistant',
@@ -190,18 +212,147 @@ interface RunningTurn {
   onFinish?: () => void
 }
 
+/**
+ * The face, and where it is in the room.
+ *
+ * Docked, it moves to the top-left corner so a card can have the middle. The
+ * move is a FLIP: the layout changes at once, and three nested transforms
+ * replay the distance from where the face was. They are separate so that
+ * across and down can run on different curves, which is what makes the path a
+ * swoop through the bottom left rather than a straight line to the corner. The
+ * gaze leads the way: down and left, then up, then across to the card.
+ */
 function LivingPresence({
   phase,
   emotion,
   levelRef,
+  docked,
 }: {
   phase: Phase
   emotion: EyeEmotion
   levelRef: React.RefObject<number>
+  docked: boolean
 }) {
+  const acrossRef = useRef<HTMLDivElement>(null)
+  const downRef = useRef<HTMLDivElement>(null)
+  const faceRef = useRef<HTMLDivElement>(null)
+  const attentionRef = useRef<{ x: number; y: number } | null>(null)
+  /** Where the face was drawn at the last commit: the start of any journey. */
+  const lastBoxRef = useRef<DOMRect | null>(null)
+  const dockedRef = useRef(docked)
+  const gazeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  // No dependency list on purpose: the box is re-measured after every commit,
+  // so a journey always starts from where the face actually is, even halfway
+  // through the previous one.
+  useLayoutEffect(() => {
+    const across = acrossRef.current
+    const down = downRef.current
+    const face = faceRef.current
+    if (!across || !down || !face) return
+    if (dockedRef.current === docked) {
+      lastBoxRef.current = face.getBoundingClientRect()
+      return
+    }
+    dockedRef.current = docked
+
+    const from = lastBoxRef.current
+    for (const node of [across, down, face]) {
+      for (const animation of node.getAnimations()) animation.cancel()
+    }
+    const to = face.getBoundingClientRect()
+    lastBoxRef.current = to
+
+    for (const timer of gazeTimersRef.current) clearTimeout(timer)
+    gazeTimersRef.current = []
+    const lookLater = (at: { x: number; y: number } | null, delay: number) => {
+      gazeTimersRef.current.push(
+        setTimeout(() => {
+          attentionRef.current = at
+        }, delay),
+      )
+    }
+
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    if (!from || !to.width || still) {
+      attentionRef.current = docked ? CARD_GAZE : null
+      return
+    }
+
+    const dx = from.left - to.left
+    const dy = from.top - to.top
+    const scale = from.width / to.width
+
+    if (docked) {
+      const duration = 1150
+      // The bottom of the swoop, a little below the middle of the screen.
+      const low = Math.max(dy, window.innerHeight * 0.52 - to.top - (to.height * scale) / 2)
+      across.animate([{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }], {
+        duration,
+        easing: 'cubic-bezier(0.3, 0, 0.1, 1)',
+      })
+      down.animate(
+        [
+          { transform: `translateY(${dy}px)`, easing: 'cubic-bezier(0.3, 0, 0.45, 1)' },
+          { transform: `translateY(${low}px)`, offset: 0.4, easing: 'cubic-bezier(0.55, 0, 0.25, 1)' },
+          { transform: 'translateY(0)' },
+        ],
+        { duration },
+      )
+      face.animate(
+        [
+          { transform: `scale(${scale})` },
+          { transform: `scale(${1 + (scale - 1) * 0.5})`, offset: 0.4 },
+          { transform: 'scale(1)' },
+        ],
+        { duration, easing: 'cubic-bezier(0.45, 0, 0.2, 1)' },
+      )
+      attentionRef.current = { x: -0.9, y: 0.6 }
+      lookLater({ x: -0.5, y: -0.75 }, duration * 0.42)
+      lookLater(CARD_GAZE, duration)
+    } else {
+      const duration = 950
+      const easing = 'cubic-bezier(0.65, 0, 0.35, 1)'
+      across.animate([{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }], {
+        duration,
+        easing,
+      })
+      down.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+        duration,
+        easing: 'cubic-bezier(0.5, 0, 0.2, 1)',
+      })
+      face.animate([{ transform: `scale(${scale})` }, { transform: 'scale(1)' }], { duration, easing })
+      attentionRef.current = { x: 0.35, y: 0.35 }
+      lookLater(null, duration)
+    }
+  })
+
+  useEffect(
+    () => () => {
+      for (const timer of gazeTimersRef.current) clearTimeout(timer)
+    },
+    [],
+  )
+
   return (
-    <div className="robot-presence" data-phase={phase} data-emotion={emotion} aria-hidden="true">
-      <GideonEyes phase={eyePhaseFor(phase)} emotion={emotion} levelRef={levelRef} />
+    <div
+      className="robot-presence"
+      ref={acrossRef}
+      data-phase={phase}
+      data-emotion={emotion}
+      data-docked={docked}
+      aria-hidden="true"
+    >
+      <div className="presence-travel" ref={downRef}>
+        <div className="presence-scale" ref={faceRef}>
+          <GideonEyes
+            phase={eyePhaseFor(phase)}
+            emotion={emotion}
+            levelRef={levelRef}
+            attentionRef={attentionRef}
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -357,6 +508,207 @@ export function AgentPage() {
     })
   }, [])
 
+  // -- Research stage ------------------------------------------------------
+
+  /**
+   * What is on screen about things GIDEON looked up, oldest first.
+   *
+   * Kept in a ref as well as in state because frames arrive outside React: a
+   * card can land between renders, and whether its searching pane is still
+   * there has to be read from the latest list, not from the last render's.
+   */
+  const [stage, setStage] = useState<StageEntry[]>([])
+  const [frontId, setFrontId] = useState<string | null>(null)
+  const stageEntriesRef = useRef<StageEntry[]>([])
+  const stageTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  /** Turns that are on screen for real, as opposed to guesses. */
+  const promotedRef = useRef(new Set<string>())
+  /** Cards that finished drawing for a guess, held until it is promoted. */
+  const heldCardsRef = useRef(new Map<string, Array<{ call: string; card: Card | null }>>())
+  /** Cards already sent away, which a late arrival must not bring back. */
+  const dismissedRef = useRef(new Set<string>())
+
+  const updateStage = useCallback((change: (current: StageEntry[]) => StageEntry[]) => {
+    const next = change(stageEntriesRef.current)
+    stageEntriesRef.current = next
+    setStage(next)
+  }, [])
+
+  const later = useCallback((key: string, ms: number, work: () => void) => {
+    const timers = stageTimersRef.current
+    const existing = timers.get(key)
+    if (existing) clearTimeout(existing)
+    timers.set(
+      key,
+      setTimeout(() => {
+        timers.delete(key)
+        work()
+      }, ms),
+    )
+  }, [])
+
+  const cancelLater = useCallback((key: string) => {
+    const timers = stageTimersRef.current
+    const existing = timers.get(key)
+    if (existing) clearTimeout(existing)
+    timers.delete(key)
+  }, [])
+
+  /** One card dissolves, and is let go once it has. */
+  const dropCard = useCallback(
+    (id: string) => {
+      cancelLater(`wait:${id}`)
+      dismissedRef.current.add(id)
+      if (!stageEntriesRef.current.some((entry) => entry.id === id && entry.leaving === null)) return
+      updateStage((current) =>
+        current.map((entry) => (entry.id === id ? { ...entry, leaving: 0 } : entry)),
+      )
+      later(`drop:${id}`, CARD_LEAVE_MS, () => {
+        updateStage((current) => current.filter((entry) => entry.id !== id))
+        setFrontId((front) => (front === id ? null : front))
+      })
+    },
+    [cancelLater, later, updateStage],
+  )
+
+  /** Everything goes, newest first, and the face goes home once it has. */
+  const clearStage = useCallback(() => {
+    const live = stageEntriesRef.current.filter((entry) => entry.leaving === null)
+    if (!live.length) return
+    const order = live.map((entry) => entry.id).reverse()
+    for (const id of order) {
+      dismissedRef.current.add(id)
+      cancelLater(`wait:${id}`)
+    }
+    updateStage((current) =>
+      current.map((entry) =>
+        entry.leaving === null ? { ...entry, leaving: order.indexOf(entry.id) } : entry,
+      ),
+    )
+    later('clear', CARD_LEAVE_MS + CARD_LEAVE_STAGGER_MS * (order.length - 1), () => {
+      updateStage((current) => current.filter((entry) => entry.leaving === null))
+      setFrontId(null)
+    })
+  }, [cancelLater, later, updateStage])
+
+  /** Gone at once, with nothing to watch leave: a new conversation. */
+  const resetStage = useCallback(() => {
+    for (const timer of stageTimersRef.current.values()) clearTimeout(timer)
+    stageTimersRef.current.clear()
+    heldCardsRef.current.clear()
+    stageEntriesRef.current = []
+    setStage([])
+    setFrontId(null)
+  }, [])
+
+  /** The searching pane, the moment research starts. */
+  const openSearch = useCallback(
+    (id: string, query: string) => {
+      if (dismissedRef.current.has(id)) return
+      if (stageEntriesRef.current.some((entry) => entry.id === id)) return
+      updateStage((current) =>
+        [...current, { id, query, card: null, leaving: null }].slice(-MAX_STAGE),
+      )
+      setFrontId(id)
+    },
+    [updateStage],
+  )
+
+  /** A card landing on its searching pane, or on its own if it never had one. */
+  const placeCard = useCallback(
+    (id: string, card: Card | null) => {
+      cancelLater(`wait:${id}`)
+      if (!card) {
+        dropCard(id)
+        return
+      }
+      if (dismissedRef.current.has(id)) return
+      const exists = stageEntriesRef.current.some((entry) => entry.id === id)
+      updateStage((current) =>
+        exists
+          ? current.map((entry) =>
+              entry.id === id ? { ...entry, card, query: card.query || entry.query } : entry,
+            )
+          : [...current, { id, query: card.query, card, leaving: null }].slice(-MAX_STAGE),
+      )
+      setFrontId(id)
+    },
+    [cancelLater, dropCard, updateStage],
+  )
+
+  /** Research came back, so its card should follow; if it never does, the pane goes. */
+  const waitForCard = useCallback(
+    (id: string) => {
+      later(`wait:${id}`, CARD_GIVE_UP_MS, () => {
+        if (stageEntriesRef.current.some((entry) => entry.id === id && !entry.card)) dropCard(id)
+      })
+    },
+    [dropCard, later],
+  )
+
+  /** Read by the link, which is created once and so cannot close over these. */
+  const cardArrivedRef = useRef<(turnId: string, call: string, card: Card | null) => void>(
+    () => undefined,
+  )
+  cardArrivedRef.current = (turnId, call, card) => {
+    if (promotedRef.current.has(turnId)) {
+      placeCard(`${turnId}:${call}`, card)
+      return
+    }
+    // A guess's card waits with the guess, and is shown only if it is kept.
+    const held = heldCardsRef.current
+    held.set(turnId, [...(held.get(turnId) ?? []), { call, card }])
+    if (held.size > 8) held.delete(held.keys().next().value as string)
+  }
+  const stageClearRef = useRef<(turnId: string) => void>(() => undefined)
+  stageClearRef.current = (turnId) => {
+    if (promotedRef.current.has(turnId)) clearStage()
+  }
+
+  /**
+   * Opening or closing the stage resizes the transcript's frame, and the
+   * newest line comes back into view either way. The observer on the frame
+   * sees the same change, but only once the page next paints, and a pin that
+   * waits for that shows as a jump; this runs before the paint.
+   */
+  const staged = stage.length > 0
+  useLayoutEffect(() => {
+    const node = transcriptRef.current
+    if (!node) return
+    followRef.current = true
+    node.scrollTop = node.scrollHeight
+  }, [staged])
+
+  /** Escape takes the cards down, the same as saying so. */
+  useEffect(() => {
+    if (!stage.length) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return
+      clearStage()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [clearStage, stage.length])
+
+  useEffect(
+    () => () => {
+      for (const timer of stageTimersRef.current.values()) clearTimeout(timer)
+    },
+    [],
+  )
+
+  // Development only: lets the stage be exercised without spending a search.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const handle = window as unknown as { __gideonStage?: unknown }
+    handle.__gideonStage = { open: openSearch, place: placeCard, clear: clearStage }
+    return () => {
+      delete handle.__gideonStage
+    }
+  }, [clearStage, openSearch, placeCard])
+
   /** What GIDEON is busy with while the turn is silent, for the status line. */
   const [working, setWorking] = useState<string | null>(null)
 
@@ -365,6 +717,12 @@ export function AgentPage() {
     (turn: RunningTurn, action: ActionEvent) => {
       note(action.summary, action.ok, `${turn.id}:${action.call}`, action.pending)
       setWorking(action.pending ? 'Looking that up…' : null)
+      if (action.name === 'research') {
+        const id = `${turn.id}:${action.call}`
+        if (action.pending) openSearch(id, action.detail)
+        else if (!action.ok) dropCard(id)
+        else waitForCard(id)
+      }
       if (!action.links.length) return
       setLinks((current) =>
         [
@@ -377,7 +735,7 @@ export function AgentPage() {
         ].slice(-4),
       )
     },
-    [note],
+    [dropCard, note, openSearch, waitForCard],
   )
 
   // -- Browser-run tools ---------------------------------------------------
@@ -423,6 +781,8 @@ export function AgentPage() {
       runClientTool: (name, args) =>
         toolsRef.current?.run(name, args) ??
         Promise.resolve({ ok: false, content: 'The page is not ready to do that.' }),
+      onCard: (turnId, call, card) => cardArrivedRef.current(turnId, call, card),
+      onStage: (turnId) => stageClearRef.current(turnId),
     })
     linkRef.current = link
     link.connect()
@@ -529,29 +889,66 @@ export function AgentPage() {
    * again by the next token — `followRef` is only true while the transcript is
    * already resting on its floor, which is where it spends nearly all its time.
    */
+  const speakingAloudRef = useRef(false)
   useEffect(() => {
+    // Starting to speak is the clearest possible sign of being back in the
+    // conversation, so it brings the transcript down to your words even if it
+    // had been held open to re-read something.
+    const speaking = Boolean(liveTranscript.trim())
+    if (speaking && !speakingAloudRef.current) followRef.current = true
+    speakingAloudRef.current = speaking
+
     const node = transcriptRef.current
     if (node && followRef.current) node.scrollTop = node.scrollHeight
   }, [messages, assistantCaption, liveTranscript])
 
   /**
-   * The same pin again, driven by height rather than by state.
+   * The same pin again, driven by height rather than by state, and the rise.
    *
    * A reply can change height without changing: the display face swapping in
    * after its first paint reflows the newest line, and settling on it after the
    * fact would otherwise leave the last line of an answer below the floor with
    * nothing left to scroll it back into view.
+   *
+   * The pin itself has to be instant (see `.transcript`), which made every new
+   * line a jump. So the lines are shifted back down by exactly what they grew
+   * and allowed to glide up from there: the scroll position is already final,
+   * and only the picture of it is animated. `composite: 'add'` lets a second
+   * growth stack onto a rise already under way instead of snapping it.
    */
   useEffect(() => {
     const node = transcriptRef.current
-    const flow = node?.firstElementChild
-    if (!node || !flow) return
+    const lines = node?.querySelector<HTMLElement>('.transcript-lines')
+    if (!node || !lines) return
+
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    let height = lines.getBoundingClientRect().height
+    let frame = node.clientHeight
 
     const pin = () => {
-      if (followRef.current) node.scrollTop = node.scrollHeight
+      const next = lines.getBoundingClientRect().height
+      const grown = next - height
+      height = next
+      // The frame itself changing size is the layout moving, never the reader
+      // scrolling away, so it always brings the newest line back into view.
+      if (node.clientHeight !== frame) {
+        frame = node.clientHeight
+        followRef.current = true
+      }
+      if (!followRef.current) return
+      node.scrollTop = node.scrollHeight
+      if (still || grown < 1 || grown > node.clientHeight) return
+      lines.animate([{ transform: `translateY(${grown}px)` }, { transform: 'translateY(0)' }], {
+        duration: 460,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        composite: 'add',
+      })
     }
     const observer = new ResizeObserver(pin)
-    observer.observe(flow)
+    observer.observe(lines)
+    // The frame too: it shrinks when cards take the middle of the room, and
+    // without a pin then the newest line would be left below the floor.
+    observer.observe(node)
     return () => observer.disconnect()
   }, [])
 
@@ -700,6 +1097,13 @@ export function AgentPage() {
       turn.speculative = false
       // Whatever the guess did while it was invisible, it did for real.
       for (const action of turn.actions.splice(0)) showAction(turn, action)
+      // And any card it finished drawing meanwhile goes up now.
+      const promoted = promotedRef.current
+      promoted.add(turn.id)
+      if (promoted.size > 64) promoted.delete(promoted.values().next().value as string)
+      const held = heldCardsRef.current.get(turn.id) ?? []
+      heldCardsRef.current.delete(turn.id)
+      for (const { call, card } of held) placeCard(`${turn.id}:${call}`, card)
 
       setNotice(null)
       setRetryText(null)
@@ -806,7 +1210,7 @@ export function AgentPage() {
       if (turn.finished) void settle()
       else turn.onFinish = settle
     },
-    [feel, scheduleListen, setPhase, showAction],
+    [feel, placeCard, scheduleListen, setPhase, showAction],
   )
 
   /**
@@ -913,6 +1317,9 @@ export function AgentPage() {
       const text = rawText.trim()
       if (!text) return
       if (!linkRef.current) return
+      // The message still goes to the model, which answers it; the cards just
+      // do not wait for that answer to go.
+      if (DONE_WITH_IT.test(text)) clearStage()
 
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       stopPartials()
@@ -966,7 +1373,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, feel, promote, stopPartials],
+    [abandon, beginTurn, clearStage, feel, promote, stopPartials],
   )
 
   /**
@@ -1354,6 +1761,7 @@ export function AgentPage() {
     setDraft('')
     setLedger([])
     setLinks([])
+    resetStage()
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
@@ -1366,7 +1774,7 @@ export function AgentPage() {
     } else {
       setPhase(voiceModeRef.current === 'paused' ? 'paused' : 'idle')
     }
-  }, [abandon, scheduleListen, setPhase])
+  }, [abandon, resetStage, scheduleListen, setPhase])
 
   // The metal face still tilts toward the pointer; the eyes track it themselves.
   function handlePointerMove(event: React.PointerEvent<HTMLElement>) {
@@ -1451,7 +1859,12 @@ export function AgentPage() {
     }
   })
 
-  if (stream[stream.length - 1]?.role === 'user') {
+  // The reply placeholder only while a reply is genuinely coming. History also
+  // ends on your line after a failed turn, a stopped one, or one you cut off
+  // before a word was heard, and a `•••` there used to stand in front of the
+  // next thing you said and hide it.
+  const replyInFlight = phase === 'thinking' || phase === 'replying' || phase === 'speaking'
+  if (stream[stream.length - 1]?.role === 'user' && replyInFlight) {
     stream.push({
       id: `live-${captionTurn}`,
       role: 'assistant',
@@ -1463,10 +1876,15 @@ export function AgentPage() {
     stream.push({ id: 'live-user', role: 'user', content: liveTranscript, cut: false, live: true })
   }
 
+  // Open for as long as any card is on screen, including one dissolving: the
+  // face waits for the last of them to go before it heads home.
+  const stageOpen = stage.length > 0
+
   return (
     <main
       className="presence-shell"
       ref={stageRef}
+      data-stage={stageOpen ? 'open' : undefined}
       onPointerMove={handlePointerMove}
       onPointerLeave={resetGaze}
     >
@@ -1519,8 +1937,22 @@ export function AgentPage() {
         </div>
       ) : null}
 
-      <section className="agent-presence" aria-label="GIDEON voice presence">
-        <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} />
+      <section
+        className="agent-presence"
+        data-stage={stageOpen ? 'open' : undefined}
+        aria-label="GIDEON voice presence"
+      >
+        <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} docked={stageOpen} />
+
+        {stageOpen ? (
+          <ResearchStage
+            entries={stage}
+            frontId={frontId}
+            spoken={assistantCaption}
+            onFocus={setFrontId}
+            onClose={dropCard}
+          />
+        ) : null}
 
         <div className="transcript-frame">
           <div className="transcript-veil" aria-hidden="true" />
@@ -1535,6 +1967,7 @@ export function AgentPage() {
             aria-atomic="false"
           >
             <div className="transcript-flow">
+              <div className="transcript-lines">
               {stream.map((entry, index) => {
                 const current = index === stream.length - 1
 
@@ -1542,7 +1975,18 @@ export function AgentPage() {
                   return (
                     <p className="turn-said" data-role="user" data-current={current} key={entry.id}>
                       <span className="turn-who">You</span>
-                      {entry.content}
+                      {entry.live
+                        ? // Keyed by position and word, so a word already on
+                          // screen stays put and only new or corrected ones rise.
+                          entry.content
+                            .split(/\s+/)
+                            .filter(Boolean)
+                            .map((word, wordIndex) => (
+                              <span className="caption-word" key={`${wordIndex}-${word}`}>
+                                {word}
+                              </span>
+                            ))
+                        : entry.content}
                     </p>
                   )
                 }
@@ -1573,12 +2017,14 @@ export function AgentPage() {
                   </p>
                 )
               })}
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {ledger.length || links.length ? (
+      {/* The cards name their own sources, so the receipt steps aside for them. */}
+      {(ledger.length || links.length) && !stageOpen ? (
         <section className="action-ledger" aria-label="What GIDEON did">
           {ledger.map((entry) => (
             <p

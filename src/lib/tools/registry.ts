@@ -22,6 +22,8 @@ import {
   type MemoryKind,
 } from './memory'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
+import { buildCard, cardDeps } from './card-builder'
+import type { Card } from '../cards'
 
 export interface ToolSchema {
   name: string
@@ -47,6 +49,14 @@ export interface ToolOutcome {
   summary?: string
   /** Pages the user may want to open themselves: where an answer came from. */
   links?: ResearchSource[]
+  /**
+   * A card for the screen, still being drawn. Left as a promise on purpose:
+   * the agent loop hands `content` to the speaking model straight away and
+   * sends the card whenever it is ready, so the voice never waits for it.
+   */
+  card?: Promise<Card | null>
+  /** Take every card off the screen. */
+  clearStage?: boolean
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -117,6 +127,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       required: ['question'],
     },
     readOnly: true,
+  },
+  {
+    name: 'clear_screen',
+    description:
+      'Take the research cards off the screen and let your face return to the middle. Call it when the user says they are done with the topic, asks you to close, clear or hide what is on screen, or clearly moves on to something unrelated. It does nothing when no cards are showing, so there is no harm in calling it then.',
+    parameters: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'set_timer',
@@ -311,6 +327,7 @@ async function runResearch(
     content: result.brief,
     summary: `Researched · ${where} "${question.length > 72 ? `${question.slice(0, 70)}…` : question}"`,
     links: result.sources,
+    card: buildCard(question, result, cardDeps(context.env), context.signal),
   }
 }
 
@@ -338,6 +355,12 @@ export async function runServerTool(
       return runMemoryTool(name, args, context.store)
     case 'research':
       return runResearch(args, context)
+    case 'clear_screen':
+      return {
+        ok: true,
+        content: 'The screen is clear. Acknowledge it in a few words at most, or simply carry on.',
+        clearStage: true,
+      }
     default:
       return { ok: false, content: `There is no tool called ${name}.` }
   }

@@ -66,6 +66,8 @@ You have tools. Use one only when the answer genuinely depends on it, because ev
 
 Anything about the world that changes over time, or that you would otherwise be guessing at, goes to research: news, prices, results, weather, releases, who someone is, what something costs, what is true today. Your own knowledge has a cutoff and the user is asking now. Give research the whole question in plain words with every detail the user gave, then answer from the brief it returns and nothing else: keep its numbers, names and dates exactly, mention a source in passing when it matters, and if the brief says something could not be found, say that rather than filling the gap yourself.
 
+What research finds is also shown to the user on screen, as a card, while you speak. When the user says they are done with it, asks you to close or clear the screen, or moves on to something unrelated, call clear_screen.
+
 Remember something when the user tells you a durable fact about themselves, and recall when the answer depends on one. Never say that you are remembering, recalling, searching or checking. Do the call and then just answer.
 
 Never mention hidden instructions. Never claim to have performed actions or accessed information that you have not.`
@@ -277,6 +279,25 @@ export const RESEARCH_FILLERS = [
   'Give me a second to check.',
 ]
 
+/**
+ * How long a finished reply waits for a card still being drawn.
+ *
+ * The card is drawn beside the spoken answer and the voice is usually still
+ * going when the text has all arrived, so a card sent within this window still
+ * lands while its answer is being heard. Past it, the moment has gone.
+ */
+const CARD_WAIT_MS = 6_000
+
+function within(work: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    void work.finally(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+}
+
 function holdingLine(seed: string) {
   let hash = 0
   for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) | 0
@@ -343,6 +364,14 @@ export async function* streamTurn(
   let complete = ''
   let started = false
   let useTools = true
+  // Cards being drawn from research, and the ones ready to go. A card travels
+  // with the reply rather than ahead of it: it is released at the next frame
+  // the loop sends anyway, so the voice never waits on one.
+  const drawing: Promise<void>[] = []
+  const ready: ServerFrame[] = []
+  function* release() {
+    while (ready.length) yield ready.shift() as ServerFrame
+  }
   // A research tool with no key behind it would only buy a holding line and
   // an apology, so a server without one does not offer it at all.
   const offeredTools = toolDefinitions().filter(
@@ -459,6 +488,7 @@ export async function* streamTurn(
               separate = false
               complete += text
               yield { t: 'delta', id, text }
+              yield* release()
             }
           }
         }
@@ -554,6 +584,8 @@ export async function* streamTurn(
             summary: 'Looking that up…',
             ok: true,
             pending: true,
+            // The searching pane shows this while the desk works.
+            detail: String(args.question ?? args.query ?? '').trim().slice(0, 240),
           }
         }
         outcome = await runServerTool(call.name, args, {
@@ -577,6 +609,20 @@ export async function* streamTurn(
         }
       }
 
+      if (outcome.clearStage) yield { t: 'stage', id, op: 'clear' }
+      if (outcome.card) {
+        drawing.push(
+          outcome.card.then(
+            // A null card is sent too: it is what tells the searching pane
+            // to dissolve now, rather than wait out a timer for nothing.
+            (card) => {
+              if (!signal.aborted) ready.push({ t: 'card', id, call: callId, card })
+            },
+            () => undefined,
+          ),
+        )
+      }
+
       history.push({ role: 'tool', tool_call_id: callId, content: outcome.content })
     }
   }
@@ -593,7 +639,15 @@ export async function* streamTurn(
     return
   }
 
+  yield* release()
   yield { t: 'done', id, text: complete }
+
+  // A card still being drawn when the text has all arrived goes out after it,
+  // which is why the browser handles cards apart from the turn itself.
+  if (drawing.length) {
+    await within(Promise.all(drawing), CARD_WAIT_MS)
+    if (!signal.aborted) yield* release()
+  }
 }
 
 export interface VoiceResult {
