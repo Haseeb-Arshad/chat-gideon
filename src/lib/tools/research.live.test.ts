@@ -34,6 +34,10 @@ const ROUTING: Array<[question: string, researches: boolean]> = [
   ["what's the weather in London today", true],
   ['who won the most recent Formula 1 race', true],
   ["what's the price of bitcoin right now", true],
+  // Famous enough to answer from memory, and looked up anyway: the card is
+  // part of the answer.
+  ['who was Marie Curie', true],
+  ['tell me about the Eiffel Tower', true],
   ["what's twelve times eight", false],
   ['tell me a joke about cats', false],
   ['how are you doing', false],

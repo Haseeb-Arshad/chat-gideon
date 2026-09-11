@@ -2,8 +2,7 @@ import {
   Activity,
   ArrowUp,
   AudioLines,
-  Check,
-  Link as LinkIcon,
+  Library,
   Mic,
   MicOff,
   Play,
@@ -14,7 +13,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
-import type { Card } from '../lib/cards'
+import { hostOf, type Card } from '../lib/cards'
+import type { ScreenState, StageMove } from '../lib/stage-judge'
 import { MicCapture, captureSupported, type Utterance } from '../lib/audio/capture'
 import { Transcriber } from '../lib/audio/transcriber'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
@@ -44,6 +44,8 @@ import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
 import { ResearchStage, type StageEntry } from './ResearchStage'
+import { ResourcesPanel, type Resource, type ResourceLink } from './ResourcesPanel'
+import { StageShelf } from './StageShelf'
 
 /**
  * `replying` is the state between the first streamed token and audible playback.
@@ -60,6 +62,15 @@ type VoiceMode = 'active' | 'paused' | 'muted'
  * microphone read as though the user had simply gone silent.
  */
 type PauseReason = 'quiet' | 'blocked' | 'failed' | null
+/**
+ * Where the cards are. `open` is the stage in the middle of the room with the
+ * face docked in the corner; `tucking` is the cards sliding off to the right;
+ * `tucked` is the shelf at the edge, with the face back home. With no cards at
+ * all it reads as tucked, and there is simply nothing on the shelf.
+ */
+type StageMode = 'open' | 'tucking' | 'tucked'
+/** Something a turn did to the screen, held back while that turn is only a guess. */
+type StageEvent = { call: string; card: Card | null } | { move: StageMove }
 
 interface Message {
   id: string
@@ -92,23 +103,6 @@ interface PublicConfig {
   tools?: string[]
 }
 
-/**
- * One thing GIDEON did, and whether it worked.
- *
- * An agent that only talks needs no ledger. One that remembers things, searches
- * the web and sets timers does: the user has to be able to see what was done on
- * their behalf without taking GIDEON's word for it, and spoken confirmation
- * disappears the moment it is said.
- */
-interface LedgerEntry {
-  id: string
-  summary: string
-  ok: boolean
-  at: number
-  /** Still happening. The entry is replaced in place when the result arrives. */
-  pending?: boolean
-}
-
 const STORAGE_KEY = 'gideon-conversation-v2'
 
 /**
@@ -126,20 +120,21 @@ const INTERRUPTED = /s*[interrupted]$/
 /**
  * Someone saying they are finished with what is on screen.
  *
- * The model has `clear_screen` for every other way of putting it. These common
- * ones are matched here so the cards go the moment the sentence ends, without
- * a model round trip to decide something this obvious.
+ * The server's screen judge hears every other way of putting it. These common
+ * ones are matched here so the cards step aside the moment the sentence ends,
+ * without waiting on a model to decide something this obvious.
  */
 const DONE_WITH_IT =
   /\b(that['’]?s all|i['’]?m (done|finished)|we['’]?re done|done with (it|this|that)|(close|clear|hide|dismiss) (it|this|that|them|the (cards?|screen))|never ?mind|something else|change the subject)\b/i
 
-/** A card's dissolve, and the beat between cards when several go at once. */
+/** A searching pane dissolving because nothing came of it. */
 const CARD_LEAVE_MS = 460
-const CARD_LEAVE_STAGGER_MS = 80
+/** The cards sliding off to the shelf, before the face goes home. */
+const TUCK_MS = 540
 /** How long a searching pane waits for a card the server never sent. */
 const CARD_GIVE_UP_MS = 12_000
-/** The front card, the one peeking, and two more held behind them. */
-const MAX_STAGE = 4
+/** Every card of the conversation is kept, so it can come back; this many at most. */
+const MAX_STAGE = 12
 /** Where the docked face looks: across and down, at the card in the middle. */
 const CARD_GAZE = { x: 0.85, y: 0.45 }
 
@@ -357,6 +352,47 @@ function LivingPresence({
   )
 }
 
+/**
+ * Glides an element from where it was drawn to where it is now whenever `key`
+ * changes. The layout switches at once and the element travels the difference,
+ * which is how the controls and the conversation move between the column on
+ * the left and the middle of the room as the stage opens and closes.
+ */
+function useGlide(ref: React.RefObject<HTMLElement | null>, key: unknown) {
+  const lastBox = useRef<DOMRect | null>(null)
+  const lastKey = useRef(key)
+
+  // No dependency list, as with the face: re-measured after every commit.
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node) return
+    if (lastKey.current === key) {
+      lastBox.current = node.getBoundingClientRect()
+      return
+    }
+    lastKey.current = key
+    const from = lastBox.current
+    for (const animation of node.getAnimations()) {
+      if (animation.id === 'glide') animation.cancel()
+    }
+    const to = node.getBoundingClientRect()
+    lastBox.current = to
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    if (!from || still) return
+    const dx = from.left - to.left
+    const dy = from.top - to.top
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
+    const glide = node.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.35 },
+        { transform: 'translate(0, 0)', opacity: 1 },
+      ],
+      { duration: 720, easing: 'cubic-bezier(0.65, 0, 0.35, 1)' },
+    )
+    glide.id = 'glide'
+  })
+}
+
 export function AgentPage() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [draft, setDraft] = useState('')
@@ -389,8 +425,10 @@ export function AgentPage() {
   /** The composer is a resting pill until it is asked for, then it is a field. */
   const [composerOpen, setComposerOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
-  const [ledger, setLedger] = useState<LedgerEntry[]>([])
-  const [links, setLinks] = useState<OfferedLink[]>([])
+  const [resources, setResources] = useState<Resource[]>([])
+  const [resourcesOpen, setResourcesOpen] = useState(false)
+  /** How many there were when the panel was last seen, so the badge can say "new". */
+  const [resourcesSeen, setResourcesSeen] = useState(0)
 
   const stageRef = useRef<HTMLElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -495,38 +533,85 @@ export function AgentPage() {
     captureRef.current?.setDucking(false)
   }, [])
 
-  const note = useCallback((summary: string, ok = true, key?: string, pending = false) => {
-    setLedger((current) => {
-      const id = key ?? `${Date.now().toString(36)}-${current.length}`
-      const entry: LedgerEntry = { id, summary, ok, at: Date.now(), pending }
-      // A keyed entry updates itself: "Looking that up…" becomes the result
-      // rather than sitting above it as a second line.
-      if (key && current.some((existing) => existing.id === key)) {
-        return current.map((existing) => (existing.id === key ? entry : existing))
-      }
-      return [...current.slice(-5), entry]
-    })
-  }, [])
+  /**
+   * Adds to what GIDEON did, or updates it. A keyed entry changes in place, so
+   * "Looking that up…" becomes its result rather than a second line above it,
+   * and it keeps any links it already had.
+   */
+  const record = useCallback(
+    (
+      key: string | null,
+      entry: { title?: string; detail: string; ok?: boolean; pending?: boolean; links?: ResourceLink[] },
+    ) => {
+      setResources((current) => {
+        const existing = key ? current.find((resource) => resource.id === key) : undefined
+        const links = [...(existing?.links ?? []), ...(entry.links ?? [])]
+        const next: Resource = {
+          id: key ?? `${Date.now().toString(36)}-${current.length}`,
+          title: entry.title || existing?.title || entry.detail,
+          detail: entry.detail,
+          ok: entry.ok ?? true,
+          pending: entry.pending ?? false,
+          at: Date.now(),
+          links: links.filter(
+            (link, index) => links.findIndex((other) => other.url === link.url) === index,
+          ),
+        }
+        return existing
+          ? current.map((resource) => (resource.id === key ? next : resource))
+          : [...current, next].slice(-30)
+      })
+    },
+    [],
+  )
+
+  const closeResources = useCallback(() => setResourcesOpen(false), [])
+
+  // Whatever arrives while the panel is open has been seen.
+  useEffect(() => {
+    if (resourcesOpen) setResourcesSeen(resources.length)
+  }, [resources.length, resourcesOpen])
 
   // -- Research stage ------------------------------------------------------
 
   /**
-   * What is on screen about things GIDEON looked up, oldest first.
+   * Every card of this conversation, oldest first, whether it is on the stage
+   * or waiting on the shelf, so any of them can come back.
    *
-   * Kept in a ref as well as in state because frames arrive outside React: a
+   * Kept in refs as well as in state because frames arrive outside React: a
    * card can land between renders, and whether its searching pane is still
    * there has to be read from the latest list, not from the last render's.
    */
   const [stage, setStage] = useState<StageEntry[]>([])
   const [frontId, setFrontId] = useState<string | null>(null)
+  const [stageMode, setStageMode] = useState<StageMode>('tucked')
   const stageEntriesRef = useRef<StageEntry[]>([])
+  const stageModeRef = useRef<StageMode>('tucked')
+  const frontIdRef = useRef<string | null>(null)
   const stageTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   /** Turns that are on screen for real, as opposed to guesses. */
   const promotedRef = useRef(new Set<string>())
-  /** Cards that finished drawing for a guess, held until it is promoted. */
-  const heldCardsRef = useRef(new Map<string, Array<{ call: string; card: Card | null }>>())
-  /** Cards already sent away, which a late arrival must not bring back. */
-  const dismissedRef = useRef(new Set<string>())
+  /** The newest real turn. A screen move judged for an older one is out of date. */
+  const latestTurnRef = useRef<string | null>(null)
+  /** What a guess did to the screen, held until the guess is kept. */
+  const heldRef = useRef(new Map<string, StageEvent[]>())
+  /**
+   * Searches still running when the cards were put away. Their cards land
+   * quietly on the shelf rather than pulling everything back into the middle.
+   */
+  const quietRef = useRef(new Set<string>())
+  /** The search that opened the stage from the shelf, if nothing has changed since. */
+  const openedForRef = useRef<string | null>(null)
+
+  const setMode = useCallback((next: StageMode) => {
+    stageModeRef.current = next
+    setStageMode(next)
+  }, [])
+
+  const focus = useCallback((id: string | null) => {
+    frontIdRef.current = id
+    setFrontId(id)
+  }, [])
 
   const updateStage = useCallback((change: (current: StageEntry[]) => StageEntry[]) => {
     const next = change(stageEntriesRef.current)
@@ -554,64 +639,94 @@ export function AgentPage() {
     timers.delete(key)
   }, [])
 
-  /** One card dissolves, and is let go once it has. */
+  /**
+   * Every card slides off to the shelf, and the face goes home once they have.
+   *
+   * Nothing is thrown away: the cards wait at the edge of the screen, and come
+   * back when they are pressed or when the conversation returns to them.
+   */
+  const tuckStage = useCallback(() => {
+    if (stageModeRef.current !== 'open') return
+    for (const entry of stageEntriesRef.current) {
+      cancelLater(`wait:${entry.id}`)
+      if (!entry.card && !entry.leaving) quietRef.current.add(entry.id)
+    }
+    openedForRef.current = null
+    setMode('tucking')
+    later('tuck', TUCK_MS, () => setMode('tucked'))
+  }, [cancelLater, later, setMode])
+
+  /** One card, brought back into the middle of the room. */
+  const showCard = useCallback(
+    (id: string) => {
+      if (!stageEntriesRef.current.some((entry) => entry.id === id && entry.card && !entry.leaving)) {
+        return
+      }
+      cancelLater('tuck')
+      openedForRef.current = null
+      focus(id)
+      setMode('open')
+    },
+    [cancelLater, focus, setMode],
+  )
+
+  /** A searching pane that came to nothing dissolves, and is let go once it has. */
   const dropCard = useCallback(
     (id: string) => {
       cancelLater(`wait:${id}`)
-      dismissedRef.current.add(id)
-      if (!stageEntriesRef.current.some((entry) => entry.id === id && entry.leaving === null)) return
+      quietRef.current.delete(id)
+      if (!stageEntriesRef.current.some((entry) => entry.id === id && !entry.leaving)) return
       updateStage((current) =>
-        current.map((entry) => (entry.id === id ? { ...entry, leaving: 0 } : entry)),
+        current.map((entry) => (entry.id === id ? { ...entry, leaving: true } : entry)),
       )
       later(`drop:${id}`, CARD_LEAVE_MS, () => {
         updateStage((current) => current.filter((entry) => entry.id !== id))
-        setFrontId((front) => (front === id ? null : front))
+        if (frontIdRef.current === id) focus(null)
+        if (!stageEntriesRef.current.some((entry) => !entry.leaving)) {
+          setMode('tucked')
+        } else if (openedForRef.current === id) {
+          // It was the only reason the stage came off the shelf, so the rest
+          // go back where they were.
+          tuckStage()
+        }
       })
     },
-    [cancelLater, later, updateStage],
+    [cancelLater, focus, later, setMode, tuckStage, updateStage],
   )
-
-  /** Everything goes, newest first, and the face goes home once it has. */
-  const clearStage = useCallback(() => {
-    const live = stageEntriesRef.current.filter((entry) => entry.leaving === null)
-    if (!live.length) return
-    const order = live.map((entry) => entry.id).reverse()
-    for (const id of order) {
-      dismissedRef.current.add(id)
-      cancelLater(`wait:${id}`)
-    }
-    updateStage((current) =>
-      current.map((entry) =>
-        entry.leaving === null ? { ...entry, leaving: order.indexOf(entry.id) } : entry,
-      ),
-    )
-    later('clear', CARD_LEAVE_MS + CARD_LEAVE_STAGGER_MS * (order.length - 1), () => {
-      updateStage((current) => current.filter((entry) => entry.leaving === null))
-      setFrontId(null)
-    })
-  }, [cancelLater, later, updateStage])
 
   /** Gone at once, with nothing to watch leave: a new conversation. */
   const resetStage = useCallback(() => {
     for (const timer of stageTimersRef.current.values()) clearTimeout(timer)
     stageTimersRef.current.clear()
-    heldCardsRef.current.clear()
-    stageEntriesRef.current = []
-    setStage([])
-    setFrontId(null)
-  }, [])
+    heldRef.current.clear()
+    quietRef.current.clear()
+    openedForRef.current = null
+    updateStage(() => [])
+    focus(null)
+    setMode('tucked')
+  }, [focus, setMode, updateStage])
 
-  /** The searching pane, the moment research starts. */
+  /** The stage opens on `id`, remembering whether it had to come off the shelf for it. */
+  const openOn = useCallback(
+    (id: string) => {
+      if (stageModeRef.current !== 'open') openedForRef.current = id
+      cancelLater('tuck')
+      focus(id)
+      setMode('open')
+    },
+    [cancelLater, focus, setMode],
+  )
+
+  /** The searching pane, the moment a search starts. */
   const openSearch = useCallback(
-    (id: string, query: string) => {
-      if (dismissedRef.current.has(id)) return
+    (id: string, query: string, hint: StageEntry['hint']) => {
       if (stageEntriesRef.current.some((entry) => entry.id === id)) return
       updateStage((current) =>
-        [...current, { id, query, card: null, leaving: null }].slice(-MAX_STAGE),
+        [...current, { id, query, hint, card: null, leaving: false }].slice(-MAX_STAGE),
       )
-      setFrontId(id)
+      openOn(id)
     },
-    [updateStage],
+    [openOn, updateStage],
   )
 
   /** A card landing on its searching pane, or on its own if it never had one. */
@@ -622,18 +737,38 @@ export function AgentPage() {
         dropCard(id)
         return
       }
-      if (dismissedRef.current.has(id)) return
       const exists = stageEntriesRef.current.some((entry) => entry.id === id)
+      // The same thing asked for twice draws the same card twice. The newer one
+      // takes the older one's place rather than sitting beside it on the shelf.
+      const title = card.title.toLowerCase()
+      const earlier = (entry: StageEntry) =>
+        entry.id !== id && entry.card?.kind === card.kind && entry.card.title.toLowerCase() === title
       updateStage((current) =>
         exists
-          ? current.map((entry) =>
-              entry.id === id ? { ...entry, card, query: card.query || entry.query } : entry,
-            )
-          : [...current, { id, query: card.query, card, leaving: null }].slice(-MAX_STAGE),
+          ? current
+              .filter((entry) => !earlier(entry))
+              .map((entry) =>
+                entry.id === id ? { ...entry, card, query: card.query || entry.query } : entry,
+              )
+          : [
+              ...current.filter((entry) => !earlier(entry)),
+              {
+                id,
+                query: card.query,
+                hint: card.kind === 'gallery' ? ('pictures' as const) : ('web' as const),
+                card,
+                leaving: false,
+              },
+            ].slice(-MAX_STAGE),
       )
-      setFrontId(id)
+      // Put away while it was still being looked for, so it waits on the shelf.
+      if (quietRef.current.has(id)) {
+        quietRef.current.delete(id)
+        return
+      }
+      openOn(id)
     },
-    [cancelLater, dropCard, updateStage],
+    [cancelLater, dropCard, openOn, updateStage],
   )
 
   /** Research came back, so its card should follow; if it never does, the pane goes. */
@@ -646,24 +781,60 @@ export function AgentPage() {
     [dropCard, later],
   )
 
-  /** Read by the link, which is created once and so cannot close over these. */
-  const cardArrivedRef = useRef<(turnId: string, call: string, card: Card | null) => void>(
-    () => undefined,
+  /** What the page is showing, as the server is told at the start of each turn. */
+  const screenNow = useCallback((): ScreenState | undefined => {
+    const cards = stageEntriesRef.current.flatMap((entry) =>
+      entry.card && !entry.leaving
+        ? [
+            {
+              id: entry.id,
+              title: entry.card.title,
+              query: entry.card.query || entry.query,
+              kind: entry.card.kind,
+            },
+          ]
+        : [],
+    )
+    if (!cards.length) return undefined
+    const open = stageModeRef.current === 'open'
+    const front = open
+      ? (cards.find((card) => card.id === frontIdRef.current) ?? cards[cards.length - 1]).id
+      : null
+    return { open, front, cards }
+  }, [])
+
+  /** One thing a real turn did to the screen. */
+  const deliver = useCallback(
+    (turnId: string, event: StageEvent) => {
+      if (!('move' in event)) {
+        placeCard(`${turnId}:${event.call}`, event.card)
+        return
+      }
+      // A judgement about an older turn describes a conversation that has
+      // already moved on again.
+      if (latestTurnRef.current !== turnId) return
+      if (event.move.op === 'tuck') tuckStage()
+      else showCard(event.move.card)
+    },
+    [placeCard, showCard, tuckStage],
   )
-  cardArrivedRef.current = (turnId, call, card) => {
+
+  /** Read by the link, which is created once and so cannot close over these. */
+  const stageEventRef = useRef<(turnId: string, event: StageEvent) => void>(() => undefined)
+  stageEventRef.current = (turnId, event) => {
     if (promotedRef.current.has(turnId)) {
-      placeCard(`${turnId}:${call}`, card)
+      deliver(turnId, event)
       return
     }
-    // A guess's card waits with the guess, and is shown only if it is kept.
-    const held = heldCardsRef.current
-    held.set(turnId, [...(held.get(turnId) ?? []), { call, card }])
+    // A guess's cards and moves wait with the guess, and happen only if it is kept.
+    const held = heldRef.current
+    held.set(turnId, [...(held.get(turnId) ?? []), event])
     if (held.size > 8) held.delete(held.keys().next().value as string)
   }
-  const stageClearRef = useRef<(turnId: string) => void>(() => undefined)
-  stageClearRef.current = (turnId) => {
-    if (promotedRef.current.has(turnId)) clearStage()
-  }
+
+  // Open while the cards are in the room, including while they slide out: the
+  // face waits for them to go before it heads home.
+  const stageOpen = stageMode !== 'tucked'
 
   /**
    * Opening or closing the stage resizes the transcript's frame, and the
@@ -671,26 +842,30 @@ export function AgentPage() {
    * sees the same change, but only once the page next paints, and a pin that
    * waits for that shows as a jump; this runs before the paint.
    */
-  const staged = stage.length > 0
   useLayoutEffect(() => {
     const node = transcriptRef.current
     if (!node) return
     followRef.current = true
     node.scrollTop = node.scrollHeight
-  }, [staged])
+  }, [stageOpen])
 
-  /** Escape takes the cards down, the same as saying so. */
+  const dockRef = useRef<HTMLElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
+  useGlide(dockRef, stageOpen)
+  useGlide(frameRef, stageOpen)
+
+  /** Escape puts the cards away, the same as saying so. */
   useEffect(() => {
-    if (!stage.length) return
+    if (!stageOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       const target = event.target as HTMLElement | null
       if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return
-      clearStage()
+      tuckStage()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [clearStage, stage.length])
+  }, [stageOpen, tuckStage])
 
   useEffect(
     () => () => {
@@ -703,11 +878,17 @@ export function AgentPage() {
   useEffect(() => {
     if (!import.meta.env.DEV) return
     const handle = window as unknown as { __gideonStage?: unknown }
-    handle.__gideonStage = { open: openSearch, place: placeCard, clear: clearStage }
+    handle.__gideonStage = {
+      open: openSearch,
+      place: placeCard,
+      tuck: tuckStage,
+      show: showCard,
+      record,
+    }
     return () => {
       delete handle.__gideonStage
     }
-  }, [clearStage, openSearch, placeCard])
+  }, [openSearch, placeCard, record, showCard, tuckStage])
 
   /** What GIDEON is busy with while the turn is silent, for the status line. */
   const [working, setWorking] = useState<string | null>(null)
@@ -715,27 +896,34 @@ export function AgentPage() {
   /** Puts one of a live turn's actions in front of the user. */
   const showAction = useCallback(
     (turn: RunningTurn, action: ActionEvent) => {
-      note(action.summary, action.ok, `${turn.id}:${action.call}`, action.pending)
-      setWorking(action.pending ? 'Looking that up…' : null)
-      if (action.name === 'research') {
-        const id = `${turn.id}:${action.call}`
-        if (action.pending) openSearch(id, action.detail)
-        else if (!action.ok) dropCard(id)
-        else waitForCard(id)
+      const id = `${turn.id}:${action.call}`
+      const staging = action.name === 'research' || action.name === 'show_images'
+      record(id, {
+        // A search is headed by what was asked, anything else by what was done.
+        title: staging ? action.detail : action.summary,
+        detail: staging
+          ? action.summary
+          : action.name === 'remember' || action.name === 'forget'
+            ? 'Memory'
+            : 'Done',
+        ok: action.ok,
+        pending: action.pending,
+        links: action.links.flatMap((link) => {
+          const host = hostOf(link.url)
+          return host ? [{ id: `${id}:${link.url}`, url: link.url, title: link.title || host, host }] : []
+        }),
+      })
+      setWorking(action.pending ? action.summary : null)
+      if (!staging) return
+      if (action.pending) {
+        openSearch(id, action.detail, action.name === 'show_images' ? 'pictures' : 'web')
+      } else if (!action.ok) {
+        dropCard(id)
+      } else {
+        waitForCard(id)
       }
-      if (!action.links.length) return
-      setLinks((current) =>
-        [
-          ...current,
-          ...action.links.map((link) => ({
-            id: `${turn.id}:${action.call}:${link.url}`,
-            url: link.url,
-            title: link.title,
-          })),
-        ].slice(-4),
-      )
     },
-    [dropCard, note, openSearch, waitForCard],
+    [dropCard, openSearch, record, waitForCard],
   )
 
   // -- Browser-run tools ---------------------------------------------------
@@ -751,10 +939,16 @@ export function AgentPage() {
     const runner = new ClientToolRunner({
       onTimerSet: (timer: Timer) => {
         const seconds = Math.max(0, Math.round((timer.fireAt - Date.now()) / 1000))
-        note(`Timer set for ${describeDuration(seconds)}${timer.label ? ` · ${timer.label}` : ''}`)
+        record(null, {
+          title: `Timer for ${describeDuration(seconds)}${timer.label ? ` · ${timer.label}` : ''}`,
+          detail: 'Timer set',
+        })
       },
       onTimerFired: (timer: Timer) => {
-        note(timer.label ? `Timer finished · ${timer.label}` : 'Timer finished')
+        record(null, {
+          title: timer.label ? `Timer finished · ${timer.label}` : 'Timer finished',
+          detail: 'Timer',
+        })
         const said = timer.label ? `Timer finished: ${timer.label}.` : 'Your timer finished.'
         setAssistantCaption(said)
         // Nothing synthesised this, so the caption has no audio clock to reveal
@@ -762,8 +956,13 @@ export function AgentPage() {
         setSpokenChars(said.length)
       },
       onLinkOffered: (link: OfferedLink) => {
-        setLinks((current) => [...current.slice(-2), link])
-        note(`Offered a link · ${link.title}`)
+        record(link.id, {
+          title: link.title,
+          detail: 'Link offered',
+          links: [{ id: link.id, url: link.url, title: link.title, host: hostOf(link.url) }],
+        })
+        // A link GIDEON has said is on screen has to be, so this one opens the panel.
+        setResourcesOpen(true)
       },
     })
     toolsRef.current = runner
@@ -771,7 +970,7 @@ export function AgentPage() {
       runner.dispose()
       toolsRef.current = null
     }
-  }, [note])
+  }, [record])
 
   // -- Realtime link -------------------------------------------------------
 
@@ -781,8 +980,8 @@ export function AgentPage() {
       runClientTool: (name, args) =>
         toolsRef.current?.run(name, args) ??
         Promise.resolve({ ok: false, content: 'The page is not ready to do that.' }),
-      onCard: (turnId, call, card) => cardArrivedRef.current(turnId, call, card),
-      onStage: (turnId) => stageClearRef.current(turnId),
+      onCard: (turnId, call, card) => stageEventRef.current(turnId, { call, card }),
+      onStage: (turnId, move) => stageEventRef.current(turnId, { move }),
     })
     linkRef.current = link
     link.connect()
@@ -1097,13 +1296,14 @@ export function AgentPage() {
       turn.speculative = false
       // Whatever the guess did while it was invisible, it did for real.
       for (const action of turn.actions.splice(0)) showAction(turn, action)
-      // And any card it finished drawing meanwhile goes up now.
+      // And whatever it did to the screen meanwhile happens now.
       const promoted = promotedRef.current
       promoted.add(turn.id)
       if (promoted.size > 64) promoted.delete(promoted.values().next().value as string)
-      const held = heldCardsRef.current.get(turn.id) ?? []
-      heldCardsRef.current.delete(turn.id)
-      for (const { call, card } of held) placeCard(`${turn.id}:${call}`, card)
+      latestTurnRef.current = turn.id
+      const held = heldRef.current.get(turn.id) ?? []
+      heldRef.current.delete(turn.id)
+      for (const event of held) deliver(turn.id, event)
 
       setNotice(null)
       setRetryText(null)
@@ -1210,7 +1410,7 @@ export function AgentPage() {
       if (turn.finished) void settle()
       else turn.onFinish = settle
     },
-    [feel, placeCard, scheduleListen, setPhase, showAction],
+    [deliver, feel, scheduleListen, setPhase, showAction],
   )
 
   /**
@@ -1303,13 +1503,13 @@ export function AgentPage() {
             if (voiceModeRef.current === 'active') scheduleListen(700)
           },
         },
-        { speculative },
+        { speculative, screen: screenNow() },
       )
 
       turn.timeline.mark('turn_sent')
       return turn
     },
-    [showAction, scheduleListen, setPhase],
+    [screenNow, showAction, scheduleListen, setPhase],
   )
 
   const sendMessage = useCallback(
@@ -1319,7 +1519,7 @@ export function AgentPage() {
       if (!linkRef.current) return
       // The message still goes to the model, which answers it; the cards just
       // do not wait for that answer to go.
-      if (DONE_WITH_IT.test(text)) clearStage()
+      if (DONE_WITH_IT.test(text)) tuckStage()
 
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
       stopPartials()
@@ -1373,7 +1573,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, clearStage, feel, promote, stopPartials],
+    [abandon, beginTurn, feel, promote, stopPartials, tuckStage],
   )
 
   /**
@@ -1759,8 +1959,9 @@ export function AgentPage() {
     setNotice(null)
     setRetryText(null)
     setDraft('')
-    setLedger([])
-    setLinks([])
+    setResources([])
+    setResourcesOpen(false)
+    setResourcesSeen(0)
     resetStage()
     try {
       localStorage.removeItem(STORAGE_KEY)
@@ -1876,9 +2077,7 @@ export function AgentPage() {
     stream.push({ id: 'live-user', role: 'user', content: liveTranscript, cut: false, live: true })
   }
 
-  // Open for as long as any card is on screen, including one dissolving: the
-  // face waits for the last of them to go before it heads home.
-  const stageOpen = stage.length > 0
+  const freshResources = resources.length > resourcesSeen
 
   return (
     <main
@@ -1907,10 +2106,30 @@ export function AgentPage() {
       </div>
 
       <div className="corner-actions">
+        {resources.length ? (
+          <button
+            className="reset-button"
+            type="button"
+            data-fresh={freshResources}
+            onClick={() => {
+              setResourcesOpen((open) => !open)
+              setHudOpen(false)
+            }}
+            aria-label={`Resources, ${resources.length}${freshResources ? ', new' : ''}`}
+            aria-pressed={resourcesOpen}
+          >
+            <Library size={17} />
+            <span>Resources</span>
+            <b>{resources.length}</b>
+          </button>
+        ) : null}
         <button
           className="reset-button"
           type="button"
-          onClick={() => setHudOpen((open) => !open)}
+          onClick={() => {
+            setHudOpen((open) => !open)
+            setResourcesOpen(false)
+          }}
           aria-label="Toggle latency panel"
           aria-pressed={hudOpen}
           title="Latency panel (`)"
@@ -1930,6 +2149,7 @@ export function AgentPage() {
       </div>
 
       {hudOpen ? <LatencyHud log={logRef.current} onClose={() => setHudOpen(false)} /> : null}
+      {resourcesOpen ? <ResourcesPanel resources={resources} onClose={closeResources} /> : null}
 
       {config && !config.configured ? (
         <div className="setup-note" role="status">
@@ -1944,17 +2164,7 @@ export function AgentPage() {
       >
         <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} docked={stageOpen} />
 
-        {stageOpen ? (
-          <ResearchStage
-            entries={stage}
-            frontId={frontId}
-            spoken={assistantCaption}
-            onFocus={setFrontId}
-            onClose={dropCard}
-          />
-        ) : null}
-
-        <div className="transcript-frame">
+        <div className="transcript-frame" ref={frameRef}>
           <div className="transcript-veil" aria-hidden="true" />
           <div
             className="transcript"
@@ -2023,37 +2233,20 @@ export function AgentPage() {
         </div>
       </section>
 
-      {/* The cards name their own sources, so the receipt steps aside for them. */}
-      {(ledger.length || links.length) && !stageOpen ? (
-        <section className="action-ledger" aria-label="What GIDEON did">
-          {ledger.map((entry) => (
-            <p
-              className="ledger-entry"
-              data-ok={entry.ok}
-              data-pending={entry.pending ? 'true' : undefined}
-              key={entry.id}
-            >
-              <Check size={13} strokeWidth={2.5} />
-              <span>{entry.summary}</span>
-            </p>
-          ))}
-          {links.map((link) => (
-            <a
-              className="ledger-link"
-              key={link.id}
-              href={link.url}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              <LinkIcon size={13} />
-              <span>{link.title}</span>
-              <small>{new URL(link.url).hostname}</small>
-            </a>
-          ))}
-        </section>
+      {stageOpen ? (
+        <ResearchStage
+          entries={stage}
+          frontId={frontId}
+          tucking={stageMode === 'tucking'}
+          spoken={assistantCaption}
+          onFocus={showCard}
+          onTuck={tuckStage}
+        />
       ) : null}
 
-      <section className="voice-dock" aria-label="Voice and text controls">
+      {stageMode === 'tucked' ? <StageShelf entries={stage} onShow={showCard} /> : null}
+
+      <section className="voice-dock" ref={dockRef} aria-label="Voice and text controls">
         <div className="presence-status" aria-live="polite" data-phase={phase}>
           <span className="status-dot" />
           <span>{statusCopy}</span>

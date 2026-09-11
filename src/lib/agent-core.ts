@@ -34,6 +34,7 @@ import {
   type MemoryStore,
 } from './tools/memory'
 import { runtimeEnv } from './runtime-env'
+import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -66,7 +67,7 @@ You have tools. Use one only when the answer genuinely depends on it, because ev
 
 Anything about the world that changes over time, or that you would otherwise be guessing at, goes to research: news, prices, results, weather, releases, who someone is, what something costs, what is true today. Your own knowledge has a cutoff and the user is asking now. Give research the whole question in plain words with every detail the user gave, then answer from the brief it returns and nothing else: keep its numbers, names and dates exactly, mention a source in passing when it matters, and if the brief says something could not be found, say that rather than filling the gap yourself.
 
-What research finds is also shown to the user on screen, as a card, while you speak. When the user says they are done with it, asks you to close or clear the screen, or moves on to something unrelated, call clear_screen.
+What research finds is also shown to the user on screen, as a card with a picture, while you speak. So when the user asks about a particular person, place, organisation, creature, work or event (who someone is or was, what or where something is, or to tell them about something), call research even when you already know the answer: the card is part of the answer. "Who was Marie Curie", "tell me about the Eiffel Tower" and "what is the Great Barrier Reef" all go to research, however well you know them. Small talk, opinions, jokes, advice and anything about the conversation itself never need it. When the user asks to see pictures, photos or images of something, or what something looks like, call show_images: the pictures appear on screen by themselves, so say one short line about them, never describe them one by one, and never offer a link to an image search instead.
 
 Remember something when the user tells you a durable fact about themselves, and recall when the answer depends on one. Never say that you are remembering, recalling, searching or checking. Do the call and then just answer.
 
@@ -255,6 +256,8 @@ export interface TurnOptions {
   speculative?: boolean
   /** Host-provided persistence, such as a Durable Object or Supabase store. */
   memoryStore?: MemoryStore
+  /** What the page is showing, as it reported it when the turn began. */
+  screen?: ScreenState | null
 }
 
 /**
@@ -298,10 +301,20 @@ function within(work: Promise<unknown>, ms: number): Promise<void> {
   })
 }
 
-function holdingLine(seed: string) {
+/** The same courtesy for pictures, which take a second or two to find. */
+export const PICTURE_FILLERS = ['Let me find some.', 'One second, let me pull some up.']
+
+/** The tools whose result goes on screen, and so open a searching pane while they run. */
+const STAGING_TOOLS = new Set(['research', 'show_images'])
+
+function askedFor(args: Record<string, unknown>): string {
+  return String(args.question ?? args.query ?? '').trim().slice(0, 240)
+}
+
+function holdingLine(seed: string, lines: string[] = RESEARCH_FILLERS) {
   let hash = 0
   for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) | 0
-  return RESEARCH_FILLERS[Math.abs(hash) % RESEARCH_FILLERS.length]
+  return lines[Math.abs(hash) % lines.length]
 }
 
 interface UpstreamMessage {
@@ -356,6 +369,15 @@ export async function* streamTurn(
         .join('\n')}`,
     })
   }
+  // What is on the user's screen, so "the second one" and "what does the card
+  // say" can be answered as being about something the model cannot see.
+  if (options.screen?.cards.length) {
+    const labels = options.screen.cards.map((_, index) => `${index + 1}`)
+    history.push({
+      role: 'system',
+      content: `Cards on the user's screen beside you, oldest first:\n${describeScreen(options.screen, labels)}\nYou can refer to them. Never read a card out word for word.`,
+    })
+  }
   history.push(...messages.map((message) => ({ role: message.role, content: message.content })))
 
   // Every delta is cleaned before anyone sees it, so the caption and the voice
@@ -371,6 +393,26 @@ export async function* streamTurn(
   const ready: ServerFrame[] = []
   function* release() {
     while (ready.length) yield ready.shift() as ServerFrame
+  }
+
+  // Whether the screen should change, judged beside the reply. The answer is
+  // held until the first round has shown what this turn does: a turn that puts
+  // something new on screen settles the question itself, and stepping aside a
+  // moment before a new card arrives would send the face away and straight back.
+  const judgement: { move: ServerFrame | null; decided: boolean; staging: boolean } = {
+    move: null,
+    decided: false,
+    staging: false,
+  }
+  if (options.screen?.cards.length) {
+    drawing.push(
+      judgeScreen(messages, options.screen, judgeDeps(configValue), signal).then((move) => {
+        if (!move || signal.aborted) return
+        const frame: ServerFrame = { t: 'stage', id, ...move }
+        if (!judgement.decided) judgement.move = frame
+        else if (!judgement.staging) ready.push(frame)
+      }),
+    )
   }
   // A research tool with no key behind it would only buy a holding line and
   // an apology, so a server without one does not offer it at all.
@@ -520,6 +562,13 @@ export async function* streamTurn(
       .map(([, call]) => call)
       .filter((call) => call.name)
 
+    if (!judgement.decided) {
+      judgement.decided = true
+      judgement.staging = calls.some((call) => STAGING_TOOLS.has(call.name))
+      if (judgement.move && !judgement.staging) ready.push(judgement.move)
+      judgement.move = null
+    }
+
     if (!calls.length) break
     if (signal.aborted) return
 
@@ -537,8 +586,9 @@ export async function* streamTurn(
     // history all carry it, and it goes into the model's own turn so the answer
     // that follows does not say it again.
     let holding = ''
-    if (!complete.trim() && calls.some((call) => call.name === 'research')) {
-      holding = holdingLine(calls[0].id || id)
+    const lookingUp = calls.some((call) => call.name === 'research')
+    if (!complete.trim() && (lookingUp || calls.some((call) => call.name === 'show_images'))) {
+      holding = holdingLine(calls[0].id || id, lookingUp ? RESEARCH_FILLERS : PICTURE_FILLERS)
       const text = spoken.push(`${holding} `)
       if (text) {
         complete += text
@@ -573,19 +623,19 @@ export async function* streamTurn(
           }
         }
       } else {
-        if (call.name === 'research') {
-          // Research is the one tool slow enough that the silence needs
-          // explaining. The browser shows this line until the result replaces it.
+        if (STAGING_TOOLS.has(call.name)) {
+          // The two tools slow enough that the silence needs explaining. The
+          // browser shows this until the result replaces it, and opens a
+          // searching pane with the question on it meanwhile.
           yield {
             t: 'action',
             id,
             call: callId,
             name: call.name,
-            summary: 'Looking that up…',
+            summary: call.name === 'research' ? 'Looking that up…' : 'Finding pictures…',
             ok: true,
             pending: true,
-            // The searching pane shows this while the desk works.
-            detail: String(args.question ?? args.query ?? '').trim().slice(0, 240),
+            detail: askedFor(args),
           }
         }
         outcome = await runServerTool(call.name, args, {
@@ -597,19 +647,19 @@ export async function* streamTurn(
       }
 
       if (signal.aborted) return
-      if (outcome.summary || call.name === 'research') {
+      if (outcome.summary || STAGING_TOOLS.has(call.name)) {
         yield {
           t: 'action',
           id,
           call: callId,
           name: call.name,
-          summary: outcome.summary ?? 'Research came back empty',
+          summary: outcome.summary ?? 'Came back empty',
           ok: outcome.ok,
+          ...(STAGING_TOOLS.has(call.name) ? { detail: askedFor(args) } : {}),
           ...(outcome.links?.length ? { links: outcome.links } : {}),
         }
       }
 
-      if (outcome.clearStage) yield { t: 'stage', id, op: 'clear' }
       if (outcome.card) {
         drawing.push(
           outcome.card.then(

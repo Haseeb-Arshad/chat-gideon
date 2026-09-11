@@ -12,9 +12,19 @@
  * Shared by the server, which builds cards, and the browser, which draws them.
  */
 
-export type CardKind = 'entity' | 'figure' | 'news' | 'answer'
+export type CardKind = 'entity' | 'figure' | 'news' | 'answer' | 'gallery'
 
+/** The kinds a model may choose when drawing a card from a brief. A gallery is built, not drawn. */
 export const CARD_KINDS: readonly CardKind[] = ['entity', 'figure', 'news', 'answer']
+
+/** One picture in a gallery: a tile-sized copy, a full-size one, and the page it is on. */
+export interface CardPicture {
+  url: string
+  thumb: string
+  alt: string
+  pageUrl: string
+  host: string
+}
 
 export interface CardFact {
   label: string
@@ -49,6 +59,8 @@ export interface Card {
   kicker: string
   facts: CardFact[]
   image: CardImage | null
+  /** Only on a `gallery`: the pictures themselves. */
+  pictures: CardPicture[]
   sources: CardSource[]
 }
 
@@ -215,6 +227,7 @@ export function parseCard(raw: unknown, context: CardContext): ParsedCard | null
       kicker: kind === 'news' ? keep(cleanText(input.kicker, LIMITS.kicker)) : '',
       facts,
       image: null,
+      pictures: [],
       sources,
     },
     subject: kind === 'entity' ? cleanText(input.subject, 100) : '',

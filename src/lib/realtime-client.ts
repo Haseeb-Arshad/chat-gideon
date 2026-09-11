@@ -20,6 +20,7 @@ import {
 } from './protocol'
 import { accessCode, backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
 import type { Card } from './cards'
+import type { ScreenState, StageMove } from './stage-judge'
 
 export type LinkTransport = 'idle' | 'connecting' | 'socket' | 'http'
 
@@ -135,14 +136,14 @@ export class RealtimeLink {
    * by which point the turn has already been let go.
    */
   private onCard: ((turnId: string, call: string, card: Card | null) => void) | null = null
-  private onStage: ((turnId: string, op: 'clear') => void) | null = null
+  private onStage: ((turnId: string, move: StageMove) => void) | null = null
 
   constructor(options: {
     onTransportChange?: (transport: LinkTransport) => void
     onConfig?: (config: LinkConfig) => void
     runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
     onCard?: (turnId: string, call: string, card: Card | null) => void
-    onStage?: (turnId: string, op: 'clear') => void
+    onStage?: (turnId: string, move: StageMove) => void
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
     this.onConfig = options.onConfig ?? null
@@ -248,7 +249,7 @@ export class RealtimeLink {
     id: string,
     messages: ChatTurnMessage[],
     handlers: TurnHandlers,
-    options: { speculative?: boolean } = {},
+    options: { speculative?: boolean; screen?: ScreenState } = {},
   ): TurnHandle {
     this.turns.set(id, handlers)
     if (options.speculative) this.speculativeTurns.add(id)
@@ -265,6 +266,7 @@ export class RealtimeLink {
         messages,
         timezone: localTimezone(),
         speculative: options.speculative,
+        screen: options.screen,
       })
       return {
         id,
@@ -276,7 +278,7 @@ export class RealtimeLink {
     }
 
     const controller = new AbortController()
-    void this.runHttpTurn(id, messages, controller.signal, options.speculative)
+    void this.runHttpTurn(id, messages, controller.signal, options.speculative, options.screen)
     return {
       id,
       cancel: () => {
@@ -397,7 +399,10 @@ export class RealtimeLink {
         )
         return
       case 'stage':
-        if (frame.op === 'clear') this.onStage?.(frame.id, frame.op)
+        if (frame.op === 'tuck') this.onStage?.(frame.id, { op: 'tuck' })
+        else if (frame.op === 'show' && typeof frame.card === 'string') {
+          this.onStage?.(frame.id, { op: 'show', card: frame.card })
+        }
         return
       case 'tool_request':
         void this.fulfilTool(frame.id, frame.call, frame.name, frame.args)
@@ -483,6 +488,7 @@ export class RealtimeLink {
     messages: ChatTurnMessage[],
     signal: AbortSignal,
     speculative?: boolean,
+    screen?: ScreenState,
   ) {
     const handlers = this.turns.get(id)
     if (!handlers) return
@@ -491,7 +497,7 @@ export class RealtimeLink {
       const response = await fetch(backendUrl('/api/chat'), {
         method: 'POST',
         headers: backendHeaders('application/json'),
-        body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative }),
+        body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative, screen }),
         signal,
       })
 

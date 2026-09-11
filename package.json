@@ -19,7 +19,8 @@
     "test": "vitest run",
     "benchmark:models": "node scripts/benchmark-models.mjs",
     "benchmark:research": "vitest run src/lib/tools/research.live.test.ts --mode live",
-    "benchmark:cards": "vitest run src/lib/tools/card-builder.live.test.ts --mode live"
+    "benchmark:cards": "vitest run src/lib/tools/card-builder.live.test.ts --mode live",
+    "benchmark:judge": "vitest run src/lib/stage-judge.live.test.ts --mode live"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

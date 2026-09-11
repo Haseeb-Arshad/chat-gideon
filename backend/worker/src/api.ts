@@ -15,6 +15,7 @@ import {
   parseVoiceBody,
 } from '../../../src/lib/openrouter'
 import { encodeFrame, type ServerFrame } from '../../../src/lib/protocol'
+import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { sessionIdFromRequest } from './identity'
 import { memoryStoreForHttp } from './memory'
@@ -78,6 +79,7 @@ function streamChat(
   messages: ReturnType<typeof parseChatBody>,
   timezone: string | undefined,
   speculative: boolean,
+  screen: ScreenState | null,
 ): Response {
   const encoder = new TextEncoder()
   const store = memoryStoreForHttp(env, sessionIdFromRequest(request))
@@ -88,6 +90,7 @@ function streamChat(
           timezone,
           speculative,
           memoryStore: store,
+          screen,
         })) {
           if (request.signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))
@@ -128,10 +131,18 @@ async function chat(request: Request, env: Env) {
 
   try {
     const parsed = parseChatBody(body)
-    const value = body as { id?: unknown; timezone?: unknown; speculative?: unknown }
+    const value = body as { id?: unknown; timezone?: unknown; speculative?: unknown; screen?: unknown }
     const id = typeof value.id === 'string' ? value.id : 'turn'
     const timezone = typeof value.timezone === 'string' ? value.timezone.slice(0, 64) : undefined
-    return streamChat(request, env, id, parsed, timezone, value.speculative === true)
+    return streamChat(
+      request,
+      env,
+      id,
+      parsed,
+      timezone,
+      value.speculative === true,
+      readScreen(value.screen),
+    )
   } catch (error) {
     if (error instanceof RequestValidationError) {
       return json(apiError(error.code, error.message), request, 400)

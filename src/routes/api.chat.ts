@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { parseChatBody, RequestValidationError, apiError } from '../lib/openrouter'
 import { guardRequest, streamChat } from '../lib/openrouter.server'
+import { readScreen } from '../lib/stage-judge'
 
 /**
  * Streaming HTTP fallback for the realtime link. Emits the same protocol frames
@@ -19,6 +20,7 @@ export const Route = createFileRoute('/api/chat')({
             id?: unknown
             timezone?: unknown
             speculative?: unknown
+            screen?: unknown
           }
           const id = typeof body?.id === 'string' ? body.id : 'turn'
           const timezone =
@@ -29,6 +31,7 @@ export const Route = createFileRoute('/api/chat')({
             request.signal,
             timezone,
             body?.speculative === true,
+            readScreen(body?.screen),
           )
         } catch (error) {
           if (error instanceof RequestValidationError) {

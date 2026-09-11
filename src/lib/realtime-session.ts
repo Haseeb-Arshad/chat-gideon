@@ -23,6 +23,7 @@ import {
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
 import { accessCodeRequired, accessCodeValid, limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
+import { readScreen } from './stage-judge'
 import type { MemoryStore } from './tools/memory'
 import {
   REALTIME_PROTOCOL_VERSION,
@@ -231,6 +232,7 @@ export function createRealtimeSession(
         bridge,
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
+        screen: readScreen(frame.screen),
       })) {
         if (closed || controller.signal.aborted) return
         send(event)

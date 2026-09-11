@@ -13,6 +13,7 @@
  */
 
 import type { Card } from './cards'
+import type { ScreenState } from './stage-judge'
 
 export const REALTIME_PATH = '/api/realtime'
 export const REALTIME_PROTOCOL_VERSION = 2
@@ -46,6 +47,8 @@ export type ClientFrame =
        * be thrown away. The server must not let it change anything.
        */
       speculative?: boolean
+      /** What the page is showing, so the server can keep it in step with the talk. */
+      screen?: ScreenState
     }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }
@@ -97,8 +100,12 @@ export type ServerFrame =
    * the spoken answer rather than before it.
    */
   | { t: 'card'; id: string; call: string; card: Card | null }
-  /** A change to what is on screen that the model asked for. */
-  | { t: 'stage'; id: string; op: 'clear' }
+  /**
+   * The conversation has moved away from what is on screen, so the cards step
+   * aside; or it has come back to a card, so that card comes forward.
+   */
+  | { t: 'stage'; id: string; op: 'tuck' }
+  | { t: 'stage'; id: string; op: 'show'; card: string }
   /** Asks the browser to run a tool only it can run. Socket transport only. */
   | { t: 'tool_request'; id: string; call: string; name: string; args: unknown }
   | { t: 'error'; id: string | null; code: string; message: string; retryable: boolean }

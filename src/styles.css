@@ -345,107 +345,225 @@ button:active:not(:disabled) {
   font-weight: 600;
 }
 
-/* -- Action ledger ------------------------------------------------------- */
+/* -- Resources ----------------------------------------------------------- */
 
 /*
- * What GIDEON did, kept deliberately quiet.
+ * Everything GIDEON did and read, behind one button in the corner.
  *
- * It sits between the captions and the controls because it is a receipt rather
- * than a conversation: worth being able to check, never worth competing with
- * the face. Entries are small, monospaced and dim, and an offered link is the
- * only thing here bright enough to invite a click.
+ * It used to be a list under the conversation that grew with every search
+ * until it crowded out the conversation it described. The button carries a
+ * count, and brightens when something new has arrived since it was last opened.
  */
-.action-ledger {
-  z-index: 5;
+.reset-button b {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(191, 233, 255, 0.14);
+  color: var(--ice);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  text-align: center;
+  transition: background 300ms ease-out, color 300ms ease-out;
+}
+
+.reset-button[data-fresh='true'] b {
+  background: var(--ice);
+  color: #0a0c10;
+}
+
+.resources-panel {
+  position: absolute;
+  z-index: 30;
+  top: 74px;
+  right: clamp(16px, 3vw, 42px);
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  align-self: center;
-  width: min(520px, calc(100vw - 40px));
-  margin: 0 auto 6px;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+  width: min(410px, calc(100vw - 32px));
+  max-height: min(72vh, 680px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(160deg, rgba(24, 28, 37, 0.8), rgba(10, 12, 16, 0.86));
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  backdrop-filter: blur(26px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 30px 70px -24px rgba(0, 0, 0, 0.72);
+  animation: panel-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.ledger-entry {
+.resources-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px 12px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.resources-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.resources-head span {
+  color: rgba(191, 233, 255, 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.resources-head button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(230, 236, 245, 0.66);
+  cursor: pointer;
+}
+
+.resources-head button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--white);
+}
+
+.resource-list {
+  margin: 0;
+  padding: 6px 12px 12px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.resource {
+  padding: 12px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.resource:last-child {
+  border-bottom: 0;
+}
+
+.resource-head {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 10px;
+}
+
+.resource-head svg {
+  flex: none;
+  margin-top: 4px;
+  color: rgba(63, 201, 160, 0.8);
+}
+
+.resource[data-ok='false'] .resource-head svg {
+  color: rgba(255, 183, 172, 0.8);
+}
+
+.resource[data-pending='true'] .resource-head svg {
+  animation: resource-pulse 1.1s ease-in-out infinite;
+}
+
+.resource-title {
   margin: 0;
-  color: rgba(224, 230, 240, 0.4);
-  line-height: 1.45;
+  color: rgba(236, 240, 247, 0.9);
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
-.ledger-entry svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-  color: rgba(63, 201, 160, 0.68);
+/* Titles are often the question as it was asked, lower case and all. */
+.resource-title::first-letter {
+  text-transform: uppercase;
 }
 
-.ledger-entry[data-pending='true'] {
-  opacity: 0.7;
+.resource-detail {
+  margin: 3px 0 0;
+  color: rgba(224, 230, 240, 0.45);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
 }
 
-.ledger-entry[data-pending='true'] svg {
-  animation: ledger-pulse 1.1s ease-in-out infinite;
+.resource-links {
+  display: grid;
+  gap: 4px;
+  margin: 9px 0 0 23px;
+  padding: 0;
+  list-style: none;
 }
 
-@keyframes ledger-pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-.ledger-entry[data-ok='false'] {
-  color: rgba(255, 183, 172, 0.62);
-}
-
-.ledger-entry[data-ok='false'] svg {
-  color: rgba(255, 183, 172, 0.7);
-}
-
-.ledger-link {
+.resource-links a {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 11px;
-  border: 1px solid rgba(210, 222, 239, 0.13);
-  border-radius: 11px;
-  background: rgba(9, 11, 15, 0.5);
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
   color: rgba(230, 236, 245, 0.86);
+  font-size: 0.76rem;
   text-decoration: none;
-  backdrop-filter: blur(14px);
-  transition: border-color 180ms ease-out, background 180ms ease-out;
+  transition: background 180ms ease-out;
 }
 
-.ledger-link:hover {
-  border-color: rgba(191, 233, 255, 0.32);
-  background: rgba(16, 19, 25, 0.7);
+.resource-links a:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.ledger-link svg {
-  flex: 0 0 auto;
-  color: var(--ice);
-}
-
-.ledger-link span {
+.resource-links span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.ledger-link small {
-  margin-left: auto;
-  flex: 0 0 auto;
-  color: rgba(224, 230, 240, 0.36);
+.resource-links small {
+  flex: none;
+  color: rgba(224, 230, 240, 0.4);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+}
+
+.resource-links svg {
+  flex: none;
+  color: var(--ice);
+}
+
+@keyframes resource-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@media (max-width: 640px) {
+  .resources-panel {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+    max-height: 66vh;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ledger-link {
-    transition: none;
-  }
-
-  .ledger-entry[data-pending='true'] svg {
+  .resource[data-pending='true'] .resource-head svg {
     animation: none;
   }
 }
@@ -1387,10 +1505,31 @@ button:active:not(:disabled) {
   pointer-events: none;
 }
 
+/*
+ * A narrow screen stacks it: the card on top, the last of the conversation
+ * under it, the controls at the bottom, and the face docked above the card.
+ */
+.presence-shell[data-stage='open'] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.presence-shell[data-stage='open'] .research-stage {
+  grid-row: 1;
+  margin-top: clamp(76px, 10vh, 112px);
+}
+
+.presence-shell[data-stage='open'] .agent-presence {
+  grid-row: 2;
+}
+
+.presence-shell[data-stage='open'] .voice-dock {
+  grid-row: 3;
+}
+
 .agent-presence[data-stage='open'] {
   align-self: stretch;
   width: 100%;
-  padding-top: clamp(92px, 12vh, 132px);
+  padding-top: 0;
   padding-bottom: 4px;
 }
 
@@ -1414,8 +1553,8 @@ button:active:not(:disabled) {
 
 .research-stage {
   position: relative;
-  flex: none;
   width: 100%;
+  min-width: 0;
   height: clamp(300px, 54vh, 580px);
   /* The cards size and place themselves against the stage, not the window. */
   container-type: size;
@@ -1428,6 +1567,492 @@ button:active:not(:disabled) {
 
 .agent-presence[data-stage='open'] .transcript {
   padding-top: 18px;
+}
+
+/*
+ * A wide screen gives the card the room. The face, the conversation and the
+ * controls become one column down the left, and the stage has everything
+ * else, top to bottom, which is what lets a card be large without shouting.
+ */
+@media (min-width: 1000px) {
+  .presence-shell[data-stage='open'] {
+    grid-template-columns: clamp(300px, 26vw, 380px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    column-gap: clamp(20px, 2.6vw, 44px);
+  }
+
+  .presence-shell[data-stage='open'] .research-stage {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    height: auto;
+    margin-top: 0;
+    padding: 58px 0 6px;
+  }
+
+  .presence-shell[data-stage='open'] .agent-presence {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: stretch;
+    padding-top: clamp(118px, 15vh, 150px);
+  }
+
+  .agent-presence[data-stage='open'] .transcript-frame {
+    flex: 1;
+    width: 100%;
+    height: auto;
+    min-height: 120px;
+    margin-top: 0;
+  }
+
+  .agent-presence[data-stage='open'] .transcript {
+    text-align: left;
+  }
+
+  .agent-presence[data-stage='open'] .transcript-lines {
+    align-items: flex-start;
+  }
+
+  .agent-presence[data-stage='open'] .turn-said {
+    font-size: clamp(0.98rem, 1.15vw, 1.1rem);
+  }
+
+  .presence-shell[data-stage='open'] .voice-dock {
+    grid-column: 1;
+    grid-row: 2;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .presence-shell[data-stage='open'] .presence-status,
+  .presence-shell[data-stage='open'] .dock-row {
+    justify-content: flex-start;
+  }
+
+  .presence-shell[data-stage='open'] .dock-row .text-composer {
+    flex: 1 1 auto;
+  }
+
+  .presence-shell[data-stage='open'] .glass-card {
+    --card-w: min(960px, calc(100cqw - 150px));
+  }
+}
+
+/* -- Stepping aside ------------------------------------------------------- */
+
+/*
+ * When the conversation moves on, every card slides off toward the right edge
+ * together, shrinking as it goes, and the shelf takes them from there.
+ */
+.research-stage[data-tucking='true'] .glass-card {
+  --slot: translateX(calc(50cqw + var(--card-w) * 0.22)) scale(0.62);
+  transition: transform 560ms cubic-bezier(0.55, 0, 0.45, 1);
+  pointer-events: none;
+}
+
+.research-stage[data-tucking='true'] .glass-pane {
+  animation: glass-tuck 520ms cubic-bezier(0.55, 0, 0.45, 1) both;
+}
+
+@keyframes glass-tuck {
+  to {
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+
+.stage-shelf {
+  position: fixed;
+  z-index: 11;
+  top: 50%;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transform: translateY(-50%);
+}
+
+.shelf-tab {
+  --peek: 58px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 250px;
+  padding: 7px 16px 7px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 18px 40px -18px rgba(0, 0, 0, 0.6);
+  color: var(--white);
+  text-align: left;
+  cursor: pointer;
+  transform: translateX(calc(100% - var(--peek)));
+  transition: transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: shelf-in 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(80ms + var(--i, 0) * 70ms);
+}
+
+.shelf-tab:hover,
+.shelf-tab:focus-visible {
+  transform: translateX(0);
+}
+
+.shelf-thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.shelf-thumb b {
+  font-weight: 400;
+}
+
+.shelf-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
+}
+
+.shelf-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shelf-text span {
+  overflow: hidden;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shelf-text small {
+  color: rgba(191, 233, 255, 0.66);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@keyframes shelf-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 640px) {
+  .shelf-tab {
+    --peek: 50px;
+    width: 214px;
+  }
+}
+
+/* -- Pictures ------------------------------------------------------------- */
+
+.card-gallery {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: clamp(22px, 3cqw, 32px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.card-gallery::-webkit-scrollbar {
+  display: none;
+}
+
+.gallery-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 46px;
+}
+
+.gallery-head > *,
+.card-gallery > .card-sources {
+  animation: card-rise 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(140ms + var(--i, 0) * 80ms);
+}
+
+/*
+ * Every count fills its grid with no gaps. A lead picture two columns wide and
+ * two rows tall takes four cells, so nine pictures fill four columns (three
+ * rows) or three (four rows), six fill three columns, and five fill four.
+ * Four sit in a row, and three or fewer side by side.
+ */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gallery-grid[data-count='6'],
+.gallery-grid[data-count='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gallery-grid[data-count='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gallery-grid[data-count='1'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.gallery-tile {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: zoom-in;
+  animation: tile-in 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(160ms + var(--i, 0) * 60ms);
+}
+
+.gallery-grid[data-count='9'] .gallery-tile:first-child,
+.gallery-grid[data-count='6'] .gallery-tile:first-child,
+.gallery-grid[data-count='5'] .gallery-tile:first-child {
+  grid-column: span 2;
+  grid-row: span 2;
+  aspect-ratio: auto;
+}
+
+.gallery-tile img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gallery-tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 58%, rgba(0, 0, 0, 0.5));
+  opacity: 0;
+  transition: opacity 300ms ease-out;
+}
+
+.gallery-host {
+  position: absolute;
+  z-index: 1;
+  bottom: 8px;
+  left: 10px;
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+.gallery-tile:hover img,
+.gallery-tile:focus-visible img {
+  transform: scale(1.045);
+}
+
+.gallery-tile:hover::after,
+.gallery-tile:focus-visible::after,
+.gallery-tile:hover .gallery-host,
+.gallery-tile:focus-visible .gallery-host {
+  opacity: 1;
+  transform: none;
+}
+
+/* The pane shown while pictures are found: tiles that breathe, in the same grid. */
+.search-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.search-tiles i {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  animation: tile-breathe 1.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 120ms);
+}
+
+/* One picture at full size, over the card it came from. */
+.gallery-lightbox {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 8, 12, 0.74);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  animation: lightbox-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.gallery-lightbox img {
+  max-width: calc(100% - 128px);
+  max-height: calc(100% - 100px);
+  object-fit: contain;
+  border-radius: 16px;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.72);
+  animation: media-in 620ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.lightbox-bar {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(224, 230, 240, 0.56);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+.lightbox-bar a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(236, 240, 247, 0.86);
+  text-decoration: none;
+}
+
+.lightbox-bar a:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lightbox-close,
+.lightbox-step {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(236, 240, 247, 0.8);
+  cursor: pointer;
+  transition: background 180ms ease-out, color 180ms ease-out;
+}
+
+.lightbox-close {
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+}
+
+.lightbox-step {
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  transform: translateY(-50%);
+}
+
+.lightbox-step[data-dir='back'] {
+  left: 14px;
+}
+
+.lightbox-step[data-dir='next'] {
+  right: 14px;
+}
+
+.lightbox-close:hover,
+.lightbox-step:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+@container (max-width: 600px) {
+  .gallery-grid[data-count='9'] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Two columns: five is a wide lead over a square of four. */
+  .gallery-grid[data-count='5'],
+  .gallery-grid[data-count='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gallery-grid[data-count='5'] .gallery-tile:first-child {
+    grid-row: span 1;
+    aspect-ratio: 16 / 9;
+  }
+
+  .gallery-lightbox img {
+    max-width: calc(100% - 24px);
+  }
+
+  .lightbox-step {
+    top: auto;
+    bottom: 52px;
+    transform: none;
+  }
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(10px);
+  }
+}
+
+@keyframes tile-breathe {
+  50% {
+    background: rgba(255, 255, 255, 0.11);
+  }
+}
+
+@keyframes lightbox-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .research-stage[data-tucking='true'] .glass-card,
+  .shelf-tab,
+  .gallery-tile img {
+    transition: none;
+  }
+
+  .search-tiles i {
+    animation: none;
+  }
 }
 
 /*

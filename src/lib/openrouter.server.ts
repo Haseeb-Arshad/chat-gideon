@@ -52,6 +52,8 @@ export function streamChat(
   timezone?: string,
   /** A guess at an unfinished sentence; the core refuses to act on one. */
   speculative?: boolean,
+  /** What the page is showing, already read and bounded. */
+  screen?: import('./stage-judge').ScreenState | null,
 ): Response {
   const encoder = new TextEncoder()
 
@@ -64,6 +66,7 @@ export function streamChat(
         for await (const frame of streamTurn(id, messages, signal, {
           timezone,
           speculative,
+          screen,
         })) {
           if (signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))

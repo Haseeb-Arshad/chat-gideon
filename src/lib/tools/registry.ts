@@ -23,6 +23,7 @@ import {
 } from './memory'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 import { buildCard, cardDeps } from './card-builder'
+import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import type { Card } from '../cards'
 
 export interface ToolSchema {
@@ -55,8 +56,6 @@ export interface ToolOutcome {
    * sends the card whenever it is ready, so the voice never waits for it.
    */
   card?: Promise<Card | null>
-  /** Take every card off the screen. */
-  clearStage?: boolean
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -114,7 +113,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'research',
     description:
-      'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources. Use it for anything current or anything you would otherwise be guessing at: news, prices, scores, weather, releases, people, places, products, what something is or how it works today. Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so.',
+      'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources. Use it for anything current or anything you would otherwise be guessing at: news, prices, scores, weather, releases, people, places, products, what something is or how it works today. Also use it whenever the user asks about a particular person, place, organisation, work or event, even a famous one you already know, because what it finds is shown on screen as a card. Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so.',
     parameters: {
       type: 'object',
       properties: {
@@ -129,10 +128,21 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     readOnly: true,
   },
   {
-    name: 'clear_screen',
+    name: 'show_images',
     description:
-      'Take the research cards off the screen and let your face return to the middle. Call it when the user says they are done with the topic, asks you to close, clear or hide what is on screen, or clearly moves on to something unrelated. It does nothing when no cards are showing, so there is no harm in calling it then.',
-    parameters: { type: 'object', properties: {}, required: [] },
+      "Put pictures on the user's screen: photos of a thing, a place, a person, an animal, food, a design or a style. Use it whenever the user asks to see, or be shown, pictures, photos or images of something, or asks what something looks like. Never answer a request for pictures with a link to an image search. The pictures appear on screen by themselves, so say one short, natural line about them and never describe them one by one.",
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'What to picture, in a few words, as specific as the user was, such as "chocolate layer cake" or "Eiffel Tower at night".',
+        },
+      },
+      required: ['query'],
+    },
+    readOnly: true,
   },
   {
     name: 'set_timer',
@@ -316,18 +326,53 @@ async function runResearch(
     }
   }
 
-  const where =
+  // The question itself travels as the action's detail, so this only says how.
+  const how =
     result.via === 'cache'
-      ? 'already had'
+      ? 'From a recent search'
       : result.via === 'answer'
-        ? 'looked up'
-        : `checked ${result.searches} search${result.searches === 1 ? '' : 'es'} for`
+        ? 'One quick search'
+        : `${result.searches} search${result.searches === 1 ? '' : 'es'}`
   return {
     ok: true,
     content: result.brief,
-    summary: `Researched · ${where} "${question.length > 72 ? `${question.slice(0, 70)}…` : question}"`,
+    summary: how,
     links: result.sources,
     card: buildCard(question, result, cardDeps(context.env), context.signal),
+  }
+}
+
+/**
+ * Finds pictures and puts them on screen as a gallery.
+ *
+ * The speaking model is told what is showing and from where, and asked for one
+ * line about it: nine photographs described aloud one by one would be a minute
+ * of someone reading a screen the user can already see.
+ */
+async function runShowImages(
+  args: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolOutcome> {
+  const query = text(args, 'query') || text(args, 'question')
+  if (!query) return { ok: false, content: 'No query was given for the pictures.' }
+
+  const pictures = await findPictures(query, imageDeps(context.env), context.signal)
+  if (pictures.length < MIN_PICTURES) {
+    return {
+      ok: false,
+      content: `No good pictures of ${query} could be found right now. Say so in one short sentence, and do not offer a link instead.`,
+      summary: 'Could not find pictures',
+    }
+  }
+
+  const hosts = [...new Set(pictures.map((picture) => picture.host))]
+  const pages = [...new Map(pictures.map((picture) => [picture.pageUrl, picture])).values()]
+  return {
+    ok: true,
+    content: `${pictures.length} pictures of ${query} are on the user's screen now, from ${hosts.slice(0, 3).join(', ')}. Say one short, natural line about them. Do not describe them one by one, and do not read out where they came from.`,
+    summary: `${pictures.length} pictures`,
+    links: pages.slice(0, 6).map((picture) => ({ title: picture.alt, url: picture.pageUrl })),
+    card: Promise.resolve(galleryCard(query, pictures)),
   }
 }
 
@@ -355,12 +400,8 @@ export async function runServerTool(
       return runMemoryTool(name, args, context.store)
     case 'research':
       return runResearch(args, context)
-    case 'clear_screen':
-      return {
-        ok: true,
-        content: 'The screen is clear. Acknowledge it in a few words at most, or simply carry on.',
-        clearStage: true,
-      }
+    case 'show_images':
+      return runShowImages(args, context)
     default:
       return { ok: false, content: `There is no tool called ${name}.` }
   }
