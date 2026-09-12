@@ -8,20 +8,18 @@ export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
  */
 export const VOICE_MODEL = 'fish-audio/s2.1-pro'
 /**
- * "Polo" from the Fish voice library. Any 32-character Fish voice id works in
+ * "Sarah" from the Fish voice library. Any 32-character Fish voice id works in
  * its place.
  *
- * Chosen by measuring the voice rather than reading its label. The library
- * lists Sarah under female voices and she was picked on that basis, but the
- * speech she actually produces has a median pitch of 162 Hz, which is the top
- * of the male range and the very bottom of the female one — and people who
- * heard GIDEON speak reported a man's voice, repeatedly. Measured over the
- * same spoken line: Sarah 162 Hz, E-girl 185, Polo 231, Jasphina 274. Polo
- * sits in the ordinary adult female range, where the prompt's "warm natural
- * adult woman" is asking her to be; Jasphina is higher than an adult speaking
- * voice usually goes.
+ * Chosen by ear, over the alternatives, having listened to all of them. She is
+ * a low voice: measured over one spoken line her median pitch is 162 Hz, where
+ * Polo is 231, Jasphina 274 and E-girl 185, and 162 sits at the top of the
+ * male range rather than in the middle of the female one. That is worth
+ * knowing, because it is why she can be mistaken for a man on a small speaker,
+ * and it is not a mistake in the configuration: she is the voice that was
+ * wanted.
  */
-export const VOICE = 'f48d143a59a946ab87c0130fd081f349'
+export const VOICE = '933563129e564b19a115bedd57b7406a'
 /**
  * Speech to text, chosen by measurement.
  *
