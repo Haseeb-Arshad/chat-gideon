@@ -2171,6 +2171,63 @@ button:active:not(:disabled) {
   pointer-events: none;
 }
 
+/*
+ * The filter itself is not a thing on the page. It has to be in the document
+ * for the backdrop to reference it, and nowhere near the layout.
+ */
+.glass-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/*
+ * The specular rim: the light the bezel gathers, where a real edge would
+ * catch it.
+ *
+ * The refraction underneath bends the room but cannot brighten it, and a rim
+ * that does not answer the light reads as a printed border rather than an
+ * edge with a thickness. This is the same conic idea as the hairline above,
+ * turned to follow the pointer: the bright quarter of the sweep sits where the
+ * light is, so moving across a card runs the highlight around its edge. It
+ * lives only on glass that is genuinely refracting, because over a flat blur
+ * the same highlight has nothing to be the highlight of.
+ */
+.glass-pane[data-refracting='true']::before {
+  background: conic-gradient(
+    from calc(var(--sheen-angle, 200deg) - 90deg),
+    rgba(255, 255, 255, 0.72),
+    rgba(255, 255, 255, 0.1) 20%,
+    rgba(255, 255, 255, 0.34) 47%,
+    rgba(255, 255, 255, 0.08) 73%,
+    rgba(255, 255, 255, 0.72)
+  );
+  transition: background 220ms linear;
+}
+
+/*
+ * A pane that refracts needs less fog of its own: the bending is the effect,
+ * and the milky fill that stood in for thickness now sits on top of it and
+ * hides it. The fill drops to a breath, and the inner highlight along the top
+ * edge does the work of saying where the surface is.
+ */
+.glass-pane[data-refracting='true'] {
+  background:
+    radial-gradient(
+      120% 90% at var(--sheen-x, 22%) var(--sheen-y, 0%),
+      rgba(255, 255, 255, 0.1),
+      transparent 58%
+    ),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 52%, rgba(255, 255, 255, 0.03));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 22px rgba(255, 255, 255, 0.05),
+    0 42px 90px -32px rgba(0, 0, 0, 0.72),
+    0 16px 36px -16px rgba(0, 0, 0, 0.5);
+}
+
 /* While the desk works, a band of light crosses the glass. */
 .glass-pane[data-state='searching']::after {
   content: '';

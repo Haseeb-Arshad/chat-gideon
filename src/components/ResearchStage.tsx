@@ -1,6 +1,7 @@
 import { ArrowUpRight, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { numbersIn, type Card, type CardFact, type CardImage, type CardPicture } from '../lib/cards'
+import { useLiquidGlass } from './LiquidGlass'
 
 /**
  * What GIDEON found, on panes of glass.
@@ -110,6 +111,9 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
   const { card } = entry
   const image = card?.image && !imageFailed ? card.image : null
   const idle = entry.leaving || quiet
+  // Only the card in front is worth refracting: the ones behind it are dimmed
+  // and half off the screen, and each map costs a pane-sized image to build.
+  const glass = useLiquidGlass(slot === 'front' && !idle)
 
   // The sheen follows the pointer across the glass, and the pane leans toward
   // it a few degrees. Written straight to the element; nothing re-renders.
@@ -123,6 +127,11 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
     node.style.setProperty('--sheen-y', `${(y * 100).toFixed(1)}%`)
     node.style.setProperty('--tilt-x', `${((0.5 - y) * 3).toFixed(2)}deg`)
     node.style.setProperty('--tilt-y', `${((x - 0.5) * 4).toFixed(2)}deg`)
+    // Where the light is coming from, for the rim to answer: the bearing from
+    // the middle of the card out to the pointer. Zero degrees is up, which is
+    // where a conic gradient starts, so the rim brightens on the near side.
+    const angle = (Math.atan2(y - 0.5, x - 0.5) * 180) / Math.PI + 90
+    node.style.setProperty('--sheen-angle', `${angle.toFixed(1)}deg`)
   }
   const settle = (event: PointerEvent<HTMLElement>) => {
     event.currentTarget.style.setProperty('--tilt-x', '0deg')
@@ -139,11 +148,15 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
       aria-hidden={slot === 'behind' || idle}
     >
       <div className="glass-float">
+        {glass.defs}
         <div
           className="glass-pane"
+          ref={glass.ref}
+          style={glass.backdropFilter ? { backdropFilter: glass.backdropFilter } : undefined}
           data-state={card ? 'ready' : 'searching'}
           data-kind={card?.kind}
           data-media={image ? mediaShape : undefined}
+          data-refracting={glass.backdropFilter ? 'true' : undefined}
         >
           {!card ? (
             <SearchingFace query={entry.query} hint={entry.hint} />
