@@ -91,16 +91,27 @@ export interface ResearchTiming {
 }
 
 /**
- * The hedge fires just past the slowest researched answer measured at the
- * configured effort (10.2 seconds), so in the ordinary case it costs nothing
- * and the desk's own answer is the one heard. Set it below that and the
- * research model is racing a shallower answer it cannot beat.
+ * The hedge has to sit above the runs worth waiting for, not below them.
+ *
+ * Measured over five question shapes: a price took 4.6 seconds, a person 6.4,
+ * the day's news 6.4, a vague question about a year 10.4, and a list of papers
+ * 16.4. A hedge at twelve seconds cut off the last two — and those are exactly
+ * the questions where the desk's own answer is worth most, because they are
+ * the ones a single canned answer handles worst. Cutting them off is what a
+ * person experiences as "it searched and found nothing": the shallow answer
+ * arrived on time and said little.
+ *
+ * Fifteen seconds keeps everything up to a hard list, and costs nothing on the
+ * ordinary turn, which is finished in six. Nobody is sitting in silence
+ * meanwhile: the holding line is spoken a second in, and the direct answer has
+ * been waiting since the run started, so the moment the deadline passes it is
+ * there.
  *
  * The budget is what a person will sit through before an answer stops being
  * worth having, and it only ever applies to a run the hedge could not rescue.
  */
 export const DEFAULT_TIMING: ResearchTiming = {
-  hedgeAfterMs: 12_000,
+  hedgeAfterMs: 15_000,
   budgetMs: 22_000,
   answerTimeoutMs: 9_000,
   orphanGraceMs: 4_000,
@@ -378,7 +389,9 @@ function researcherPrompt(now: number, timezone: string) {
 
 Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result's /abs/ page gives you the abstract and its /pdf/ link gives you the paper. Never read an arxiv.org/html/ link. Stop as soon as you are sure; every round is silence for a person who is waiting.
 
-Never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
+One round of searching is usually the whole job. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
+
+When they do not, never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
 
 Brief. Plain text, no markdown. Under 180 words for a question with one answer; up to 260 when the user asked for several things, such as papers, releases, events or names, in which case give each one its actual title and date rather than describing the group of them. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters. If sources disagree, say which says what. Never pad a thin result with hedging: say the specific thing you found, however little it is. Only if every search truly failed do you say so plainly rather than guessing, and then say what you did find and what you tried. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
 }
