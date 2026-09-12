@@ -1,4 +1,4 @@
-import { ArrowUpRight, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ArrowUpRight, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { numbersIn, type Card, type CardFact, type CardImage, type CardPicture } from '../lib/cards'
 
@@ -98,6 +98,15 @@ interface GlassCardProps {
 
 function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: GlassCardProps) {
   const [imageFailed, setImageFailed] = useState(false)
+  /**
+   * Which way the picture runs, which decides where it sits. A portrait is a
+   * panel down the side, the shape a face wants. Anything wider than it is
+   * tall — a chart, a diagram, a photograph of a place — cannot survive being
+   * cropped to a narrow column, so it becomes a banner across the top and is
+   * shown whole. Until the file has loaded nothing is known, and the panel is
+   * the safer guess: it is what the card was drawn around.
+   */
+  const [mediaShape, setMediaShape] = useState<'tall' | 'wide'>('tall')
   const { card } = entry
   const image = card?.image && !imageFailed ? card.image : null
   const idle = entry.leaving || quiet
@@ -134,14 +143,21 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
           className="glass-pane"
           data-state={card ? 'ready' : 'searching'}
           data-kind={card?.kind}
-          data-media={image ? 'true' : undefined}
+          data-media={image ? mediaShape : undefined}
         >
           {!card ? (
             <SearchingFace query={entry.query} hint={entry.hint} />
           ) : card.kind === 'gallery' ? (
             <GalleryFace card={card} front={slot === 'front' && !idle} />
           ) : (
-            <CardFace card={card} image={image} spoken={spoken} onImageError={() => setImageFailed(true)} />
+            <CardFace
+              card={card}
+              image={image}
+              spoken={spoken}
+              front={slot === 'front' && !idle}
+              onShape={setMediaShape}
+              onImageError={() => setImageFailed(true)}
+            />
           )}
           {slot === 'front' && !idle ? (
             <button type="button" className="card-close" onClick={onTuck} aria-label="Put the cards away">
@@ -194,10 +210,33 @@ interface CardFaceProps {
   card: Card
   image: CardImage | null
   spoken: string
+  /** Only the card in front can be opened; the ones behind it are scenery. */
+  front: boolean
+  onShape: (shape: 'tall' | 'wide') => void
   onImageError: () => void
 }
 
-function CardFace({ card, image, spoken, onImageError }: CardFaceProps) {
+/**
+ * The card's own picture, in the shape the full-size viewer takes.
+ *
+ * The viewer wants somewhere to send you, and a card keeps its picture's
+ * credit rather than the page it came from, so the source whose host matches
+ * that credit is the page being credited. Failing that, the first source is
+ * where the card came from, and failing that the picture is its own page.
+ */
+function imageAsPicture(card: Card, image: CardImage): CardPicture {
+  const from = card.sources.find((source) => source.host === image.credit) ?? card.sources[0]
+  return {
+    url: image.url,
+    thumb: image.url,
+    alt: image.alt,
+    pageUrl: from?.url ?? image.url,
+    host: image.credit || from?.host || 'source',
+  }
+}
+
+function CardFace({ card, image, spoken, front, onShape, onImageError }: CardFaceProps) {
+  const [zoomed, setZoomed] = useState(false)
   // Every piece of the card rises in turn, so it reads top to bottom as it
   // arrives rather than landing as one block.
   let order = 0
@@ -207,15 +246,43 @@ function CardFace({ card, image, spoken, onImageError }: CardFaceProps) {
     <>
       {image ? (
         <figure className="card-media">
-          <img
-            src={image.url}
-            alt={image.alt}
-            decoding="async"
-            referrerPolicy="no-referrer"
-            onError={onImageError}
-          />
+          <button
+            type="button"
+            className="card-media-hit"
+            onClick={() => setZoomed(true)}
+            aria-label={`See ${image.alt} at full size`}
+          >
+            <img
+              src={image.url}
+              alt={image.alt}
+              decoding="async"
+              referrerPolicy="no-referrer"
+              // The file is the only honest account of its own shape: a chart
+              // arrives wider than it is tall and must not be cropped to fit a
+              // column drawn for a face.
+              onLoad={(event) => {
+                const { naturalWidth, naturalHeight } = event.currentTarget
+                if (naturalWidth && naturalHeight) {
+                  onShape(naturalWidth > naturalHeight * 1.15 ? 'wide' : 'tall')
+                }
+              }}
+              onError={onImageError}
+            />
+            <span className="card-media-zoom" aria-hidden="true">
+              <Maximize2 size={13} strokeWidth={2.2} />
+            </span>
+          </button>
           <figcaption>{image.credit}</figcaption>
         </figure>
+      ) : null}
+
+      {zoomed && image && front ? (
+        <Lightbox
+          pictures={[imageAsPicture(card, image)]}
+          index={0}
+          onStep={() => undefined}
+          onClose={() => setZoomed(false)}
+        />
       ) : null}
 
       <div className="card-body">

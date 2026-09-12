@@ -2327,6 +2327,25 @@ button:active:not(:disabled) {
   flex-basis: 40%;
 }
 
+/*
+ * The picture is a button: the card can only ever show a crop of it, and a
+ * chart or a map is worth nothing at the size a card gives it.
+ */
+/*
+ * Deliberately not raised above the glass's own fade: the gradient that
+ * carries the picture into the card ignores the pointer, so the button can
+ * sit under it and still be pressed.
+ */
+.card-media-hit {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
 .card-media img {
   position: absolute;
   inset: 0;
@@ -2336,6 +2355,68 @@ button:active:not(:disabled) {
   /* Portraits keep the face, which is nearly always in the upper third. */
   object-position: 50% 22%;
   animation: media-in 1000ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The one affordance: it says the picture opens, and stays out of the way. */
+.card-media-zoom {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  background: rgba(10, 12, 16, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 0;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: opacity 260ms ease-out;
+}
+
+.card-media-hit:hover .card-media-zoom,
+.card-media-hit:focus-visible .card-media-zoom {
+  opacity: 1;
+}
+
+.card-media-hit:hover img {
+  transform: scale(1.03);
+}
+
+/*
+ * A picture wider than it is tall, shown whole across the top instead of
+ * cropped into a column. A chart cropped to a third of its width is not a
+ * smaller chart, it is a different and useless picture: the axes go, the
+ * legend goes, and what is left cannot be read at any size. `contain` keeps
+ * all of it, and the panel behind gives a figure drawn on white somewhere to
+ * sit rather than glowing against the glass.
+ */
+.glass-pane[data-media='wide'] {
+  flex-direction: column;
+}
+
+.glass-pane[data-media='wide'] .card-media {
+  flex: 0 0 auto;
+  height: clamp(148px, 33cqh, 264px);
+  min-height: 0;
+  padding: 14px 18px 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.glass-pane[data-media='wide'] .card-media img {
+  object-fit: contain;
+  object-position: 50% 50%;
+}
+
+.glass-pane[data-media='wide'] .card-media::after {
+  background: linear-gradient(180deg, transparent 64%, rgba(8, 10, 14, 0.34));
+}
+
+.glass-pane[data-media='wide'] .card-media-hit:hover img {
+  transform: scale(1.015);
 }
 
 /* Where the picture meets the glass, it fades into it rather than stopping. */
