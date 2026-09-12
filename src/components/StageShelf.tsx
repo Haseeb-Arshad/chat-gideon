@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { GlassButton } from './LiquidGlass'
 import type { CardKind } from '../lib/cards'
 import type { StageEntry } from './ResearchStage'
 
@@ -44,7 +45,7 @@ export function StageShelf({
         // Optional on purpose: a card from a server one release older has no pictures.
         const picture = card.image?.url ?? card.pictures?.[0]?.thumb
         return (
-          <button
+          <GlassButton
             type="button"
             className="shelf-tab"
             key={entry.id}
@@ -63,7 +64,7 @@ export function StageShelf({
               <span>{card.title}</span>
               <small>{KIND_LABEL[card.kind]}</small>
             </span>
-          </button>
+          </GlassButton>
         )
       })}
     </nav>

@@ -1,7 +1,7 @@
 import { ArrowUpRight, ChevronLeft, ChevronRight, Maximize2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { numbersIn, type Card, type CardFact, type CardImage, type CardPicture } from '../lib/cards'
-import { useLiquidGlass } from './LiquidGlass'
+import { useGlass } from './LiquidGlass'
 
 /**
  * What GIDEON found, on panes of glass.
@@ -113,7 +113,7 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
   const idle = entry.leaving || quiet
   // Only the card in front is worth refracting: the ones behind it are dimmed
   // and half off the screen, and each map costs a pane-sized image to build.
-  const glass = useLiquidGlass(slot === 'front' && !idle)
+  const glass = useGlass({ enabled: slot === 'front' && !idle, blur: 14, saturate: 180 })
 
   // The sheen follows the pointer across the glass, and the pane leans toward
   // it a few degrees. Written straight to the element; nothing re-renders.
@@ -148,15 +148,14 @@ function GlassCard({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: Glas
       aria-hidden={slot === 'behind' || idle}
     >
       <div className="glass-float">
-        {glass.defs}
         <div
           className="glass-pane"
           ref={glass.ref}
-          style={glass.backdropFilter ? { backdropFilter: glass.backdropFilter } : undefined}
+          style={glass.style}
           data-state={card ? 'ready' : 'searching'}
           data-kind={card?.kind}
           data-media={image ? mediaShape : undefined}
-          data-refracting={glass.backdropFilter ? 'true' : undefined}
+          data-refracting={glass.refracting ? 'true' : undefined}
         >
           {!card ? (
             <SearchingFace query={entry.query} hint={entry.hint} />

@@ -43,6 +43,7 @@ import { VoiceQueue } from '../lib/voice-queue'
 import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
+import { GlassButton, useGlass } from './LiquidGlass'
 import { ResearchStage, type StageEntry } from './ResearchStage'
 import { ResourcesPanel, type Resource, type ResourceLink } from './ResourcesPanel'
 import { StageShelf } from './StageShelf'
@@ -2078,6 +2079,8 @@ export function AgentPage() {
   }
 
   const freshResources = resources.length > resourcesSeen
+  // The composer is glass too, and it changes size as it is typed into.
+  const composerGlass = useGlass({ blur: 16, saturate: 165 })
 
   return (
     <main
@@ -2107,7 +2110,7 @@ export function AgentPage() {
 
       <div className="corner-actions">
         {resources.length ? (
-          <button
+          <GlassButton
             className="reset-button"
             type="button"
             data-fresh={freshResources}
@@ -2121,9 +2124,9 @@ export function AgentPage() {
             <Library size={17} />
             <span>Resources</span>
             <b>{resources.length}</b>
-          </button>
+          </GlassButton>
         ) : null}
-        <button
+        <GlassButton
           className="reset-button"
           type="button"
           onClick={() => {
@@ -2136,8 +2139,8 @@ export function AgentPage() {
         >
           <Activity size={17} />
           <span>Latency</span>
-        </button>
-        <button
+        </GlassButton>
+        <GlassButton
           className="reset-button"
           type="button"
           onClick={newConversation}
@@ -2145,7 +2148,7 @@ export function AgentPage() {
         >
           <RotateCcw size={17} />
           <span>New</span>
-        </button>
+        </GlassButton>
       </div>
 
       {hudOpen ? <LatencyHud log={logRef.current} onClose={() => setHudOpen(false)} /> : null}
@@ -2273,7 +2276,7 @@ export function AgentPage() {
         ) : null}
 
         <div className="dock-row" data-open={composerOpen}>
-          <button
+          <GlassButton
             type="button"
             className="voice-orb"
             data-mode={voiceMode}
@@ -2292,20 +2295,26 @@ export function AgentPage() {
             }
           >
             {speechSupported ? voiceControl.icon : <MicOff size={19} />}
-          </button>
+          </GlassButton>
 
           {phase === 'thinking' || phase === 'replying' || phase === 'speaking' ? (
-            <button
+            <GlassButton
               type="button"
               className="stop-turn-button"
               onClick={stopCurrentTurn}
               aria-label="Stop current response"
             >
               <Square size={15} fill="currentColor" />
-            </button>
+            </GlassButton>
           ) : null}
 
-          <div className="text-composer" data-open={composerOpen}>
+          <div
+            className="text-composer"
+            data-open={composerOpen}
+            ref={composerGlass.ref}
+            style={composerGlass.style}
+            data-refracting={composerGlass.refracting ? 'true' : undefined}
+          >
             <label className="sr-only" htmlFor="message-input">
               Type to GIDEON
             </label>

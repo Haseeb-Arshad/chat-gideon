@@ -2183,6 +2183,36 @@ button:active:not(:disabled) {
 }
 
 /*
+ * What every refracting surface has in common, whatever it is.
+ *
+ * The fill was always standing in for a thickness the glass did not have. Now
+ * that it has one, the fill sits on top of the bending and hides it, so it
+ * comes down to a breath and the edge does the work instead: a bright hairline
+ * along the top where the light lands, a darker one along the bottom where it
+ * leaves. This is deliberately not scoped to any one control — a button, a
+ * panel and a card are the same material and should answer the light the same
+ * way.
+ */
+[data-refracting='true'] {
+  background-color: rgba(255, 255, 255, 0.035);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 26px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* Pressed glass sits into the light rather than under it. */
+button[data-refracting='true']:hover {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+button[data-refracting='true']:active {
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/*
  * The specular rim: the light the bezel gathers, where a real edge would
  * catch it.
  *

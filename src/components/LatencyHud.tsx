@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useGlass } from './LiquidGlass'
 import type { LatencyLog, TurnSummary } from '../lib/telemetry'
 
 /**
@@ -72,8 +73,16 @@ export function LatencyHud({ log, onClose }: { log: LatencyLog; onClose: () => v
     void navigator.clipboard?.writeText(JSON.stringify(log.export(), null, 2))
   }
 
+  const glass = useGlass({ blur: 16, saturate: 150 })
+
   return (
-    <aside className="latency-hud" aria-label="Latency instrumentation">
+    <aside
+      className="latency-hud"
+      aria-label="Latency instrumentation"
+      ref={glass.ref}
+      style={glass.style}
+      data-refracting={glass.refracting ? 'true' : undefined}
+    >
       <header>
         <h2>Turn latency</h2>
         <div className="hud-actions">

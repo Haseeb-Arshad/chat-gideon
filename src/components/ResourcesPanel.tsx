@@ -1,5 +1,6 @@
 import { ArrowUpRight, Check, CircleAlert, X } from 'lucide-react'
 import { useEffect } from 'react'
+import { useGlass } from './LiquidGlass'
 
 /**
  * Everything GIDEON did and read, gathered behind one button.
@@ -60,8 +61,17 @@ export function ResourcesPanel({
   const newest = [...resources].reverse()
   const sources = resources.reduce((total, resource) => total + resource.links.length, 0)
 
+  const glass = useGlass({ blur: 18, saturate: 165 })
+
   return (
-    <aside className="resources-panel" role="dialog" aria-label="Resources">
+    <aside
+      className="resources-panel"
+      role="dialog"
+      aria-label="Resources"
+      ref={glass.ref}
+      style={glass.style}
+      data-refracting={glass.refracting ? 'true' : undefined}
+    >
       <header className="resources-head">
         <h2>Resources</h2>
         <span>
