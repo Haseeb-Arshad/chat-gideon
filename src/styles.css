@@ -1575,9 +1575,17 @@ button:active:not(:disabled) {
  * else, top to bottom, which is what lets a card be large without shouting.
  */
 @media (min-width: 1000px) {
+  /*
+   * One screen exactly, not "at least one screen". `1fr` against a height
+   * that is only a minimum resolves to the content's own size, so the row
+   * holding the talk grew with every line and took the page with it; the
+   * column can only be a thing the talk scrolls inside if its height is
+   * settled before the talk is measured.
+   */
   .presence-shell[data-stage='open'] {
     grid-template-columns: clamp(300px, 26vw, 380px) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
+    height: 100svh;
     column-gap: clamp(20px, 2.6vw, 44px);
   }
 
@@ -1589,17 +1597,35 @@ button:active:not(:disabled) {
     padding: 58px 0 6px;
   }
 
+  /*
+   * Stretched, not centred, and allowed to shrink. A grid item sized to its
+   * own content is the whole bug: centred, the column grew with every line
+   * said, its row grew with it, and the page grew past the window, so the
+   * talk pushed the controls off the bottom of the screen and had to be
+   * scrolled back to. `min-height: 0` is the other half — a grid item refuses
+   * to shrink below its content without it, so the row would have grown even
+   * stretched.
+   */
   .presence-shell[data-stage='open'] .agent-presence {
     grid-column: 1;
     grid-row: 1;
+    align-self: stretch;
     justify-self: stretch;
+    min-height: 0;
     padding-top: clamp(118px, 15vh, 150px);
   }
 
+  /*
+   * `flex: 1` against a stretched column gives the frame a definite height,
+   * which is what `.transcript` needs: its own `height: 100%` cannot resolve
+   * against a parent sized by its content, so the words simply kept coming
+   * and `overflow-y: auto` never had a height to overflow. The floor is a
+   * minimum the flex line may fall back to, not a size it grows from.
+   */
   .agent-presence[data-stage='open'] .transcript-frame {
     flex: 1;
     width: 100%;
-    height: auto;
+    height: 100%;
     min-height: 120px;
     margin-top: 0;
   }
