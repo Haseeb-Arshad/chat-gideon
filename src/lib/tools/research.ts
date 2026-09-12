@@ -69,7 +69,13 @@ const MAX_ROUNDS = 4
  */
 const RESULTS_PER_SEARCH = 8
 const HIGHLIGHT_CHARS = 900
-const PAGE_CHARS = 6_000
+/**
+ * Ten thousand rather than six: Exa's ceiling for one page, and the
+ * difference between a paper's abstract and its method. Someone asking what a
+ * paper says wants what it did, which is never in the first six thousand
+ * characters of a PDF.
+ */
+const PAGE_CHARS = 10_000
 const SEARCH_TIMEOUT_MS = 9_000
 const READ_TIMEOUT_MS = 10_000
 
@@ -227,11 +233,33 @@ async function exaSearch(
   return body.results ?? []
 }
 
+/**
+ * The address of a page that is actually safe to read.
+ *
+ * arXiv's /html/ pages are neither reliable nor cheap. Asked to read one
+ * paper's HTML the reader was handed a different paper's text under the very
+ * URL it asked for — 2608.30607 came back as UBASE rather than ByteX, and the
+ * brief went on to describe the wrong system with full confidence — while two
+ * others spent the entire read budget crawling and timed out. The abstract
+ * page is cached, correct and quick, and /pdf/ carries the paper itself, so
+ * /html/ is rewritten to the abstract. The version suffix goes with it: the
+ * unversioned address is the one that is cached.
+ */
+export function readableUrl(raw: string): string {
+  return raw.replace(
+    /^(https?:\/\/(?:www\.)?arxiv\.org)\/html\/(\d{4}\.\d{4,5})(?:v\d+)?(?:[?#].*)?$/i,
+    '$1/abs/$2',
+  )
+}
+
 async function exaRead(deps: ResearchDeps, url: string, signal: AbortSignal): Promise<ExaResult | null> {
   const response = await deps.fetch(`${EXA_URL}/contents`, {
     method: 'POST',
     headers: exaHeaders(deps),
-    body: JSON.stringify({ urls: [url], text: { maxCharacters: PAGE_CHARS, verbosity: 'compact' } }),
+    body: JSON.stringify({
+      urls: [readableUrl(url)],
+      text: { maxCharacters: PAGE_CHARS, verbosity: 'compact' },
+    }),
     signal: withTimeout(signal, READ_TIMEOUT_MS),
   })
   if (!response.ok) throw new Error(`exa contents ${response.status}`)
@@ -322,7 +350,7 @@ const RESEARCH_TOOLS = [
     function: {
       name: 'read',
       description:
-        'Read the text of one page from a previous search result, when a passage is not enough to be sure of the answer.',
+        'Read the full text of one page from a previous search result, when a passage is not enough to be sure of the answer. It reads PDFs as well as pages, so this is how you read a paper itself rather than what someone wrote about it: for an arXiv result, read its /abs/ page for the abstract or its /pdf/ link for the paper. Never read an arxiv.org/html/ link.',
       parameters: {
         type: 'object',
         properties: { url: { type: 'string', description: 'The exact URL from a search result.' } },
@@ -348,7 +376,7 @@ function researcherPrompt(now: number, timezone: string) {
 
   return `You are the research desk for a spoken assistant. Today is ${today}. Your job is to find out the answer to a question about the world, accurately, and hand back a brief that another model will read aloud.
 
-Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. Stop as soon as you are sure; every round is silence for a person who is waiting.
+Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result's /abs/ page gives you the abstract and its /pdf/ link gives you the paper. Never read an arxiv.org/html/ link. Stop as soon as you are sure; every round is silence for a person who is waiting.
 
 Never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
 

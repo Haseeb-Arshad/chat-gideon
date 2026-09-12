@@ -5,6 +5,7 @@ import {
   SharedRun,
   defaultDeps,
   foundNothing,
+  readableUrl,
   research,
   type ResearchDeps,
   type ResearchResult,
@@ -506,6 +507,26 @@ describe('ResearchCache', () => {
     await run.promise
     await sleep(0)
     expect(cache.lookup('ai research papers august 2026')).not.toBeNull()
+  })
+})
+
+describe('the address a page is read from', () => {
+  it('sends an arXiv html link to the abstract instead', () => {
+    // Asked for this paper's html, the reader was handed a different paper.
+    expect(readableUrl('https://arxiv.org/html/2608.30607')).toBe('https://arxiv.org/abs/2608.30607')
+    expect(readableUrl('https://arxiv.org/html/2608.30607v2')).toBe('https://arxiv.org/abs/2608.30607')
+    expect(readableUrl('http://www.arxiv.org/html/2608.30607')).toBe('http://www.arxiv.org/abs/2608.30607')
+  })
+
+  it('leaves every other address alone, the paper itself included', () => {
+    for (const url of [
+      'https://arxiv.org/pdf/2608.30607',
+      'https://arxiv.org/abs/2608.30607',
+      'https://example.org/html/2608.30607',
+      'https://arxiv.org/html/not-a-paper',
+    ]) {
+      expect(readableUrl(url)).toBe(url)
+    }
   })
 })
 
