@@ -29,24 +29,45 @@ const EXA_URL = 'https://api.exa.ai'
 export const RESEARCH_MODEL = 'openai/gpt-5.6-luna'
 export const RESEARCH_FALLBACK_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b'
 
-export type ResearchEffort = 'none' | 'low' | 'medium'
+export type ResearchEffort = 'none' | 'low' | 'medium' | 'high'
 
 /**
- * No reasoning by default, chosen by measurement rather than taste. Given a
- * correct source, `none` answered in 3.5 to 6.4 seconds after one search, and
- * `low` wrote the same brief in 6.2 to 7.5 seconds after three or four, having
- * spent the difference cross-checking sources that already agreed. Given a
- * stale source, both noticed the date was wrong and said so. Reasoning bought
- * caution the prompt already asks for, at the one price a voice turn cannot pay.
+ * How hard the researcher thinks, chosen by measurement rather than taste.
+ * Over four questions with the hedge disabled, so every run could finish:
+ *
+ * | effort | median | worst  | searches per run | words |
+ * | none   |  7.9 s |  8.5 s | 3.5              | 163   |
+ * | low    |  8.7 s | 10.2 s | 4.3              | 177   |
+ * | medium | 15.8 s | 17.1 s | 6.5              | 177   |
+ * | high   | 25.3 s | 51.7 s | 8.3              | (*)   |
+ *
+ * The ceiling is not patience, it is the hedge. A run that has not finished by
+ * `hedgeAfterMs` loses to the direct answer, so effort the desk cannot outrun
+ * is effort spent and then thrown away: every `medium` run above would be
+ * beaten by its own hedge and answered more shallowly, having searched twice
+ * as hard to get there. `low` buys a search per run and fifteen more words of
+ * brief for eight tenths of a second, and still lands before the hedge.
+ *
+ * (*) `high` was measured before this prompt asked for broader searching, so
+ * its numbers are a floor rather than an estimate. Both it and `medium` stay
+ * reachable through OPENROUTER_RESEARCH_EFFORT, for a host that would rather
+ * wait: raise `hedgeAfterMs` past their worst case too, or the wait buys
+ * nothing at all.
  */
-export const RESEARCH_EFFORT: ResearchEffort = 'none'
+export const RESEARCH_EFFORT: ResearchEffort = 'low'
 
 /**
- * Three rounds is search, read one page, write. Anything longer is a model
- * that has lost the thread while a person sits in silence.
+ * Four rounds is search, search again on what the first round showed, read a
+ * page, write. Anything longer is a model that has lost the thread while a
+ * person sits in silence.
  */
-const MAX_ROUNDS = 3
-const RESULTS_PER_SEARCH = 5
+const MAX_ROUNDS = 4
+/**
+ * Eight rather than five: a question like "papers from August" is answered by
+ * the breadth of one search, and the researcher was throwing away the tail of
+ * every result set it asked for.
+ */
+const RESULTS_PER_SEARCH = 8
 const HIGHLIGHT_CHARS = 900
 const PAGE_CHARS = 6_000
 const SEARCH_TIMEOUT_MS = 9_000
@@ -64,14 +85,18 @@ export interface ResearchTiming {
 }
 
 /**
- * The hedge fires just past the slowest run measured with a correct source
- * (6.4 seconds), so it costs nothing in the ordinary case and caps the rare
- * one: a single run in testing took 24 seconds on a slow route.
+ * The hedge fires just past the slowest researched answer measured at the
+ * configured effort (10.2 seconds), so in the ordinary case it costs nothing
+ * and the desk's own answer is the one heard. Set it below that and the
+ * research model is racing a shallower answer it cannot beat.
+ *
+ * The budget is what a person will sit through before an answer stops being
+ * worth having, and it only ever applies to a run the hedge could not rescue.
  */
 export const DEFAULT_TIMING: ResearchTiming = {
-  hedgeAfterMs: 7_000,
-  budgetMs: 14_000,
-  answerTimeoutMs: 8_000,
+  hedgeAfterMs: 12_000,
+  budgetMs: 22_000,
+  answerTimeoutMs: 9_000,
   orphanGraceMs: 4_000,
 }
 
@@ -136,7 +161,10 @@ export function defaultDeps(env: EnvReader): ResearchDeps {
       : null,
     model: env('OPENROUTER_RESEARCH_MODEL') ?? RESEARCH_MODEL,
     fallbackModel: env('OPENROUTER_RESEARCH_FALLBACK_MODEL') ?? RESEARCH_FALLBACK_MODEL,
-    effort: effort === 'none' || effort === 'low' || effort === 'medium' ? effort : RESEARCH_EFFORT,
+    effort:
+      effort === 'none' || effort === 'low' || effort === 'medium' || effort === 'high'
+        ? effort
+        : RESEARCH_EFFORT,
     timing: DEFAULT_TIMING,
     now: Date.now,
   }
@@ -322,7 +350,9 @@ function researcherPrompt(now: number, timezone: string) {
 
 Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. Stop as soon as you are sure; every round is silence for a person who is waiting.
 
-Brief. Plain text, under 180 words, no markdown. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters. If sources disagree, say which says what. If you could not find it, say so plainly rather than guessing, and say what you did find. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
+Never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
+
+Brief. Plain text, no markdown. Under 180 words for a question with one answer; up to 260 when the user asked for several things, such as papers, releases, events or names, in which case give each one its actual title and date rather than describing the group of them. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters. If sources disagree, say which says what. Never pad a thin result with hedging: say the specific thing you found, however little it is. Only if every search truly failed do you say so plainly rather than guessing, and then say what you did find and what you tried. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
 }
 
 // -- The loop --------------------------------------------------------------
@@ -710,6 +740,39 @@ interface CacheEntry {
 }
 
 /**
+ * How a brief says it came back with nothing, in the shapes it actually says
+ * it. The words are rarely adjacent — "no specific AI research papers from
+ * August 2026 could be found" puts four of them between "no" and "papers" —
+ * so each pattern leaves room for the sentence in between, stopping at the
+ * full stop so it never reads across into the next one.
+ */
+const EMPTY_HANDED = [
+  /\b(could not|couldn't|cannot|can't|was unable|were unable|unable to|failed to find|did not (find|turn up|return)|didn't (find|turn up|return))\b/i,
+  /\bno\b[^.!?]{0,48}?\b(results?|papers?|information|details?|data|sources?|records?|listings?|articles?|studies|milestones?|announcements?)\b/i,
+  /\b(nothing|none)\b[^.!?]{0,24}\b(found|available|turned up)\b/i,
+  /\bnot (publicly |currently |readily )?available\b/i,
+]
+
+/**
+ * A run that searched and came back with nothing to say.
+ *
+ * This is the difference between "the web does not have it" and "that run did
+ * not find it", and only the second one is true often enough to matter. Left
+ * in the cache, one such brief answered every rephrasing of the question for
+ * ten minutes: asking again in different words is exactly what a person does
+ * when the first answer was a shrug, and it returned the same shrug instantly
+ * without searching. A brief with no source behind it is the same thing said
+ * more confidently.
+ */
+export function foundNothing(result: ResearchResult): boolean {
+  if (!result.sources.length) return true
+  // Only the answer itself, not the trailing list of sources, which can name a
+  // page like "Nothing found in the archive" without the brief being empty.
+  const answer = result.brief.split(/(^|\n)\s*Sources?:/i)[0]
+  return EMPTY_HANDED.some((pattern) => pattern.test(answer))
+}
+
+/**
  * Recent research, findable by a question that is *nearly* the same.
  *
  * Exact-match caching would almost never hit here: the speculative turn and the
@@ -743,10 +806,11 @@ export class ResearchCache {
   store(question: string, run: SharedRun) {
     this.entries.push({ words: keyWords(question), at: this.now(), run })
     if (this.entries.length > CACHE_LIMIT) this.entries.shift()
-    // A run that failed is not an answer worth repeating for ten minutes.
+    // A run that failed, or came back empty-handed, is not an answer worth
+    // repeating for ten minutes.
     void run.promise.then(
       (value) => {
-        if (!value.ok) this.forget(run)
+        if (!value.ok || foundNothing(value)) this.forget(run)
       },
       () => this.forget(run),
     )

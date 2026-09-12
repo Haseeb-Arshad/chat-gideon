@@ -4,6 +4,7 @@ import {
   ResearchCache,
   SharedRun,
   defaultDeps,
+  foundNothing,
   research,
   type ResearchDeps,
   type ResearchResult,
@@ -431,7 +432,9 @@ describe('sharing a run', () => {
 
 describe('ResearchCache', () => {
   function result(brief: string, ok = true): ResearchResult {
-    return { ok, brief, sources: [], via: 'agent', model: 'm', searches: 1, ms: 1 }
+    // A real brief always came from somewhere, so it always names a source.
+    const sources = [{ title: 'A page', url: 'https://example.org/a' }]
+    return { ok, brief, sources, via: 'agent', model: 'm', searches: 1, ms: 1 }
   }
   const settled = (value: ResearchResult) => new SharedRun(() => Promise.resolve(value), 5)
 
@@ -481,6 +484,52 @@ describe('ResearchCache', () => {
     now = 11 * 60_000
     expect(cache.lookup('old question about things')).toBeNull()
   })
+
+  /**
+   * The bug this guards: asked for AI papers from August, told none showed up,
+   * and then told exactly that again for every rephrasing, instantly, without
+   * anyone searching a second time.
+   */
+  it('does not keep an empty-handed answer around to repeat', async () => {
+    const cache = new ResearchCache(() => 0)
+    const run = settled(result('No specific AI papers from August 2026 could be found.'))
+    cache.store('ai research papers from august 2026', run)
+    await run.promise
+    await sleep(0)
+    expect(cache.lookup('ai research papers august 2026')).toBeNull()
+  })
+
+  it('keeps an answer that actually found something', async () => {
+    const cache = new ResearchCache(() => 0)
+    const run = settled(result('Three papers appeared on arXiv in August 2026: LoGo, ByteX and Meta.'))
+    cache.store('ai research papers from august 2026', run)
+    await run.promise
+    await sleep(0)
+    expect(cache.lookup('ai research papers august 2026')).not.toBeNull()
+  })
+})
+
+describe('an answer that found nothing', () => {
+  const of = (brief: string, sources = [{ title: 'A page', url: 'https://example.org/a' }]) =>
+    foundNothing({ ok: true, brief, sources, via: 'agent', model: 'm', searches: 2, ms: 1 })
+
+  it('knows a shrug from an answer', () => {
+    expect(of('No specific AI research papers from August 2026 could be found.')).toBe(true)
+    expect(of('I was unable to find the figure for last quarter.')).toBe(true)
+    expect(of('That information is not publicly available.')).toBe(true)
+    expect(of('Bitcoin is about $76,996 right now.')).toBe(false)
+    expect(of('LoGo and ByteX were both submitted in August 2026.')).toBe(false)
+  })
+
+  it('counts an answer with nothing behind it as a shrug', () => {
+    expect(of('Bitcoin is about $76,996 right now.', [])).toBe(true)
+  })
+
+  it('reads the answer, not the titles of the sources', () => {
+    expect(
+      of('LoGo was submitted on 30 August 2026.\nSources: No results found — the archive https://example.org/a'),
+    ).toBe(false)
+  })
 })
 
 describe('defaultDeps', () => {
@@ -500,7 +549,7 @@ describe('defaultDeps', () => {
     const bare = defaultDeps((name) => (name === 'OPENROUTER_RESEARCH_EFFORT' ? 'maximum' : undefined))
     expect(bare.exaKey).toBe('')
     expect(bare.openrouterHeaders).toBeNull()
-    expect(bare.effort).toBe('none')
+    expect(bare.effort).toBe('low')
     expect(bare.model).toBe('openai/gpt-5.6-luna')
   })
 })
