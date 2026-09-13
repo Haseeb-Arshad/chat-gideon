@@ -1,8 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { DurableObject } from 'cloudflare:workers'
-import { accessCodeRequired, accessCodeValid, originAllowed } from '../../../src/lib/guard'
-import { decodeFrame, type ClientFrame } from '../../../src/lib/protocol'
+import { originAllowed } from '../../../src/lib/guard'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { createRealtimeSession, type RealtimeSession } from '../../../src/lib/realtime-session'
 import { callerFromRequest, sessionIdFromRequest } from './identity'
@@ -17,7 +16,6 @@ interface SessionAttachment {
   sessionId: string
   caller: string
   host: string | null
-  authorised: boolean
 }
 
 function attachmentOf(socket: WebSocket): SessionAttachment | null {
@@ -26,8 +24,7 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
   const candidate = value as Partial<SessionAttachment>
   if (
     typeof candidate.sessionId !== 'string' ||
-    typeof candidate.caller !== 'string' ||
-    typeof candidate.authorised !== 'boolean'
+    typeof candidate.caller !== 'string'
   ) {
     return null
   }
@@ -35,7 +32,6 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
     sessionId: candidate.sessionId,
     caller: candidate.caller,
     host: typeof candidate.host === 'string' ? candidate.host : null,
-    authorised: candidate.authorised,
   }
 }
 
@@ -77,7 +73,6 @@ export class GideonSession extends DurableObject<Env> {
         caller: attachment.caller,
         host: attachment.host,
         memoryStore,
-        authorised: attachment.authorised,
       },
     )
   }
@@ -103,7 +98,6 @@ export class GideonSession extends DurableObject<Env> {
       sessionId: sessionIdFromRequest(request),
       caller: callerFromRequest(request),
       host: request.headers.get('host'),
-      authorised: !accessCodeRequired(),
     }
     server.serializeAttachment(attachment)
     this.sessions.set(server, this.createSession(server, attachment))
@@ -123,17 +117,6 @@ export class GideonSession extends DurableObject<Env> {
     if (!attachment) {
       socket.close(1011, 'Session metadata is missing')
       return
-    }
-
-    const frame = decodeFrame<ClientFrame>(message)
-    if (frame?.t === 'hello' && !attachment.authorised) {
-      if (accessCodeValid(typeof frame.access === 'string' ? frame.access : null)) {
-        const next = { ...attachment, authorised: true }
-        socket.serializeAttachment(next)
-        this.sessions.delete(socket)
-        const restored = this.createSession(socket, next)
-        this.sessions.set(socket, restored)
-      }
     }
 
     const session = this.sessions.get(socket)

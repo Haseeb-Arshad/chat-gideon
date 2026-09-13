@@ -17,7 +17,6 @@ export interface Env {
 
   EXA_API_KEY?: string
   GIDEON_RESEARCH_EFFORT?: string
-  GIDEON_ACCESS_CODE?: string
   GIDEON_ALLOWED_ORIGINS?: string
   GIDEON_RATE_LIMIT?: string
 

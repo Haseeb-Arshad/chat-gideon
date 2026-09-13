@@ -4,8 +4,8 @@ import { getPublicConfig } from '../lib/openrouter.server'
 /**
  * Liveness for the host's health checker.
  *
- * Deliberately ungated: the checker has no origin header and no access code,
- * and refusing it would take the deployment down to fix nothing. It reports
+ * Deliberately ungated: the checker has no origin header, and refusing it would
+ * take the deployment down to fix nothing. It reports
  * whether a key is present, never any part of the key itself.
  */
 export const Route = createFileRoute('/api/healthz')({

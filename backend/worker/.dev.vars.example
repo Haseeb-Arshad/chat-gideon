@@ -10,8 +10,7 @@ OPENROUTER_STT_FALLBACK_MODEL=deepgram/nova-3
 # Optional live research. Leave empty if research is not needed yet.
 EXA_API_KEY=
 
-# Optional public-demo guard. Keep this out of source control.
-GIDEON_ACCESS_CODE=
+# Public deployment origin guard. The demo itself has no access-code requirement.
 GIDEON_ALLOWED_ORIGINS=http://localhost:5173
 GIDEON_RATE_LIMIT=auto
 

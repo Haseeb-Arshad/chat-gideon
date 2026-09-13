@@ -160,7 +160,7 @@ Browser ────────────────────────
        └─ client tools: tool_request ──► browser ──► tool_reply
   memory: IDF-ranked facts, merged on restatement, evicted by usefulness
           └─ Durable Object storage, optionally mirrored to Supabase
-  guard: origin · optional access code · per-caller token buckets
+  guard: origin · per-caller token buckets
 ```
 
 Three properties hold throughout, and they are what keep the thing honest:
@@ -305,7 +305,6 @@ recogniser survives only as a fallback for a browser without it.
 | `OPENROUTER_RESEARCH_MODEL` | `openai/gpt-5.6-luna` | The research desk |
 | `OPENROUTER_RESEARCH_FALLBACK_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Used if the desk's model fails |
 | `OPENROUTER_RESEARCH_EFFORT` | `none` | The desk's reasoning; measured below |
-| `GIDEON_ACCESS_CODE` | unset | Required on every request when set |
 | `GIDEON_ALLOWED_ORIGINS` | same-origin | Only if the page is embedded elsewhere |
 | `GIDEON_RATE_LIMIT` | `auto` | `auto` meters public hosts only; `on`/`off` force it |
 | `PORT` | `3000` | Dev server and realtime socket |
@@ -361,7 +360,8 @@ that already agreed. Given a page for the wrong day, both noticed and said so.
 - `` ` `` toggles the latency panel.
 - Type and press Enter as a fallback; Shift+Enter for a newline.
 - The square control stops a reply; **New** clears the conversation and ledger.
-- Thirty seconds of quiet pauses the microphone.
+- Five minutes without voice or typed activity turns voice off; tap the
+  microphone to resume.
 
 Conversation history stays in this browser's local storage. Memories are the
 only thing that leaves it, and only to the server you are running. The local
@@ -426,13 +426,12 @@ VPS. Vercel can still run the HTTP fallback, but the recommended production
 path is the Cloudflare Worker because it can keep the realtime WebSocket in a
 Durable Object instead of relying on a long-lived Node process.
 
-Set `GIDEON_ACCESS_CODE` on anything public. Every HTTP route then requires it
-as an `X-Gideon-Access` header, and the socket requires it in its opening frame
-— the browser WebSocket API cannot set headers, so the client reads the code
-from `localStorage['gideon-access']` and sends it there instead. The socket also
-*requires* an `Origin` header rather than merely checking one: only a browser
-legitimately opens it, browsers always send one, and tolerating its absence is
-what would let a command-line client reach the turn endpoint unmetered.
+The public deployment does not require an access code. It checks the browser
+origin and applies per-caller rate limits so anyone can open the page and talk
+without a private browser secret. The socket also *requires* an `Origin` header
+rather than merely checking one: only a browser legitimately opens it, browsers
+always send one, and tolerating its absence is what would let a command-line
+client reach the turn endpoint unmetered.
 
 ---
 

@@ -51,7 +51,7 @@ the single cheapest fix in this list and the one a reader trusts most.
 Nobody clones a repo to evaluate it. They click the link, or watch the clip.
 
 - `Dockerfile` for `server/serve.mjs`; deploy to Fly.io or Railway, where a
-  socket can stay open. The access code is already built; turn it on.
+  socket can stay open.
 - GitHub Actions: typecheck, test, build, on every push. Badge in the README.
 - A 30–45 second screen recording, no narration needed: ask something, talk
   over the answer mid-sentence, watch it stop and take the correction; open the
@@ -186,7 +186,7 @@ branch: `agent-core.ts`, `realtime-session.ts`, `realtime-client.ts`,
 | --- | --- |
 | **No real audio path.** Speech input is the browser Speech Recognition API (Chrome/Edge only, audio goes to Google, no control over endpointing or partials). Speech output is a whole MP3 per chunk. | This is the first thing an RTC reviewer looks for. There is no PCM capture, no VAD, no codec, no streaming STT/TTS, no jitter handling, no WebRTC. The "realtime" link carries JSON and blobs. |
 | **Half-duplex.** `startListening` refuses to run while `thinking`, `replying` or `speaking`. | You cannot interrupt GIDEON by talking. Every consumer voice mode (ChatGPT, Gemini Live) has barge-in; without it GIDEON feels like a phone tree, however fast it is. |
-| **Not actually always-on.** 30 s of silence pauses the mic; there is no wake word and no sense of whether anyone is there. | The brief is "stays there all the time, listening". |
+| **No wake word.** Five minutes of silence turns the mic off and requires a tap to resume. | The brief is "stays there all the time, listening". |
 | **Cannot act.** Chat only. No tools, no memory beyond 40 messages in `localStorage`. | The brief is "does stuff on my behalf". |
 | **Production runs the worse path.** Vercel cannot hold a socket, so the deployed demo permanently degrades to HTTP after one 1.6 s probe. | The portfolio link shows the fallback, not the architecture. |
 | **Chunk boundaries are audible.** Each chunk is a fresh `HTMLAudioElement`; there is no clock-scheduled hand-off, so tiny gaps and level jumps occur between chunks. | Fixable with `AudioBufferSourceNode.start(when)` on the AudioContext clock. |
@@ -338,7 +338,7 @@ Realtime server (Node, long-lived; Fly.io / Railway / VPS in Docker)
               word timestamps ──► relayed as they arrive
   Memory: per-user store (SQLite/libsql or Postgres) with embedding retrieval;
           background extraction after each turn; proactive frames
-  Signalling for WebRTC; origin check; token-bucket rate limits; access code
+  Signalling for WebRTC; origin check; token-bucket rate limits
 ```
 
 Design rules that carry over from today's code and must survive the rewrite:
@@ -370,7 +370,7 @@ public demo improves after every phase.
   server to Fly.io (or Railway/Render). Keep Vercel only if you want a static
   landing there. The demo link must exercise the WebSocket path.
 - Origin check on the upgrade; per-IP token bucket on HTTP routes and socket
-  frames; optional `GIDEON_ACCESS_CODE` for public demos; `/healthz`.
+  frames; `/healthz`.
 - Tests for `Listener` endpointing (fake recogniser), `RealtimeLink` (fake
   socket, fallback probe), `createRealtimeSession` (fake sink), and the
   `agent-core` SSE parser. GitHub Actions: typecheck, test, build.
@@ -464,7 +464,8 @@ Measured target: first audible sample within ~600 ms of speech end at p50.
 - Playwright end-to-end test that drives a real voice turn in CI using
   Chromium's fake media device with a WAV fixture. This alone tells a reviewer
   you have built and tested audio pipelines before.
-- Live demo behind an access code so the key survives.
+- Live demo reachable without a private access code, with origin checks and
+  rate limiting protecting the provider key.
 
 ---
 

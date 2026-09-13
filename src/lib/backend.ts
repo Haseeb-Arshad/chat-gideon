@@ -1,7 +1,6 @@
 import { REALTIME_PATH } from './protocol'
 
 const SESSION_KEY = 'gideon-session'
-const ACCESS_KEY = 'gideon-access'
 
 function configuredHttpBase() {
   return (
@@ -31,14 +30,6 @@ export function sessionId() {
   }
 }
 
-export function accessCode() {
-  try {
-    return localStorage.getItem(ACCESS_KEY) ?? undefined
-  } catch {
-    return undefined
-  }
-}
-
 export function backendUrl(path: string) {
   const base = configuredHttpBase()
   return base ? `${base}${path}` : path
@@ -49,8 +40,6 @@ export function backendHeaders(contentType?: string): Record<string, string> {
     'X-Gideon-Session': sessionId(),
   }
   if (contentType) headers['Content-Type'] = contentType
-  const access = accessCode()
-  if (access) headers['X-Gideon-Access'] = access
   return headers
 }
 

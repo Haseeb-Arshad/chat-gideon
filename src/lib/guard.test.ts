@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   LIMITS,
   RateLimiter,
-  accessCodeValid,
   callerKey,
   gate,
   isLocalHost,
@@ -126,20 +125,6 @@ describe('originAllowed', () => {
   })
 })
 
-describe('accessCodeValid', () => {
-  it('is open when no code is configured', () => {
-    expect(accessCodeValid(null)).toBe(true)
-  })
-
-  it('accepts only the exact code', () => {
-    process.env.GIDEON_ACCESS_CODE = 'open-sesame'
-    expect(accessCodeValid('open-sesame')).toBe(true)
-    expect(accessCodeValid('open-sesam')).toBe(false)
-    expect(accessCodeValid('open-sesame ')).toBe(false)
-    expect(accessCodeValid(null)).toBe(false)
-  })
-})
-
 describe('isLocalHost', () => {
   it('recognises loopback in the shapes a Host header uses', () => {
     for (const host of ['localhost', 'localhost:3000', '127.0.0.1:8080', '[::1]:3000', '::1']) {
@@ -220,12 +205,6 @@ describe('gate', () => {
     expect(result.status).toBe(403)
   })
 
-  it('demands the access code when one is set', () => {
-    process.env.GIDEON_ACCESS_CODE = 'secret'
-    const request = { headers: headers({ host: 'gideon.example' }) }
-    expect(gate(request, 'turn').code).toBe('access_code_required')
-  })
-
   it('passes a well-formed same-origin request', () => {
     const request = {
       headers: headers({ origin: 'https://gideon.example', host: 'gideon.example' }),
@@ -242,9 +221,11 @@ describe('gate', () => {
     }
   })
 
-  it('still applies the access code locally, which is not about volume', () => {
+  it('stays public even if a legacy access-code variable is present', () => {
     process.env.GIDEON_ACCESS_CODE = 'secret'
-    const request = { headers: headers({ host: 'localhost:3000' }) }
-    expect(gate(request, 'turn').code).toBe('access_code_required')
+    const request = {
+      headers: headers({ origin: 'https://gideon.example', host: 'gideon.example' }),
+    }
+    expect(gate(request, 'turn').ok).toBe(true)
   })
 })

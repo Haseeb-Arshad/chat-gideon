@@ -18,7 +18,7 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from './protocol'
-import { accessCode, backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
+import { backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
 import type { Card } from './cards'
 import type { ScreenState, StageMove } from './stage-judge'
 
@@ -191,7 +191,7 @@ export class RealtimeLink {
       if (this.openTimer) clearTimeout(this.openTimer)
       this.openTimer = null
       this.reconnectDelay = 600
-      this.send({ t: 'hello', version: REALTIME_PROTOCOL_VERSION, access: accessCode() })
+      this.send({ t: 'hello', version: REALTIME_PROTOCOL_VERSION })
       this.setTransport('socket')
       this.pingTimer = setInterval(() => this.send({ t: 'ping', at: Date.now() }), PING_INTERVAL_MS)
     }

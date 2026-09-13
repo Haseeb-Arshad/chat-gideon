@@ -18,6 +18,7 @@ import type { ScreenState, StageMove } from '../lib/stage-judge'
 import { MicCapture, captureSupported, type Utterance } from '../lib/audio/capture'
 import { Transcriber } from '../lib/audio/transcriber'
 import { Listener, speechRecognitionSupported } from '../lib/listener'
+import { createInactivityTimer, type InactivityTimer } from '../lib/inactivity-timer'
 import {
   NEUTRAL_MOOD,
   type EyeEmotion,
@@ -445,6 +446,7 @@ export function AgentPage() {
   const turnRef = useRef<RunningTurn | null>(null)
   const levelRef = useRef(0)
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const silenceTimerRef = useRef<InactivityTimer | null>(null)
   const startListeningRef = useRef<(preserveDeadline?: boolean) => void>(() => undefined)
 
   /** Guesses in flight for the utterance currently being spoken by the user. */
@@ -533,6 +535,50 @@ export function AgentPage() {
     levelRef.current = 0
     captureRef.current?.setDucking(false)
   }, [])
+
+  const clearSilenceTimer = useCallback(() => {
+    silenceTimerRef.current?.clear()
+    silenceTimerRef.current = null
+  }, [])
+
+  /** Shut down every voice input path, preserving any response already in flight. */
+  const turnVoiceOff = useCallback(
+    (message?: string) => {
+      clearSilenceTimer()
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = null
+      listenerRef.current?.abort()
+      listenerRef.current = null
+      stopPartials()
+      dropEager()
+      for (const run of speculationRef.current.clear()) abandon(run.handle)
+      stopVoice()
+      void captureRef.current?.stop()
+      captureRef.current = null
+      setVoiceMode('muted')
+      if (phaseRef.current !== 'thinking' && phaseRef.current !== 'replying') setPhase('idle')
+      setLiveTranscript('')
+      if (message) setNotice(message)
+    },
+    [abandon, clearSilenceTimer, dropEager, setPhase, setVoiceMode, stopPartials, stopVoice],
+  )
+
+  /** Ambient noise can trip VAD, so only confirmed user actions reset this timer. */
+  const resetSilenceTimer = useCallback(() => {
+    if (voiceModeRef.current !== 'active') {
+      clearSilenceTimer()
+      return
+    }
+
+    const timer =
+      silenceTimerRef.current ??
+      createInactivityTimer(() => {
+        if (voiceModeRef.current !== 'active') return
+        turnVoiceOff('Voice turned off after 5 minutes of silence. Tap the microphone to resume.')
+      })
+    silenceTimerRef.current = timer
+    timer.reset()
+  }, [clearSilenceTimer, turnVoiceOff])
 
   /**
    * Adds to what GIDEON did, or updates it. A keyed entry changes in place, so
@@ -1039,6 +1085,7 @@ export function AgentPage() {
 
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
+      clearSilenceTimer()
       if (partialTimerRef.current) clearInterval(partialTimerRef.current)
       eagerRef.current?.controller.abort()
       listenerRef.current?.abort()
@@ -1052,7 +1099,7 @@ export function AgentPage() {
       }
       void captureRef.current?.dispose()
     }
-  }, [scheduleListen, setVoiceMode])
+  }, [clearSilenceTimer, scheduleListen, setVoiceMode])
 
   useEffect(() => {
     if (!hydrated) return
@@ -1518,6 +1565,7 @@ export function AgentPage() {
       const text = rawText.trim()
       if (!text) return
       if (!linkRef.current) return
+      resetSilenceTimer()
       // The message still goes to the model, which answers it; the cards just
       // do not wait for that answer to go.
       if (DONE_WITH_IT.test(text)) tuckStage()
@@ -1574,7 +1622,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, feel, promote, stopPartials, tuckStage],
+    [abandon, beginTurn, feel, promote, resetSilenceTimer, stopPartials, tuckStage],
   )
 
   /**
@@ -1785,6 +1833,7 @@ export function AgentPage() {
       setPauseReason(null)
       setVoiceMode('active')
       setPhase('listening')
+      resetSilenceTimer()
       return
     }
 
@@ -1798,9 +1847,20 @@ export function AgentPage() {
     // recogniser on its own once the graph is known to be unavailable.
     setPauseReason(capture.status === 'denied' ? 'blocked' : 'failed')
     setVoiceMode(capture.status === 'denied' ? 'paused' : 'muted')
+    clearSilenceTimer()
     setPhase('paused')
     setSpeechSupported(capture.status !== 'unsupported' || speechRecognitionSupported())
-  }, [dropEager, handleUtterance, interrupt, runPartial, setPhase, setVoiceMode, stopPartials])
+  }, [
+    dropEager,
+    handleUtterance,
+    interrupt,
+    runPartial,
+    setPhase,
+    setVoiceMode,
+    clearSilenceTimer,
+    stopPartials,
+    resetSilenceTimer,
+  ])
 
   const startListening = useCallback(
     (preserveDeadline = false) => {
@@ -1823,6 +1883,7 @@ export function AgentPage() {
           capture.resetUtterance()
           setVoiceMode('active')
           setPhase('listening')
+          resetSilenceTimer()
           return
         }
         void ensureCapture()
@@ -1853,6 +1914,7 @@ export function AgentPage() {
         onError: (_code, message) => setNotice(message),
         onSilenceTimeout: () => {
           listenerRef.current = null
+          clearSilenceTimer()
           setPauseReason('quiet')
           // The sentence was never finished, so no guess about it can ever be
           // vindicated; keeping them alive would only spend tokens.
@@ -1869,6 +1931,7 @@ export function AgentPage() {
           }
           if (reason === 'error') {
             listenerRef.current = null
+            clearSilenceTimer()
             for (const run of speculationRef.current.clear()) abandon(run.handle)
             setVoiceMode('paused')
             setPhase('paused')
@@ -1881,6 +1944,7 @@ export function AgentPage() {
       setNotice(null)
       setLiveTranscript('')
       if (listener.start(preserveDeadline)) {
+        resetSilenceTimer()
         // Mid-reply the microphone is open for interruption, not for a turn, so
         // the phase stays with whatever GIDEON is doing.
         if (phaseRef.current !== 'speaking' && phaseRef.current !== 'replying') {
@@ -1888,6 +1952,7 @@ export function AgentPage() {
         }
       } else {
         listenerRef.current = null
+        clearSilenceTimer()
         setVoiceMode('paused')
         setPhase('paused')
       }
@@ -1895,7 +1960,9 @@ export function AgentPage() {
     [
       abandon,
       considerSpeculation,
+      clearSilenceTimer,
       ensureCapture,
+      resetSilenceTimer,
       scheduleListen,
       sendMessage,
       setPhase,
@@ -1907,23 +1974,12 @@ export function AgentPage() {
 
   const handleVoiceControl = useCallback(() => {
     if (voiceModeRef.current === 'active') {
-      setVoiceMode('muted')
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
-      listenerRef.current?.abort()
-      listenerRef.current = null
-      stopPartials()
-      dropEager()
-      for (const run of speculationRef.current.clear()) abandon(run.handle)
-      stopVoice()
-      void captureRef.current?.stop()
-      captureRef.current = null
-      if (phaseRef.current !== 'thinking' && phaseRef.current !== 'replying') setPhase('idle')
-      setLiveTranscript('')
+      turnVoiceOff()
       return
     }
     setNotice(null)
     startListening(false)
-  }, [abandon, dropEager, setPhase, setVoiceMode, startListening, stopPartials, stopVoice])
+  }, [setNotice, startListening, turnVoiceOff])
 
   const stopCurrentTurn = useCallback(() => {
     const turn = turnRef.current
@@ -1937,8 +1993,11 @@ export function AgentPage() {
     levelRef.current = 0
     setPhase('idle')
     setAssistantCaption((current) => current || 'Stopped.')
-    if (voiceModeRef.current === 'active') scheduleListen(220)
-  }, [abandon, scheduleListen, setPhase])
+    if (voiceModeRef.current === 'active') {
+      resetSilenceTimer()
+      scheduleListen(220)
+    }
+  }, [abandon, resetSilenceTimer, scheduleListen, setPhase])
 
   const newConversation = useCallback(() => {
     abandon(turnRef.current)
@@ -1972,11 +2031,12 @@ export function AgentPage() {
 
     if (voiceModeRef.current === 'active') {
       setPhase('idle')
+      resetSilenceTimer()
       scheduleListen(220)
     } else {
       setPhase(voiceModeRef.current === 'paused' ? 'paused' : 'idle')
     }
-  }, [abandon, resetStage, scheduleListen, setPhase])
+  }, [abandon, resetStage, resetSilenceTimer, scheduleListen, setPhase])
 
   // The metal face still tilts toward the pointer; the eyes track it themselves.
   function handlePointerMove(event: React.PointerEvent<HTMLElement>) {

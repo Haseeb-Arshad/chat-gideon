@@ -41,5 +41,28 @@ describe('Cloudflare Worker API adapter', () => {
       },
     })
   })
+
+  it('allows the browser preflight without a private access header', async () => {
+    process.env.GIDEON_ALLOWED_ORIGINS = 'https://chatgideon.com,https://www.chatgideon.com'
+
+    try {
+      const request = new Request('https://chat-gideon.chatgideon.workers.dev/api/config', {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://chatgideon.com',
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'x-gideon-session',
+        },
+      })
+
+      const response = await handleApi(request, env)
+
+      expect(response?.status).toBe(204)
+      expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://chatgideon.com')
+      expect(response?.headers.get('Access-Control-Allow-Headers')).not.toContain('X-Gideon-Access')
+    } finally {
+      delete process.env.GIDEON_ALLOWED_ORIGINS
+    }
+  })
 })
 

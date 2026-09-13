@@ -21,7 +21,7 @@ import {
   type ClientToolBridge,
 } from './agent-core'
 import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrouter'
-import { accessCodeRequired, accessCodeValid, limiter, rateLimited } from './guard'
+import { limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
 import { readScreen } from './stage-judge'
 import type { MemoryStore } from './tools/memory'
@@ -57,8 +57,6 @@ export interface SessionOptions {
   host?: string | null
   /** Durable store selected by the host for this browser session. */
   memoryStore?: MemoryStore
-  /** Restored authorization state for a hibernated Worker socket. */
-  authorised?: boolean
 }
 
 /**
@@ -81,14 +79,6 @@ export function createRealtimeSession(
 ): RealtimeSession {
   const caller = options.caller || 'socket'
   const metered = rateLimited(options.host ?? null)
-  /**
-   * Whether this socket has presented the access code.
-   *
-   * Checked per frame rather than at the upgrade, because the browser cannot
-   * attach a header to the handshake. Until it is satisfied the socket can do
-   * nothing but say hello.
-   */
-  let authorised = options.authorised ?? !accessCodeRequired()
   /** Aborts keyed by turn id, so a cancel only kills the turn it names. */
   const turns = new Map<string, AbortController>()
   /** Tool calls the browser has been asked to run and has not answered yet. */
@@ -116,20 +106,9 @@ export function createRealtimeSession(
    * One gate for every frame that costs money.
    *
    * Same buckets as the HTTP routes, so a caller cannot get a second budget
-   * simply by preferring the socket.
-   */
+  * simply by preferring the socket.
+  */
   const allowed = (id: string, limit: 'turn' | 'speak') => {
-    if (!authorised) {
-      send({
-        t: 'error',
-        id,
-        code: 'access_code_required',
-        message: 'This GIDEON is behind an access code.',
-        retryable: false,
-      })
-      return false
-    }
-
     if (!metered) return true
 
     const decision = limiter.check(caller, limit)
@@ -303,21 +282,6 @@ export function createRealtimeSession(
 
       switch (frame.t) {
         case 'hello': {
-          if (!authorised) {
-            authorised = accessCodeValid(
-              typeof frame.access === 'string' ? frame.access : null,
-            )
-            if (!authorised) {
-              send({
-                t: 'error',
-                id: null,
-                code: 'access_code_required',
-                message: 'This GIDEON is behind an access code.',
-                retryable: false,
-              })
-              return
-            }
-          }
           warmUpstream()
           const config = getPublicConfig()
           send({

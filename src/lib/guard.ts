@@ -3,8 +3,7 @@
  *
  * GIDEON's endpoints are unauthenticated by design: the whole point is that you
  * open the page and talk. That is fine on localhost and reckless in public, so
- * the same routes carry a token bucket, an origin check, and an optional shared
- * access code that only switches on when the environment sets one.
+ * the same routes carry a token bucket and an origin check.
  *
  * Everything here is deliberately in-process. A single long-lived Node server is
  * the deployment target, so a Redis dependency would buy correctness across
@@ -238,31 +237,6 @@ export function originAllowed(
   })
 }
 
-/**
- * An optional shared secret for public demos, compared in constant time so the
- * comparison cannot be used to recover the code one character at a time.
- */
-export function accessCodeRequired(): boolean {
-  return Boolean(readEnv('GIDEON_ACCESS_CODE'))
-}
-
-export function accessCodeValid(supplied: string | null): boolean {
-  const expected = readEnv('GIDEON_ACCESS_CODE')
-  if (!expected) return true
-  if (!supplied) return false
-
-  const a = new TextEncoder().encode(expected)
-  const b = new TextEncoder().encode(supplied)
-  // Length is not secret, but bailing early on it would leak it through timing,
-  // so both sides are walked to the same fixed length regardless.
-  let diff = a.length ^ b.length
-  const span = Math.max(a.length, b.length)
-  for (let i = 0; i < span; i += 1) {
-    diff |= (a[i] ?? 0) ^ (b[i] ?? 0)
-  }
-  return diff === 0
-}
-
 export interface GateResult {
   ok: boolean
   status: number
@@ -273,7 +247,7 @@ export interface GateResult {
 
 const PASS: GateResult = { ok: true, status: 200, code: '', message: '', retryAfter: 0 }
 
-/** One check covering origin, access code and rate limit, in that order. */
+/** One check covering origin and rate limit, in that order. */
 export function gate(
   request: { headers: { get: (name: string) => string | null } },
   limit: LimitName,
@@ -287,16 +261,6 @@ export function gate(
       status: 403,
       code: 'origin_rejected',
       message: 'That request came from an origin GIDEON does not answer.',
-      retryAfter: 0,
-    }
-  }
-
-  if (!accessCodeValid(headers.get('x-gideon-access'))) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'access_code_required',
-      message: 'This GIDEON is behind an access code.',
       retryAfter: 0,
     }
   }

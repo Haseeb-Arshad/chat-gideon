@@ -4,6 +4,10 @@
   "compatibility_date": "2026-09-09",
   "compatibility_flags": ["nodejs_compat"],
   "main": "backend/worker/src/server.ts",
+  "vars": {
+    "GIDEON_ALLOWED_ORIGINS": "https://chatgideon.com,https://www.chatgideon.com",
+    "OPENROUTER_SITE_URL": "https://chatgideon.com"
+  },
   "durable_objects": {
     "bindings": [
       {

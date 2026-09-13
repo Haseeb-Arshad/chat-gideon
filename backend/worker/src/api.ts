@@ -214,13 +214,20 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
   const url = new URL(request.url)
 
   if (request.method === 'OPTIONS') {
-    const check = denied(request, 'config')
-    if (check) return check
+    // Preflight only validates the browser origin. It does not consume a
+    // provider-backed rate-limit token.
+    if (!originAllowed(request.headers.get('origin'), request.headers.get('host'))) {
+      return json(
+        apiError('origin_rejected', 'That request came from an origin GIDEON does not answer.'),
+        request,
+        403,
+      )
+    }
     return response(null, request, {
       status: 204,
       headers: {
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Gideon-Access, X-Gideon-Language, X-Gideon-Session',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Gideon-Language, X-Gideon-Session',
         'Access-Control-Max-Age': '600',
       },
     })
@@ -245,7 +252,6 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
     return json(
       {
         ...getPublicConfig(),
-        gated: Boolean(env.GIDEON_ACCESS_CODE?.trim()),
         tools: availableTools(false),
       },
       request,
