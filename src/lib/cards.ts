@@ -9,42 +9,27 @@
  * it. A card with too little left after that is not shown at all, because an
  * empty pane of glass says less than no pane.
  *
- * Shared by the server, which builds cards, and the browser, which draws them.
+ * This is the first kind of card: one flat shape, drawn by a model from a
+ * brief. Cards are sent and drawn as blocks now (`cards/schema.ts`), and a
+ * flat card is turned into blocks once it has passed the checks below.
  */
+
+import {
+  cleanText,
+  grounded,
+  groundedSentences,
+  hostOf,
+  knownNumbers,
+} from './cards/ground'
+import type { CardFact, CardImage, CardPicture, CardSource } from './cards/schema'
+
+export { cleanText, grounded, hostOf, knownNumbers, numbersIn } from './cards/ground'
+export type { CardFact, CardImage, CardPicture, CardSource } from './cards/schema'
 
 export type CardKind = 'entity' | 'figure' | 'news' | 'answer' | 'gallery'
 
 /** The kinds a model may choose when drawing a card from a brief. A gallery is built, not drawn. */
 export const CARD_KINDS: readonly CardKind[] = ['entity', 'figure', 'news', 'answer']
-
-/** One picture in a gallery: a tile-sized copy, a full-size one, and the page it is on. */
-export interface CardPicture {
-  url: string
-  thumb: string
-  alt: string
-  pageUrl: string
-  host: string
-}
-
-export interface CardFact {
-  label: string
-  value: string
-}
-
-export interface CardImage {
-  url: string
-  alt: string
-  /** Where the picture came from, shown small under it. */
-  credit: string
-  width?: number
-  height?: number
-}
-
-export interface CardSource {
-  title: string
-  url: string
-  host: string
-}
 
 export interface Card {
   kind: CardKind
@@ -76,72 +61,6 @@ const LIMITS = {
   sourceTitle: 80,
   facts: 5,
   sources: 4,
-}
-
-/**
- * Plain text, clipped at a word.
- *
- * Only markdown's emphasis and heading marks are removed, not the characters
- * themselves: "C#" and "snake_case" are names, and `**` never is.
- */
-export function cleanText(value: unknown, limit: number): string {
-  if (typeof value !== 'string') return ''
-  const text = value
-    .replace(/https?:\/\/\S+/g, '')
-    .replace(/\*\*|__|`/g, '')
-    .replace(/^#+\s*/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (text.length <= limit) return text
-  const cut = text.slice(0, limit - 1)
-  const space = cut.lastIndexOf(' ')
-  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`
-}
-
-/**
- * The numbers a piece of text states, normalised so "1,879" and "1879" are the
- * same number and "17°C" is 17. Ordinary spaces are deliberately not part of a
- * number: "in 2023 42 people" is two numbers, not 202342.
- */
-export function numbersIn(text: string): string[] {
-  const found = text.match(/\d(?:[\d,.  ]*\d)?/g) ?? []
-  return found.map((number) => number.replace(/[,  ]/g, ''))
-}
-
-/**
- * Every number in `brief`, in full and by its whole part.
- *
- * The whole part is there so a card may round: "$67,420" is fair from a brief
- * that says "$67,420.50". It never works the other way, so a decimal the brief
- * does not contain is still caught.
- */
-export function knownNumbers(brief: string): Set<string> {
-  const known = new Set<string>()
-  for (const number of numbersIn(brief)) {
-    known.add(number)
-    known.add(number.split('.')[0])
-  }
-  return known
-}
-
-export function grounded(text: string, known: Set<string>): boolean {
-  return numbersIn(text).every((number) => known.has(number))
-}
-
-/** Keeps only the sentences whose numbers all come from the brief. */
-function groundedSentences(text: string, known: Set<string>): string {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => sentence && grounded(sentence, known))
-    .join(' ')
-}
-
-export function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return ''
-  }
 }
 
 export interface CardContext {
