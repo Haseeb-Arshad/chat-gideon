@@ -13,6 +13,7 @@
  * slow or failed judgement leaves the screen exactly as it was.
  */
 
+import { RECIPES, isRecipeId } from './cards/recipes'
 import type { ChatMessageInput } from './openrouter'
 import { defaultDeps, type EnvReader } from './tools/research'
 
@@ -81,19 +82,21 @@ export function readScreen(value: unknown): ScreenState | null {
   return { open, front: open ? front : null, cards }
 }
 
-const KIND_WORDS: Record<string, string> = {
-  entity: 'about a person, place or thing',
-  figure: 'a number',
-  news: 'a news story',
-  gallery: 'pictures',
-  answer: 'an answer',
+/**
+ * What a card is about, by its recipe. A page on an older build still reports
+ * the first card's kinds, and `entity` is the one of those that is not also a
+ * recipe's name.
+ */
+function aboutWords(kind: string): string {
+  if (isRecipeId(kind)) return RECIPES[kind].about
+  return kind === 'entity' ? RECIPES.profile.about : RECIPES.answer.about
 }
 
 /** The screen in words, with short labels the model can answer in. */
 export function describeScreen(screen: ScreenState, labels: string[]): string {
   const lines = screen.cards.map(
     (card, index) =>
-      `${labels[index]}: "${card.title}", ${KIND_WORDS[card.kind] ?? 'an answer'}, from "${card.query || card.title}"`,
+      `${labels[index]}: "${card.title}", ${aboutWords(card.kind)}, from "${card.query || card.title}"`,
   )
   const front = screen.cards.findIndex((card) => card.id === screen.front)
   const state =

@@ -2083,7 +2083,7 @@ button:active:not(:disabled) {
 
 /*
  * A card: its place (this element), its float (.glass-float) and its glass
- * (.glass-pane). Only the glass fades or blurs; see ResearchStage.tsx.
+ * (.glass-pane). Only the glass fades or blurs; see stage/CardFrame.tsx.
  */
 .glass-card {
   --card-w: min(700px, calc(100cqw - 160px));
@@ -2410,7 +2410,7 @@ button[data-refracting='true']:active {
   overflow: hidden;
 }
 
-.glass-pane[data-kind='news'] .card-media {
+.glass-pane[data-recipe='news'] .card-media {
   flex-basis: 40%;
 }
 

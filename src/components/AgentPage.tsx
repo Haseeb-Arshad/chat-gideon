@@ -13,7 +13,9 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
-import { hostOf, type Card } from '../lib/cards'
+import { hostOf } from '../lib/cards'
+import { readCard } from '../lib/cards/read'
+import type { CardV2 } from '../lib/cards/schema'
 import type { ScreenState, StageMove } from '../lib/stage-judge'
 import { MicCapture, captureSupported, type Utterance } from '../lib/audio/capture'
 import { Transcriber } from '../lib/audio/transcriber'
@@ -45,7 +47,7 @@ import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
 import { GlassButton, useGlass } from './LiquidGlass'
-import { ResearchStage, type StageEntry } from './ResearchStage'
+import { Stage, type StageEntry } from './stage/Stage'
 import { ResourcesPanel, type Resource, type ResourceLink } from './ResourcesPanel'
 import { StageShelf } from './StageShelf'
 
@@ -72,7 +74,7 @@ type PauseReason = 'quiet' | 'blocked' | 'failed' | null
  */
 type StageMode = 'open' | 'tucking' | 'tucked'
 /** Something a turn did to the screen, held back while that turn is only a guess. */
-type StageEvent = { call: string; card: Card | null } | { move: StageMove }
+type StageEvent = { call: string; card: CardV2 | null } | { move: StageMove }
 
 interface Message {
   id: string
@@ -778,7 +780,7 @@ export function AgentPage() {
 
   /** A card landing on its searching pane, or on its own if it never had one. */
   const placeCard = useCallback(
-    (id: string, card: Card | null) => {
+    (id: string, card: CardV2 | null) => {
       cancelLater(`wait:${id}`)
       if (!card) {
         dropCard(id)
@@ -789,7 +791,7 @@ export function AgentPage() {
       // takes the older one's place rather than sitting beside it on the shelf.
       const title = card.title.toLowerCase()
       const earlier = (entry: StageEntry) =>
-        entry.id !== id && entry.card?.kind === card.kind && entry.card.title.toLowerCase() === title
+        entry.id !== id && entry.card?.recipe === card.recipe && entry.card.title.toLowerCase() === title
       updateStage((current) =>
         exists
           ? current
@@ -802,7 +804,7 @@ export function AgentPage() {
               {
                 id,
                 query: card.query,
-                hint: card.kind === 'gallery' ? ('pictures' as const) : ('web' as const),
+                hint: card.recipe === 'gallery' ? ('pictures' as const) : ('web' as const),
                 card,
                 leaving: false,
               },
@@ -837,7 +839,7 @@ export function AgentPage() {
               id: entry.id,
               title: entry.card.title,
               query: entry.card.query || entry.query,
-              kind: entry.card.kind,
+              kind: entry.card.recipe,
             },
           ]
         : [],
@@ -927,7 +929,8 @@ export function AgentPage() {
     const handle = window as unknown as { __gideonStage?: unknown }
     handle.__gideonStage = {
       open: openSearch,
-      place: placeCard,
+      // Anything handed in by hand is read the way a card off the wire is.
+      place: (id: string, card: unknown) => placeCard(id, readCard(card)),
       tuck: tuckStage,
       show: showCard,
       record,
@@ -2297,7 +2300,7 @@ export function AgentPage() {
       </section>
 
       {stageOpen ? (
-        <ResearchStage
+        <Stage
           entries={stage}
           frontId={frontId}
           tucking={stageMode === 'tucking'}

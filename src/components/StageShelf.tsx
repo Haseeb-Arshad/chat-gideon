@@ -1,7 +1,8 @@
 import type { CSSProperties } from 'react'
+import { RECIPES } from '../lib/cards/recipes'
+import { cardThumbnail } from '../lib/cards/schema'
 import { GlassButton } from './LiquidGlass'
-import type { CardKind } from '../lib/cards'
-import type { StageEntry } from './ResearchStage'
+import type { StageEntry } from './stage/Stage'
 
 /**
  * Where cards wait once the conversation has moved on.
@@ -12,14 +13,6 @@ import type { StageEntry } from './ResearchStage'
  * the face goes back to the corner to look at it. The same happens by itself
  * when the conversation returns to a card's topic.
  */
-
-const KIND_LABEL: Record<CardKind, string> = {
-  entity: 'Card',
-  figure: 'Figure',
-  news: 'News',
-  answer: 'Answer',
-  gallery: 'Pictures',
-}
 
 /** The newest few, newest at the top. */
 const SHELF_SIZE = 5
@@ -42,8 +35,7 @@ export function StageShelf({
     <nav className="stage-shelf" aria-label="Cards put away">
       {shelved.map((entry, index) => {
         const card = entry.card!
-        // Optional on purpose: a card from a server one release older has no pictures.
-        const picture = card.image?.url ?? card.pictures?.[0]?.thumb
+        const picture = cardThumbnail(card)
         return (
           <GlassButton
             type="button"
@@ -53,7 +45,7 @@ export function StageShelf({
             style={{ '--i': index } as CSSProperties}
             aria-label={`Bring back ${card.title}`}
           >
-            <span className="shelf-thumb" data-kind={card.kind}>
+            <span className="shelf-thumb" data-recipe={card.recipe}>
               {picture ? (
                 <img src={picture} alt="" decoding="async" referrerPolicy="no-referrer" />
               ) : (
@@ -62,7 +54,7 @@ export function StageShelf({
             </span>
             <span className="shelf-text">
               <span>{card.title}</span>
-              <small>{KIND_LABEL[card.kind]}</small>
+              <small>{RECIPES[card.recipe].label}</small>
             </span>
           </GlassButton>
         )

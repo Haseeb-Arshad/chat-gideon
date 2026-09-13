@@ -19,7 +19,8 @@ import {
   type ServerFrame,
 } from './protocol'
 import { backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
-import type { Card } from './cards'
+import { readCard } from './cards/read'
+import type { CardV2 } from './cards/schema'
 import type { ScreenState, StageMove } from './stage-judge'
 
 export type LinkTransport = 'idle' | 'connecting' | 'socket' | 'http'
@@ -135,14 +136,14 @@ export class RealtimeLink {
    * handlers: a card is drawn beside the reply and often arrives after `done`,
    * by which point the turn has already been let go.
    */
-  private onCard: ((turnId: string, call: string, card: Card | null) => void) | null = null
+  private onCard: ((turnId: string, call: string, card: CardV2 | null) => void) | null = null
   private onStage: ((turnId: string, move: StageMove) => void) | null = null
 
   constructor(options: {
     onTransportChange?: (transport: LinkTransport) => void
     onConfig?: (config: LinkConfig) => void
     runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
-    onCard?: (turnId: string, call: string, card: Card | null) => void
+    onCard?: (turnId: string, call: string, card: CardV2 | null) => void
     onStage?: (turnId: string, move: StageMove) => void
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
@@ -392,11 +393,9 @@ export class RealtimeLink {
         })
         return
       case 'card':
-        this.onCard?.(
-          frame.id,
-          frame.call,
-          frame.card && typeof frame.card === 'object' ? frame.card : null,
-        )
+        // Read for its shape here, where it arrives: a card that cannot be drawn
+        // is no card, and dissolves its searching pane like a declined one.
+        this.onCard?.(frame.id, frame.call, readCard(frame.card))
         return
       case 'stage':
         if (frame.op === 'tuck') this.onStage?.(frame.id, { op: 'tuck' })

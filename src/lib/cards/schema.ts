@@ -150,8 +150,15 @@ export interface CardV2 {
   partial: boolean
 }
 
+/**
+ * The first block of a type. Tolerant of a card with no block list at all,
+ * which `readCard` never lets through but a page swapping code under a live
+ * stage in development has shown to happen; the frame asks this before its
+ * face is inside the boundary that would otherwise catch it.
+ */
 export function blockOf<T extends BlockType>(card: CardV2, type: T): Extract<Block, { type: T }> | undefined {
-  return card.blocks.find((block): block is Extract<Block, { type: T }> => block.type === type)
+  const blocks: Block[] | undefined = card.blocks
+  return blocks?.find((block): block is Extract<Block, { type: T }> => block.type === type)
 }
 
 /** The picture a card is known by on the shelf: its lead picture, or its first photograph. */
