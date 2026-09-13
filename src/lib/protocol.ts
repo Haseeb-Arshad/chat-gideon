@@ -12,11 +12,13 @@
  * back to the browser rather than discovering it half way through a turn.
  */
 
-import type { Card } from './cards'
+import type { CardPatch } from './cards/patch'
+import type { CardV2 } from './cards/schema'
 import type { ScreenState } from './stage-judge'
 
 export const REALTIME_PATH = '/api/realtime'
-export const REALTIME_PROTOCOL_VERSION = 2
+/** 3: cards are sent as blocks, and grow by `card_patch`. */
+export const REALTIME_PROTOCOL_VERSION = 3
 
 export interface TurnMessage {
   role: 'user' | 'assistant'
@@ -91,7 +93,13 @@ export type ServerFrame =
    * nothing worth showing. May arrive after `done`, because it is drawn beside
    * the spoken answer rather than before it.
    */
-  | { t: 'card'; id: string; call: string; card: Card | null }
+  | { t: 'card'; id: string; call: string; card: CardV2 | null }
+  /**
+   * A card on screen growing: blocks added or replaced by id, blocks taken
+   * away, its sources when they changed. Always after the `card` it patches,
+   * and like it may arrive after `done`.
+   */
+  | ({ t: 'card_patch'; id: string; call: string } & CardPatch)
   /**
    * The conversation has moved away from what is on screen, so the cards step
    * aside; or it has come back to a card, so that card comes forward.

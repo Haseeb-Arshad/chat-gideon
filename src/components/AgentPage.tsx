@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
 import { hostOf } from '../lib/cards'
+import { applyPatch, readPatch, type CardPatch } from '../lib/cards/patch'
 import { readCard } from '../lib/cards/read'
 import type { CardV2 } from '../lib/cards/schema'
 import type { ScreenState, StageMove } from '../lib/stage-judge'
@@ -74,7 +75,10 @@ type PauseReason = 'quiet' | 'blocked' | 'failed' | null
  */
 type StageMode = 'open' | 'tucking' | 'tucked'
 /** Something a turn did to the screen, held back while that turn is only a guess. */
-type StageEvent = { call: string; card: CardV2 | null } | { move: StageMove }
+type StageEvent =
+  | { call: string; card: CardV2 | null }
+  | { call: string; patch: CardPatch }
+  | { move: StageMove }
 
 interface Message {
   id: string
@@ -820,6 +824,23 @@ export function AgentPage() {
     [cancelLater, dropCard, openOn, updateStage],
   )
 
+  /**
+   * A card on screen growing. A patch for a card that is not there, still a
+   * searching pane or already let go, has nothing to grow and is dropped: its
+   * card always comes first, so there is nothing to wait for.
+   */
+  const patchCard = useCallback(
+    (id: string, patch: CardPatch) => {
+      if (!stageEntriesRef.current.some((entry) => entry.id === id && entry.card && !entry.leaving)) return
+      updateStage((current) =>
+        current.map((entry) =>
+          entry.id === id && entry.card ? { ...entry, card: applyPatch(entry.card, patch) } : entry,
+        ),
+      )
+    },
+    [updateStage],
+  )
+
   /** Research came back, so its card should follow; if it never does, the pane goes. */
   const waitForCard = useCallback(
     (id: string) => {
@@ -855,6 +876,10 @@ export function AgentPage() {
   /** One thing a real turn did to the screen. */
   const deliver = useCallback(
     (turnId: string, event: StageEvent) => {
+      if ('patch' in event) {
+        patchCard(`${turnId}:${event.call}`, event.patch)
+        return
+      }
       if (!('move' in event)) {
         placeCard(`${turnId}:${event.call}`, event.card)
         return
@@ -865,7 +890,7 @@ export function AgentPage() {
       if (event.move.op === 'tuck') tuckStage()
       else showCard(event.move.card)
     },
-    [placeCard, showCard, tuckStage],
+    [patchCard, placeCard, showCard, tuckStage],
   )
 
   /** Read by the link, which is created once and so cannot close over these. */
@@ -931,6 +956,10 @@ export function AgentPage() {
       open: openSearch,
       // Anything handed in by hand is read the way a card off the wire is.
       place: (id: string, card: unknown) => placeCard(id, readCard(card)),
+      patch: (id: string, patch: unknown) => {
+        const read = readPatch(patch)
+        if (read) patchCard(id, read)
+      },
       tuck: tuckStage,
       show: showCard,
       record,
@@ -938,7 +967,7 @@ export function AgentPage() {
     return () => {
       delete handle.__gideonStage
     }
-  }, [openSearch, placeCard, record, showCard, tuckStage])
+  }, [openSearch, patchCard, placeCard, record, showCard, tuckStage])
 
   /** What GIDEON is busy with while the turn is silent, for the status line. */
   const [working, setWorking] = useState<string | null>(null)
@@ -1031,6 +1060,7 @@ export function AgentPage() {
         toolsRef.current?.run(name, args) ??
         Promise.resolve({ ok: false, content: 'The page is not ready to do that.' }),
       onCard: (turnId, call, card) => stageEventRef.current(turnId, { call, card }),
+      onCardPatch: (turnId, call, patch) => stageEventRef.current(turnId, { call, patch }),
       onStage: (turnId, move) => stageEventRef.current(turnId, { move }),
     })
     linkRef.current = link

@@ -14,7 +14,8 @@
  * whose previews are watermarked, and never the same photograph twice.
  */
 
-import { cleanText, hostOf, type Card, type CardPicture, type CardSource } from '../cards'
+import { cleanText, hostOf } from '../cards/ground'
+import type { CardPicture, CardSource, CardV2 } from '../cards/schema'
 import type { EnvReader } from './research'
 
 const EXA_URL = 'https://api.exa.ai/search'
@@ -217,9 +218,10 @@ export async function findPictures(
   return kept
 }
 
-/** The card a set of pictures is shown on. */
-export function galleryCard(query: string, pictures: CardPicture[]): Card {
-  const title = cleanText(query, 64)
+/** The card a set of pictures is shown on: its heading, and the pictures. */
+export function galleryCard(query: string, pictures: CardPicture[]): CardV2 {
+  const clipped = cleanText(query, 64)
+  const title = clipped.charAt(0).toUpperCase() + clipped.slice(1)
   const sources: CardSource[] = []
   for (const picture of pictures) {
     if (sources.some((source) => source.host === picture.host)) continue
@@ -227,16 +229,17 @@ export function galleryCard(query: string, pictures: CardPicture[]): Card {
     if (sources.length === 4) break
   }
   return {
-    kind: 'gallery',
+    schema: 2,
+    recipe: 'gallery',
+    size: 'standard',
     query: cleanText(query, 200),
-    title: title.charAt(0).toUpperCase() + title.slice(1),
-    subtitle: `${pictures.length} pictures from the web`,
-    summary: '',
-    figure: null,
-    kicker: '',
-    facts: [],
-    image: null,
-    pictures,
+    title,
+    blocks: [
+      { id: 'headline', slot: 'body', type: 'headline', kicker: 'Pictures', title },
+      { id: 'gallery', slot: 'body', type: 'gallery', pictures },
+    ],
     sources,
+    asOf: null,
+    partial: false,
   }
 }

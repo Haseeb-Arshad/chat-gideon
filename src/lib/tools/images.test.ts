@@ -150,13 +150,16 @@ describe('galleryCard', () => {
       picture('pexels.com', 3),
     ])
     expect(card).toMatchObject({
-      kind: 'gallery',
+      schema: 2,
+      recipe: 'gallery',
       title: 'Chocolate cake',
       query: 'chocolate cake',
-      subtitle: '3 pictures from the web',
-      image: null,
+      partial: false,
     })
-    expect(card.pictures).toHaveLength(3)
+    expect(card.blocks.map((block) => block.type)).toEqual(['headline', 'gallery'])
+    expect(card.blocks[0]).toMatchObject({ kicker: 'Pictures', title: 'Chocolate cake' })
+    const gallery = card.blocks[1]
+    expect(gallery.type === 'gallery' && gallery.pictures).toHaveLength(3)
     expect(card.sources.map((source) => source.host)).toEqual(['unsplash.com', 'pexels.com'])
   })
 })

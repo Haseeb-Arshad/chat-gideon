@@ -35,6 +35,7 @@ import {
 } from './tools/memory'
 import { runtimeEnv } from './runtime-env'
 import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
+import { Outbox } from './outbox'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -322,16 +323,6 @@ export const RESEARCH_FILLERS = [
  */
 const CARD_WAIT_MS = 6_000
 
-function within(work: Promise<unknown>, ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    void work.finally(() => {
-      clearTimeout(timer)
-      resolve()
-    })
-  })
-}
-
 /** The same courtesy for pictures, which take a second or two to find. */
 export const PICTURE_FILLERS = ['Let me find some.', 'One second, let me pull some up.']
 
@@ -420,13 +411,12 @@ export async function* streamTurn(
   let complete = ''
   let started = false
   let useTools = true
-  // Cards being drawn from research, and the ones ready to go. A card travels
-  // with the reply rather than ahead of it: it is released at the next frame
-  // the loop sends anyway, so the voice never waits on one.
-  const drawing: Promise<void>[] = []
-  const ready: ServerFrame[] = []
+  // Cards being drawn, their patches, and screen moves, each sent once ready.
+  // A card travels with the reply rather than ahead of it: it is released at
+  // the next frame the loop sends anyway, so the voice never waits on one.
+  const outbox = new Outbox<ServerFrame>()
   function* release() {
-    while (ready.length) yield ready.shift() as ServerFrame
+    yield* outbox.drain()
   }
 
   // Whether the screen should change, judged beside the reply. The answer is
@@ -439,12 +429,12 @@ export async function* streamTurn(
     staging: false,
   }
   if (options.screen?.cards.length) {
-    drawing.push(
+    outbox.track(
       judgeScreen(messages, options.screen, judgeDeps(configValue), signal).then((move) => {
         if (!move || signal.aborted) return
         const frame: ServerFrame = { t: 'stage', id, ...move }
         if (!judgement.decided) judgement.move = frame
-        else if (!judgement.staging) ready.push(frame)
+        else if (!judgement.staging) outbox.push(frame)
       }),
     )
   }
@@ -599,7 +589,7 @@ export async function* streamTurn(
     if (!judgement.decided) {
       judgement.decided = true
       judgement.staging = calls.some((call) => STAGING_TOOLS.has(call.name))
-      if (judgement.move && !judgement.staging) ready.push(judgement.move)
+      if (judgement.move && !judgement.staging) outbox.push(judgement.move)
       judgement.move = null
     }
 
@@ -695,15 +685,19 @@ export async function* streamTurn(
       }
 
       if (outcome.card) {
-        drawing.push(
-          outcome.card.then(
+        const patches = outcome.cardPatches
+        outbox.track(
+          outcome.card.then(async (card) => {
+            if (signal.aborted) return
             // A null card is sent too: it is what tells the searching pane
             // to dissolve now, rather than wait out a timer for nothing.
-            (card) => {
-              if (!signal.aborted) ready.push({ t: 'card', id, call: callId, card })
-            },
-            () => undefined,
-          ),
+            outbox.push({ t: 'card', id, call: callId, card })
+            if (!card || !patches) return
+            for await (const patch of patches) {
+              if (signal.aborted) return
+              outbox.push({ t: 'card_patch', id, call: callId, ...patch })
+            }
+          }),
         )
       }
 
@@ -727,11 +721,15 @@ export async function* streamTurn(
   yield { t: 'done', id, text: complete }
 
   // A card still being drawn when the text has all arrived goes out after it,
-  // which is why the browser handles cards apart from the turn itself.
-  if (drawing.length) {
-    await within(Promise.all(drawing), CARD_WAIT_MS)
-    if (!signal.aborted) yield* release()
+  // which is why the browser handles cards apart from the turn itself. Each
+  // piece goes the moment it is ready, not when the slowest one is.
+  const deadline = Date.now() + CARD_WAIT_MS
+  while (outbox.busy && Date.now() < deadline) {
+    await outbox.next(deadline - Date.now())
+    if (signal.aborted) return
+    yield* release()
   }
+  if (!signal.aborted) yield* release()
 }
 
 export interface VoiceResult {

@@ -87,7 +87,7 @@ function readFacts(value: unknown, limit: number): CardFact[] {
   return facts
 }
 
-function readSources(value: unknown): CardSource[] {
+export function readSources(value: unknown): CardSource[] {
   const sources: CardSource[] = []
   for (const item of list(value, 8)) {
     if (!isObject(item) || !isWebUrl(item.url)) continue
@@ -142,7 +142,7 @@ function readBody(type: BlockType, input: Input): BlockBody | null {
   }
 }
 
-function readBlocks(value: unknown, sources: number): Block[] {
+export function readBlocks(value: unknown, sources: number): Block[] {
   const blocks: Block[] = []
   const ids = new Set<string>()
   for (const item of list(value, 40)) {

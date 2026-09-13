@@ -24,7 +24,9 @@ import {
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 import { buildCard, cardDeps } from './card-builder'
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
-import type { Card } from '../cards'
+import { fromLegacy } from '../cards/legacy'
+import type { CardPatch } from '../cards/patch'
+import type { CardV2 } from '../cards/schema'
 
 export interface ToolSchema {
   name: string
@@ -55,7 +57,12 @@ export interface ToolOutcome {
    * the agent loop hands `content` to the speaking model straight away and
    * sends the card whenever it is ready, so the voice never waits for it.
    */
-  card?: Promise<Card | null>
+  card?: Promise<CardV2 | null>
+  /**
+   * What grows the card once it is on screen, in order. Only read after the
+   * card itself has arrived, and only if it was a card rather than none.
+   */
+  cardPatches?: AsyncIterable<CardPatch>
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -338,7 +345,9 @@ async function runResearch(
     content: result.brief,
     summary: how,
     links: result.sources,
-    card: buildCard(question, result, cardDeps(context.env), context.signal),
+    card: buildCard(question, result, cardDeps(context.env), context.signal).then((card) =>
+      card ? fromLegacy(card) : null,
+    ),
   }
 }
 

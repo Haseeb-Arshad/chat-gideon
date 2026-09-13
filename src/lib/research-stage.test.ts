@@ -213,12 +213,15 @@ describe('cards from research', () => {
       id: 't1',
       call: 'call_0',
       card: {
-        kind: 'entity',
+        schema: 2,
+        recipe: 'profile',
         title: 'Albert Einstein',
         query: 'Who was Albert Einstein?',
-        image: { url: 'https://upload.wikimedia.org/einstein.jpg' },
       },
     })
+    // Sent as blocks: the portrait first, beside the words.
+    const blocks = card?.t === 'card' ? (card.card?.blocks ?? []) : []
+    expect(blocks[0]).toMatchObject({ type: 'media', image: { url: 'https://upload.wikimedia.org/einstein.jpg' } })
     expect(frames.indexOf(card!)).toBeGreaterThan(frames.indexOf(pending!))
     expect(frames.some((frame) => frame.t === 'done')).toBe(true)
   })
@@ -247,8 +250,9 @@ describe('pictures', () => {
     expect(PICTURE_FILLERS).toContain(said[0])
 
     const card = frames.find((frame) => frame.t === 'card')
-    expect(card).toMatchObject({ card: { kind: 'gallery', title: 'Chocolate cake' } })
-    const pictures = card?.t === 'card' ? (card.card?.pictures ?? []) : []
+    expect(card).toMatchObject({ card: { recipe: 'gallery', title: 'Chocolate cake' } })
+    const gallery = card?.t === 'card' ? card.card?.blocks.find((block) => block.type === 'gallery') : undefined
+    const pictures = gallery?.type === 'gallery' ? gallery.pictures : []
     // The stock library's logo never gets in; the rest do, leads first.
     expect(pictures.map((picture) => picture.host)).toEqual([
       'unsplash.com',

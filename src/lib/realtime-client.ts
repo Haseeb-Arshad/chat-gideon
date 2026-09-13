@@ -19,6 +19,7 @@ import {
   type ServerFrame,
 } from './protocol'
 import { backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
+import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
 import type { CardV2 } from './cards/schema'
 import type { ScreenState, StageMove } from './stage-judge'
@@ -137,6 +138,7 @@ export class RealtimeLink {
    * by which point the turn has already been let go.
    */
   private onCard: ((turnId: string, call: string, card: CardV2 | null) => void) | null = null
+  private onCardPatch: ((turnId: string, call: string, patch: CardPatch) => void) | null = null
   private onStage: ((turnId: string, move: StageMove) => void) | null = null
 
   constructor(options: {
@@ -144,12 +146,14 @@ export class RealtimeLink {
     onConfig?: (config: LinkConfig) => void
     runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
     onCard?: (turnId: string, call: string, card: CardV2 | null) => void
+    onCardPatch?: (turnId: string, call: string, patch: CardPatch) => void
     onStage?: (turnId: string, move: StageMove) => void
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
     this.onConfig = options.onConfig ?? null
     this.runClientTool = options.runClientTool ?? null
     this.onCard = options.onCard ?? null
+    this.onCardPatch = options.onCardPatch ?? null
     this.onStage = options.onStage ?? null
   }
 
@@ -397,6 +401,11 @@ export class RealtimeLink {
         // is no card, and dissolves its searching pane like a declined one.
         this.onCard?.(frame.id, frame.call, readCard(frame.card))
         return
+      case 'card_patch': {
+        const patch = readPatch(frame)
+        if (patch) this.onCardPatch?.(frame.id, frame.call, patch)
+        return
+      }
       case 'stage':
         if (frame.op === 'tuck') this.onStage?.(frame.id, { op: 'tuck' })
         else if (frame.op === 'show' && typeof frame.card === 'string') {
