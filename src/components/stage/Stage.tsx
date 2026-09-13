@@ -36,9 +36,11 @@ interface StageProps {
   onFocus: (id: string) => void
   /** Put every card away, as the close button does. */
   onTuck: () => void
+  /** Asks a follow-up question from a card, as if it had been typed. */
+  onAsk?: (text: string) => void
 }
 
-export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck }: StageProps) {
+export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck, onAsk }: StageProps) {
   // A card on its way out keeps the place it had, rather than jumping to the
   // front as it goes, so the last known slot of every card is remembered.
   const slots = useRef(new Map<string, Slot>())
@@ -72,6 +74,7 @@ export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck }: St
           quiet={tucking}
           onFocus={onFocus}
           onTuck={onTuck}
+          onAsk={onAsk}
         />
       ))}
     </div>

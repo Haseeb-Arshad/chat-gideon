@@ -1,7 +1,10 @@
 import { blockOf, type Block, type CardV2, type MediaBlock } from '../../lib/cards/schema'
+import { Chips, Note, Quote } from './blocks/Asides'
 import { Gallery } from './blocks/Gallery'
 import { Media, type MediaShape } from './blocks/Media'
+import { List, Steps, Timeline } from './blocks/Sequences'
 import { Sources } from './blocks/Sources'
+import { Table } from './blocks/Table'
 import { Facts, Headline, Prose, Stat } from './blocks/TextBlocks'
 import { rise, risePlan } from './stagger'
 
@@ -25,13 +28,23 @@ export interface CardFaceProps {
   front: boolean
   onShape: (shape: MediaShape) => void
   onMediaError: () => void
+  /** Asks a follow-up question as if it had been typed. */
+  onAsk?: (text: string) => void
 }
 
 export function CardFace(props: CardFaceProps) {
   return props.card.recipe === 'gallery' ? <GalleryLayout {...props} /> : <ClassicLayout {...props} />
 }
 
-function BodyBlock({ block, start, spoken }: { block: Block; start: number; spoken: string }) {
+interface BodyBlockProps {
+  block: Block
+  start: number
+  spoken: string
+  front: boolean
+  onAsk?: (text: string) => void
+}
+
+function BodyBlock({ block, start, spoken, front, onAsk }: BodyBlockProps) {
   switch (block.type) {
     case 'headline':
       return <Headline block={block} start={start} />
@@ -41,13 +54,28 @@ function BodyBlock({ block, start, spoken }: { block: Block; start: number; spok
       return <Prose block={block} start={start} />
     case 'facts':
       return <Facts block={block} start={start} spoken={spoken} />
-    default:
+    case 'table':
+      return <Table block={block} start={start} />
+    case 'timeline':
+      return <Timeline block={block} start={start} />
+    case 'note':
+      return <Note block={block} start={start} />
+    case 'list':
+      return <List block={block} start={start} front={front} />
+    case 'steps':
+      return <Steps block={block} start={start} />
+    case 'chips':
+      return <Chips block={block} start={start} front={front} onAsk={onAsk} />
+    case 'quote':
+      return <Quote block={block} start={start} />
+    case 'media':
+    case 'gallery':
       // A picture has its own place, and a gallery its own layout.
       return null
   }
 }
 
-function ClassicLayout({ card, media, spoken, front, onShape, onMediaError }: CardFaceProps) {
+function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAsk }: CardFaceProps) {
   const body = card.blocks.filter((block) => block.slot !== 'media' && block.type !== 'media')
   const { starts, after } = risePlan(body)
 
@@ -58,7 +86,7 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError }: Ca
       ) : null}
       <div className="card-body">
         {body.map((block, index) => (
-          <BodyBlock key={block.id} block={block} start={starts[index]} spoken={spoken} />
+          <BodyBlock key={block.id} block={block} start={starts[index]} spoken={spoken} front={front} onAsk={onAsk} />
         ))}
         <Sources sources={card.sources} style={rise(after)} />
       </div>

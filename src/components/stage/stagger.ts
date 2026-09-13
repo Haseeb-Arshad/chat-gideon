@@ -15,13 +15,16 @@ export function rise(index: number): CSSProperties {
   return { '--i': index } as CSSProperties
 }
 
-/** How many pieces of a block rise one after another. A picture arrives on its own. */
+/**
+ * How many pieces of a block rise one after another. A picture arrives on its
+ * own. A table, a timeline or a list rises as one piece, and its rows follow
+ * each other inside it on a shorter beat, so a long table does not hold back
+ * everything under it.
+ */
 export function risesIn(block: Block): number {
   switch (block.type) {
     case 'headline':
       return 1 + (block.kicker ? 1 : 0) + (block.subtitle ? 1 : 0)
-    case 'stat':
-      return 1
     case 'prose':
       return block.paragraphs.length
     case 'facts':
@@ -30,6 +33,15 @@ export function risesIn(block: Block): number {
       return block.pictures.length
     case 'media':
       return 0
+    case 'stat':
+    case 'table':
+    case 'timeline':
+    case 'note':
+    case 'list':
+    case 'steps':
+    case 'chips':
+    case 'quote':
+      return 1
   }
 }
 

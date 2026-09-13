@@ -20,6 +20,7 @@ interface CardFrameProps {
   quiet: boolean
   onFocus: (id: string) => void
   onTuck: () => void
+  onAsk?: (text: string) => void
 }
 
 /**
@@ -31,7 +32,7 @@ interface CardFrameProps {
  * ancestor would cut the glass off from the room behind it, and the blur would
  * be of nothing.
  */
-export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck }: CardFrameProps) {
+export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck, onAsk }: CardFrameProps) {
   const { card } = entry
   /**
    * The picture that would not load, by its address, so a card whose picture
@@ -110,6 +111,7 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck 
                 front={front}
                 onShape={(next) => media && setShape({ url: media.image.url, shape: next })}
                 onMediaError={() => media && setFailedImage(media.image.url)}
+                onAsk={onAsk}
               />
             </CardBoundary>
           ) : (

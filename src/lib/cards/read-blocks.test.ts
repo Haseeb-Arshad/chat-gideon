@@ -1,0 +1,123 @@
+import { describe, expect, it } from 'vitest'
+import { readCard } from './read'
+import type { Block } from './schema'
+
+/**
+ * The blocks after the first card, read off the wire. Each has one way to be
+ * incomplete that matters, and that is what is pinned here: a table row with a
+ * cell missing, a timeline event without a date, a link that would run.
+ */
+
+function blocksOf(...blocks: unknown[]): Block[] {
+  return (
+    readCard({
+      schema: 2,
+      recipe: 'compare',
+      size: 'wide',
+      query: 'q',
+      title: 'Title',
+      blocks: [{ id: 'h', type: 'headline', title: 'Title' }, ...blocks],
+      sources: [{ title: 'Source', url: 'https://a.example' }],
+      asOf: null,
+      partial: false,
+    })?.blocks.slice(1) ?? []
+  )
+}
+
+describe('stat', () => {
+  it('keeps a change it can show and a line with two points or more', () => {
+    const [stat] = blocksOf({
+      id: 's',
+      type: 'stat',
+      value: '4.9 M',
+      label: 'Passengers',
+      change: { value: '+58%', direction: 'up', period: 'since 2014', formula: '(4.9 − 3.1) ÷ 3.1' },
+      spark: [3.1, 3.3, 'x', null, 4.9],
+    })
+    expect(stat).toMatchObject({ change: { value: '+58%', direction: 'up' }, spark: [3.1, 3.3, 4.9] })
+  })
+
+  it('drops a change with no direction, and a line of one point', () => {
+    const [stat] = blocksOf({ id: 's', type: 'stat', value: '4.9', change: { value: '+1', direction: 'sideways' }, spark: [1] })
+    expect(stat).not.toHaveProperty('change')
+    expect(stat).not.toHaveProperty('spark')
+  })
+})
+
+describe('table', () => {
+  const columns = [
+    { key: 'city', label: 'City', kind: 'text' },
+    { key: 'people', label: 'Population', kind: 'number', unit: 'thousands' },
+  ]
+
+  it('keeps rows with one cell per column, and leaves out a row with a cell missing', () => {
+    const [table] = blocksOf({
+      id: 't',
+      type: 'table',
+      columns,
+      rowHeaders: true,
+      rows: [
+        { id: 'lisbon', cells: [{ text: 'Lisbon' }, { text: '545', value: 545 }], cite: [0, 3] },
+        { id: 'porto', cells: [{ text: 'Porto' }] },
+        { id: 'faro', cells: ['Faro', { text: '64', value: '64' }] },
+      ],
+    })
+    expect(table).toMatchObject({ type: 'table', rowHeaders: true, columns: [{ kind: 'text' }, { kind: 'number', unit: 'thousands' }] })
+    const rows = table.type === 'table' ? table.rows : []
+    expect(rows.map((row) => row.id)).toEqual(['lisbon', 'faro'])
+    expect(rows[0].cite).toEqual([0])
+    // A value that is not a number is not something to sort by.
+    expect(rows[1].cells).toEqual([{ text: 'Faro' }, { text: '64' }])
+  })
+
+  it('is no table without columns or without rows', () => {
+    expect(blocksOf({ id: 't', type: 'table', columns: [], rows: [{ cells: [] }] })).toEqual([])
+    expect(blocksOf({ id: 't', type: 'table', columns, rows: [] })).toEqual([])
+  })
+})
+
+describe('timeline, list, steps, chips, quote, note', () => {
+  it('keeps events with a date and a label', () => {
+    const [timeline] = blocksOf({
+      id: 'tl',
+      type: 'timeline',
+      events: [
+        { id: 'a', date: '1867', label: 'Born in Warsaw' },
+        { id: 'b', date: '', label: 'Undated' },
+        { id: 'c', date: '1903', label: 'Nobel Prize in Physics', detail: 'Shared', cite: [0] },
+      ],
+    })
+    expect(timeline.type === 'timeline' && timeline.events.map((event) => event.date)).toEqual(['1867', '1903'])
+  })
+
+  it('keeps a list link only when it goes to the web, and a thumbnail only over https', () => {
+    const [items] = blocksOf({
+      id: 'l',
+      type: 'list',
+      ordered: true,
+      items: [
+        { title: 'Safe', url: 'https://a.example/1', thumb: 'https://a.example/t.jpg' },
+        { title: 'Unsafe', url: 'javascript:alert(1)', thumb: 'http://a.example/t.jpg' },
+      ],
+    })
+    expect(items).toMatchObject({ ordered: true })
+    const list = items.type === 'list' ? items.items : []
+    expect(list[0]).toMatchObject({ url: 'https://a.example/1', thumb: 'https://a.example/t.jpg' })
+    expect(list[1]).not.toHaveProperty('url')
+    expect(list[1]).not.toHaveProperty('thumb')
+  })
+
+  it('reads steps, questions, a quote and a note, and settles an unknown tone on info', () => {
+    const blocks = blocksOf(
+      { id: 'st', type: 'steps', items: ['Make a small loop.', '', 42] },
+      { id: 'ch', type: 'chips', items: [{ label: 'When did she die?' }, { label: 'Her daughter', ask: 'Tell me about Irène Joliot-Curie' }] },
+      { id: 'q', type: 'quote', text: 'Nothing in life is to be feared.', who: 'Marie Curie' },
+      { id: 'n', type: 'note', tone: 'alarming', text: 'Figures are for the city itself.' },
+    )
+    expect(blocks.map((block) => block.type)).toEqual(['steps', 'chips', 'quote', 'note'])
+    expect(blocks[0]).toMatchObject({ items: ['Make a small loop.'] })
+    // A question with no separate wording asks its own label.
+    expect(blocks[1]).toMatchObject({ items: [{ label: 'When did she die?', ask: 'When did she die?' }, { ask: 'Tell me about Irène Joliot-Curie' }] })
+    expect(blocks[3]).toMatchObject({ tone: 'info' })
+  })
+})

@@ -95,11 +95,111 @@ export interface HeadlineBlock extends BlockBase {
   subtitle?: string
 }
 
+/** How a number moved, worked out on the server from the values it came from. */
+export interface StatChange {
+  /** As it is shown: "+2.1%", "−340". */
+  value: string
+  direction: 'up' | 'down' | 'flat'
+  /** What it is measured against: "since 2014", "in a day". */
+  period: string
+  /** How it was worked out, shown on request, because it was computed rather than found. */
+  formula?: string
+}
+
 /** The one number an answer is, with what it measures. */
 export interface StatBlock extends BlockBase {
   type: 'stat'
   value: string
   label: string
+  change?: StatChange
+  /** Up to 60 values, oldest first, for the small line beside the number. */
+  spark?: number[]
+}
+
+export interface TableColumn {
+  /** Unique within its table. */
+  key: string
+  label: string
+  /** A number column is right-aligned in tabular figures, and can be sorted when every row has a value. */
+  kind: 'text' | 'number'
+  /** Said once in the header rather than in every cell. */
+  unit?: string
+}
+
+export interface TableCell {
+  /** As it is shown. */
+  text: string
+  /** What it sorts by, for a number column. */
+  value?: number
+}
+
+export interface TableRow {
+  id: string
+  /** One per column, in the columns' order. */
+  cells: TableCell[]
+  cite?: number[]
+}
+
+export interface TableBlock extends BlockBase {
+  type: 'table'
+  caption?: string
+  columns: TableColumn[]
+  rows: TableRow[]
+  /** The first column names each row, as in a comparison, and stays put when the table scrolls. */
+  rowHeaders?: boolean
+}
+
+export interface TimelineEvent {
+  id: string
+  /** As it is shown: "1903", "July 1969", "9 September 2026". Sorted on the server. */
+  date: string
+  label: string
+  detail?: string
+  cite?: number[]
+}
+
+export interface TimelineBlock extends BlockBase {
+  type: 'timeline'
+  events: TimelineEvent[]
+}
+
+/** A caveat worth reading: an old figure, sources that disagree, a delayed price. */
+export interface NoteBlock extends BlockBase {
+  type: 'note'
+  tone: 'info' | 'stale' | 'disagree' | 'delayed'
+  text: string
+}
+
+export interface ListItem {
+  id: string
+  title: string
+  meta?: string
+  url?: string
+  thumb?: string
+}
+
+export interface ListBlock extends BlockBase {
+  type: 'list'
+  ordered: boolean
+  items: ListItem[]
+}
+
+export interface StepsBlock extends BlockBase {
+  type: 'steps'
+  items: string[]
+}
+
+/** Follow-up questions. Pressing one asks it, as if it had been typed. */
+export interface ChipsBlock extends BlockBase {
+  type: 'chips'
+  items: Array<{ label: string; ask: string }>
+}
+
+/** Words someone said, exactly as a page the research read has them. */
+export interface QuoteBlock extends BlockBase {
+  type: 'quote'
+  text: string
+  who: string
 }
 
 export interface ProseBlock extends BlockBase {
@@ -129,10 +229,31 @@ export type Block =
   | FactsBlock
   | MediaBlock
   | GalleryBlock
+  | TableBlock
+  | TimelineBlock
+  | NoteBlock
+  | ListBlock
+  | StepsBlock
+  | ChipsBlock
+  | QuoteBlock
 
 export type BlockType = Block['type']
 
-export const BLOCK_TYPES: readonly BlockType[] = ['headline', 'stat', 'prose', 'facts', 'media', 'gallery']
+export const BLOCK_TYPES: readonly BlockType[] = [
+  'headline',
+  'stat',
+  'prose',
+  'facts',
+  'media',
+  'gallery',
+  'table',
+  'timeline',
+  'note',
+  'list',
+  'steps',
+  'chips',
+  'quote',
+]
 
 export interface CardV2 {
   schema: typeof CARD_SCHEMA

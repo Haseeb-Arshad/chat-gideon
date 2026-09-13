@@ -1,0 +1,510 @@
+/*
+ * The blocks that came after the first card: numbers that moved, tables,
+ * timelines, lists, steps, notes, follow-up questions and quotes. Imported at
+ * the top of styles.css, so these win by specificity, never by order.
+ *
+ * Text inside a well uses the inks measured for it (cards/palette.ts): labels
+ * in ice at 70%, muted text in #a9b1bd, values in near-white.
+ */
+
+/* -- Numbers ------------------------------------------------------------------ */
+
+/* A standalone number uses proportional figures; equal-width digits look loose at this size. */
+div.card-figure strong {
+  font-variant-numeric: proportional-nums;
+}
+
+.card-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 0;
+  color: rgba(236, 240, 247, 0.88);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-change b {
+  color: #bfe9ff;
+  font-size: 0.62rem;
+  font-weight: 400;
+}
+
+.card-change small {
+  color: rgba(214, 222, 234, 0.66);
+  font-size: 0.8rem;
+}
+
+.card-derived {
+  border-bottom: 1px dotted rgba(169, 177, 189, 0.7);
+  color: #a9b1bd;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  cursor: help;
+}
+
+.card-spark {
+  display: block;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.card-spark polyline {
+  stroke: rgba(191, 233, 255, 0.85);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-spark circle {
+  fill: #bfe9ff;
+  stroke: rgba(8, 10, 14, 0.8);
+  stroke-width: 2;
+}
+
+/* -- Tables ------------------------------------------------------------------ */
+
+.card-table-block {
+  min-width: 0;
+  margin: 10px 0 0;
+}
+
+.card-table-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.card-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.card-table caption {
+  padding: 10px 14px 0;
+  color: #a9b1bd;
+  font-size: 0.74rem;
+  text-align: left;
+}
+
+.card-table th,
+.card-table td {
+  padding: 9px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.card-table thead th {
+  border-top: 0;
+  color: rgba(191, 233, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  vertical-align: bottom;
+}
+
+.card-table thead th small {
+  margin-left: 5px;
+  color: #a9b1bd;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.card-table thead th button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.card-table thead th button:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid rgba(191, 233, 255, 0.9);
+  outline-offset: 3px;
+}
+
+.card-table [data-kind='number'] {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The arrow sits on the side away from the number, so the digits stay aligned. */
+.card-table thead th[data-kind='number'] button {
+  flex-direction: row-reverse;
+}
+
+.card-table td {
+  color: rgba(236, 240, 247, 0.88);
+}
+
+.card-table tbody th {
+  color: rgba(191, 233, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* The first column names each row, and stays put while the rest scroll past it. */
+.card-table[data-row-headers='true'] tbody th,
+.card-table[data-row-headers='true'] thead th:first-child {
+  position: sticky;
+  left: 0;
+  background: rgba(8, 10, 15, 0.94);
+}
+
+/* Rows follow each other in, on a short beat that stops lengthening after a few. */
+.card-table tbody tr {
+  animation: card-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(220ms + var(--i, 0) * 80ms + min(var(--row, 0) * 30ms, 400ms));
+}
+
+.card-table tbody tr[data-said='true'] :is(td, th) {
+  color: #fff;
+  text-shadow: 0 0 16px rgba(191, 233, 255, 0.42);
+}
+
+.card-table-more {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(226, 232, 241, 0.8);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+/* -- Timelines ------------------------------------------------------------------ */
+
+.card-timeline {
+  display: grid;
+  margin: 10px 0 0;
+  padding: 12px 16px;
+  list-style: none;
+}
+
+.timeline-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 76px 14px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 7px 0;
+  animation: card-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(220ms + var(--i, 0) * 80ms + var(--row, 0) * 60ms);
+}
+
+/* The line the events hang on, through every dot. */
+.timeline-event::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 92px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.timeline-event:first-child::before {
+  top: 16px;
+}
+
+.timeline-event:last-child::before {
+  bottom: calc(100% - 16px);
+}
+
+.timeline-event time {
+  padding-top: 2px;
+  color: #a9b1bd;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.timeline-event i {
+  position: relative;
+  z-index: 1;
+  align-self: start;
+  width: 9px;
+  height: 9px;
+  margin: 5px 0 0 2px;
+  border-radius: 50%;
+  background: #5b6474;
+  box-shadow: 0 0 0 2px rgba(8, 10, 15, 0.94);
+}
+
+.timeline-label {
+  grid-column: 3;
+  color: rgba(236, 240, 247, 0.9);
+  font-size: 0.86rem;
+}
+
+.timeline-detail {
+  grid-column: 3;
+  color: rgba(214, 222, 234, 0.66);
+  font-size: 0.78rem;
+}
+
+.timeline-event[data-said='true'] i {
+  background: #bfe9ff;
+  box-shadow:
+    0 0 0 2px rgba(8, 10, 15, 0.94),
+    0 0 14px rgba(191, 233, 255, 0.8);
+}
+
+.timeline-event[data-said='true'] :is(time, .timeline-label) {
+  color: #fff;
+}
+
+/* Across the card, when the card is wide enough to hold the events side by side. */
+.glass-pane:is([data-size='wide'], [data-size='feature']) .card-timeline {
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  padding: 14px 16px 12px;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 14px auto auto;
+  row-gap: 6px;
+  padding: 0 10px 0 0;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event::before {
+  top: calc(1.1rem + 12px);
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 1px;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event:first-child::before {
+  left: 4px;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event:last-child::before {
+  right: auto;
+  width: 8px;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event :is(time, .timeline-label, .timeline-detail) {
+  grid-column: 1;
+  text-align: left;
+}
+
+.glass-pane:is([data-size='wide'], [data-size='feature']) .timeline-event i {
+  margin: 2px 0 0;
+}
+
+/* -- Lists and steps ------------------------------------------------------------- */
+
+.card-list {
+  display: grid;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: item;
+}
+
+.card-list li {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  counter-increment: item;
+  animation: card-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(220ms + var(--i, 0) * 80ms + var(--row, 0) * 40ms);
+}
+
+.card-list li > :is(a, div) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card-list[data-ordered='true'] li > :is(a, div)::before {
+  content: counter(item);
+  flex: none;
+  min-width: 1.4em;
+  color: rgba(191, 233, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.card-list img {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.card-list-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.card-list-title {
+  color: rgba(236, 240, 247, 0.92);
+  font-size: 0.88rem;
+}
+
+.card-list small {
+  color: rgba(214, 222, 234, 0.66);
+  font-size: 0.76rem;
+}
+
+.card-list-go {
+  flex: none;
+  color: rgba(214, 222, 234, 0.55);
+}
+
+.card-list a:hover .card-list-title {
+  color: #fff;
+}
+
+.card-steps {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-steps li {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  animation: card-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(220ms + var(--i, 0) * 80ms + var(--row, 0) * 60ms);
+}
+
+/* Numbered the way a recipe book numbers its steps. */
+.card-steps b {
+  color: rgba(191, 233, 255, 0.8);
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.card-steps span {
+  color: rgba(236, 240, 247, 0.88);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+/* -- Notes, questions and quotes --------------------------------------------------- */
+
+.card-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(191, 233, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(191, 233, 255, 0.14);
+  color: rgba(226, 232, 241, 0.86);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.card-note svg {
+  flex: none;
+  margin-top: 2px;
+  color: #bfe9ff;
+}
+
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+}
+
+.card-chips button {
+  padding: 6px 12px;
+  border: 1px solid rgba(191, 233, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(191, 233, 255, 0.07);
+  color: rgba(236, 240, 247, 0.9);
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition:
+    background 180ms ease-out,
+    border-color 180ms ease-out;
+}
+
+.card-chips button:hover:not(:disabled) {
+  border-color: rgba(191, 233, 255, 0.45);
+  background: rgba(191, 233, 255, 0.14);
+}
+
+.card-chips button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.card-quote {
+  position: relative;
+  margin: 14px 0 0;
+  padding: 2px 0 0 26px;
+}
+
+.card-quote::before {
+  content: '\201C';
+  position: absolute;
+  top: -10px;
+  left: -2px;
+  color: rgba(191, 233, 255, 0.5);
+  font-family: var(--font-display);
+  font-size: 3.2rem;
+  line-height: 1;
+}
+
+.card-quote p {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2.6cqw, 1.45rem);
+  font-style: italic;
+  font-weight: 300;
+  line-height: 1.3;
+  text-wrap: pretty;
+}
+
+.card-quote footer {
+  margin-top: 8px;
+  color: #a9b1bd;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-table tbody tr,
+  .timeline-event,
+  .card-list li,
+  .card-steps li {
+    animation: none;
+  }
+}

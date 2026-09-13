@@ -29,12 +29,61 @@ export function Headline({ block, start }: { block: HeadlineBlock; start: number
   )
 }
 
+const DIRECTION_MARK = { up: '▲', down: '▼', flat: '▬' } as const
+
 export function Stat({ block, start }: { block: StatBlock; start: number }) {
+  // The first card's figure, exactly, when there is nothing more to it.
+  if (!block.change && !block.spark) {
+    return (
+      <p className="card-figure" style={rise(start)}>
+        <strong>{block.value}</strong>
+        {block.label ? <span>{block.label}</span> : null}
+      </p>
+    )
+  }
+  const { change, spark } = block
   return (
-    <p className="card-figure" style={rise(start)}>
+    <div className="card-figure" style={rise(start)}>
       <strong>{block.value}</strong>
       {block.label ? <span>{block.label}</span> : null}
-    </p>
+      {change ? (
+        <p className="card-change" data-direction={change.direction}>
+          <b aria-hidden="true">{DIRECTION_MARK[change.direction]}</b>
+          {change.value}
+          {change.period ? <small>{change.period}</small> : null}
+          {change.formula ? (
+            <abbr className="card-derived" title={`Worked out: ${change.formula}`}>
+              computed
+            </abbr>
+          ) : null}
+        </p>
+      ) : null}
+      {spark ? <Sparkline values={spark} /> : null}
+    </div>
+  )
+}
+
+/**
+ * The shape of a number's recent past, in one line, with its latest point
+ * marked. Drawn to its own scale: it shows the shape, and the number beside it
+ * says the size.
+ */
+function Sparkline({ values }: { values: number[] }) {
+  const width = 132
+  const height = 32
+  const pad = 3
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  const span = high - low || 1
+  const x = (index: number) => pad + (index / (values.length - 1)) * (width - pad * 2)
+  const y = (value: number) => pad + (1 - (value - low) / span) * (height - pad * 2)
+  const points = values.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ')
+  const last = values.length - 1
+  return (
+    <svg className="card-spark" viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true">
+      <polyline points={points} fill="none" />
+      <circle cx={x(last)} cy={y(values[last])} r={3} />
+    </svg>
   )
 }
 

@@ -28,6 +28,15 @@ import {
   type CardSize,
   type CardSource,
   type CardV2,
+  type ChipsBlock,
+  type ListItem,
+  type NoteBlock,
+  type StatChange,
+  type TableBlock,
+  type TableCell,
+  type TableColumn,
+  type TableRow,
+  type TimelineEvent,
 } from './schema'
 
 type Input = Record<string, unknown>
@@ -105,8 +114,62 @@ function readCite(value: unknown, sources: number): number[] | undefined {
   return cite.length ? cite : undefined
 }
 
+const NOTE_TONES: readonly NoteBlock['tone'][] = ['info', 'stale', 'disagree', 'delayed']
+
+function readChange(value: unknown): StatChange | null {
+  if (!isObject(value)) return null
+  const shown = text(value.value, 24)
+  const direction = value.direction
+  if (!shown || (direction !== 'up' && direction !== 'down' && direction !== 'flat')) return null
+  const formula = text(value.formula, 120)
+  return { value: shown, direction, period: text(value.period, 40), ...(formula ? { formula } : {}) }
+}
+
+/**
+ * A table, whole or not at all. Every row must have exactly one cell per
+ * column: a row with a cell missing would put its values under the wrong
+ * headings, which is worse than leaving the row out.
+ */
+function readTable(input: Input, sources: number): TableBlock | null {
+  const columns: TableColumn[] = []
+  for (const item of list(input.columns, 8)) {
+    if (!isObject(item)) continue
+    const key = text(item.key, 40) || `c${columns.length}`
+    const label = text(item.label, 60)
+    if (!label || columns.some((column) => column.key === key)) continue
+    const unit = text(item.unit, 20)
+    columns.push({ key, label, kind: item.kind === 'number' ? 'number' : 'text', ...(unit ? { unit } : {}) })
+  }
+  if (!columns.length) return null
+
+  const rows: TableRow[] = []
+  for (const item of list(input.rows, 50)) {
+    if (!isObject(item) || !Array.isArray(item.cells) || item.cells.length !== columns.length) continue
+    const cells: TableCell[] = item.cells.map((cell) => {
+      const cellInput: Input = isObject(cell) ? cell : { text: cell }
+      const shown = typeof cellInput.text === 'number' ? String(cellInput.text) : text(cellInput.text, 120)
+      return Number.isFinite(cellInput.value) ? { text: shown, value: cellInput.value as number } : { text: shown }
+    })
+    if (cells.every((cell) => !cell.text)) continue
+    const id = text(item.id, 64) || `r${rows.length}`
+    if (rows.some((row) => row.id === id)) continue
+    const cite = readCite(item.cite, sources)
+    rows.push({ id, cells, ...(cite ? { cite } : {}) })
+  }
+  if (!rows.length) return null
+
+  const caption = text(input.caption, 160)
+  return {
+    type: 'table',
+    columns,
+    rows,
+    ...(caption ? { caption } : {}),
+    ...(input.rowHeaders === true ? { rowHeaders: true } : {}),
+  } as TableBlock
+}
+
 /** One block's own fields, or null when it has nothing it could draw. */
-function readBody(type: BlockType, input: Input): BlockBody | null {
+function readBody(type: BlockType, input: Input, sources: number): BlockBody | null {
   switch (type) {
     case 'headline': {
       const title = text(input.title, 200)
@@ -117,7 +180,77 @@ function readBody(type: BlockType, input: Input): BlockBody | null {
     }
     case 'stat': {
       const value = text(input.value, 60)
-      return value ? { type, value, label: text(input.label, 80) } : null
+      if (!value) return null
+      const change = readChange(input.change)
+      const spark = list(input.spark, 60).filter((point): point is number => Number.isFinite(point))
+      return {
+        type,
+        value,
+        label: text(input.label, 80),
+        ...(change ? { change } : {}),
+        // A line needs two points to be a line.
+        ...(spark.length >= 2 ? { spark } : {}),
+      }
+    }
+    case 'table':
+      return readTable(input, sources)
+    case 'timeline': {
+      const events: TimelineEvent[] = []
+      for (const item of list(input.events, 16)) {
+        if (!isObject(item)) continue
+        const id = text(item.id, 64) || `e${events.length}`
+        const date = text(item.date, 40)
+        const label = text(item.label, 120)
+        if (!date || !label || events.some((event) => event.id === id)) continue
+        const detail = text(item.detail, 240)
+        const cite = readCite(item.cite, sources)
+        events.push({ id, date, label, ...(detail ? { detail } : {}), ...(cite ? { cite } : {}) })
+      }
+      return events.length ? { type, events } : null
+    }
+    case 'note': {
+      const note = text(input.text, 240)
+      if (!note) return null
+      const tone = NOTE_TONES.includes(input.tone as NoteBlock['tone']) ? (input.tone as NoteBlock['tone']) : 'info'
+      return { type, tone, text: note }
+    }
+    case 'list': {
+      const items: ListItem[] = []
+      for (const item of list(input.items, 12)) {
+        if (!isObject(item)) continue
+        const title = text(item.title, 160)
+        if (!title) continue
+        const id = text(item.id, 64) || `i${items.length}`
+        const meta = text(item.meta, 160)
+        items.push({
+          id,
+          title,
+          ...(meta ? { meta } : {}),
+          ...(isWebUrl(item.url) ? { url: item.url } : {}),
+          ...(isImageUrl(item.thumb) ? { thumb: item.thumb } : {}),
+        })
+      }
+      return items.length ? { type, ordered: input.ordered === true, items } : null
+    }
+    case 'steps': {
+      const items = list(input.items, 10)
+        .map((step) => text(step, 240))
+        .filter(Boolean)
+      return items.length ? { type, items } : null
+    }
+    case 'chips': {
+      const items: ChipsBlock['items'] = []
+      for (const item of list(input.items, 4)) {
+        if (!isObject(item)) continue
+        const label = text(item.label, 60)
+        const ask = text(item.ask, 200) || label
+        if (label) items.push({ label, ask })
+      }
+      return items.length ? { type, items } : null
+    }
+    case 'quote': {
+      const quote = text(input.text, 400)
+      return quote ? { type, text: quote, who: text(input.who, 80) } : null
     }
     case 'prose': {
       const paragraphs = list(input.paragraphs, 6)
@@ -152,7 +285,7 @@ export function readBlocks(value: unknown, sources: number): Block[] {
     if (!BLOCK_TYPES.includes(type)) continue
     const id = text(item.id, 64)
     if (!id || ids.has(id)) continue
-    const body = readBody(type, item)
+    const body = readBody(type, item, sources)
     if (!body) continue
     ids.add(id)
     const cite = readCite(item.cite, sources)

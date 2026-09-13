@@ -2337,6 +2337,7 @@ export function AgentPage() {
           spoken={assistantCaption}
           onFocus={showCard}
           onTuck={tuckStage}
+          onAsk={sendMessage}
         />
       ) : null}
 
