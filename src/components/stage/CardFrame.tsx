@@ -84,6 +84,7 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck 
     <article
       className="glass-card"
       data-slot={slot}
+      data-size={card?.size ?? 'standard'}
       data-leaving={entry.leaving}
       onPointerMove={lean}
       onPointerLeave={settle}

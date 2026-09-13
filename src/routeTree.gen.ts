@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SystemCardRouteImport } from './routes/system-card'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LabCardsRouteImport } from './routes/lab.cards'
 import { Route as ApiVoiceRouteImport } from './routes/api.voice'
 import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
 import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
@@ -31,6 +32,11 @@ const AgentRoute = AgentRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabCardsRoute = LabCardsRouteImport.update({
+  id: '/lab/cards',
+  path: '/lab/cards',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiVoiceRoute = ApiVoiceRouteImport.update({
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/api/healthz': typeof ApiHealthzRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
+  '/lab/cards': typeof LabCardsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/api/healthz': typeof ApiHealthzRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
+  '/lab/cards': typeof LabCardsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/api/healthz': typeof ApiHealthzRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
+  '/lab/cards': typeof LabCardsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/api/healthz'
     | '/api/transcribe'
     | '/api/voice'
+    | '/lab/cards'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/api/healthz'
     | '/api/transcribe'
     | '/api/voice'
+    | '/lab/cards'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/api/healthz'
     | '/api/transcribe'
     | '/api/voice'
+    | '/lab/cards'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   ApiHealthzRoute: typeof ApiHealthzRoute
   ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiVoiceRoute: typeof ApiVoiceRoute
+  LabCardsRoute: typeof LabCardsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lab/cards': {
+      id: '/lab/cards'
+      path: '/lab/cards'
+      fullPath: '/lab/cards'
+      preLoaderRoute: typeof LabCardsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/voice': {
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthzRoute: ApiHealthzRoute,
   ApiTranscribeRoute: ApiTranscribeRoute,
   ApiVoiceRoute: ApiVoiceRoute,
+  LabCardsRoute: LabCardsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

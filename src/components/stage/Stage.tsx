@@ -54,7 +54,14 @@ export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck }: St
   }
 
   return (
-    <div className="research-stage" data-tucking={tucking} role="region" aria-label="What GIDEON found">
+    <div
+      className="research-stage"
+      data-tucking={tucking}
+      // The card in front decides how much room is left for the one peeking beside it.
+      data-front-size={front?.card?.size ?? 'standard'}
+      role="region"
+      aria-label="What GIDEON found"
+    >
       {entries.map((entry) => (
         <CardFrame
           key={entry.id}

@@ -1,0 +1,195 @@
+/*
+ * The card system: sizes, the well, and the blocks that came after the first
+ * card. Imported at the top of styles.css, so every rule here wins by being
+ * more specific than the rule it refines, never by coming later.
+ */
+
+/* -- Sizes ---------------------------------------------------------------- */
+
+/*
+ * Measured against the stage, never the window. A standard card is the one
+ * that was always there, so it has no rule of its own. On a phone every card is
+ * the phone's width (styles.css) and its blocks rearrange instead, which is why
+ * these only begin above a phone.
+ */
+@media (min-width: 641px) {
+  .glass-card[data-size='glance'] {
+    --card-w: min(380px, calc(100cqw - 48px));
+  }
+
+  .glass-card[data-size='wide'] {
+    --card-w: min(1040px, calc(100cqw - 64px));
+  }
+
+  .glass-card[data-size='feature'] {
+    --card-w: calc(100cqw - 32px);
+  }
+
+  /* A feature takes the whole stage, so it does not grow and shrink with its content. */
+  .glass-card[data-size='feature'] .glass-pane {
+    height: calc(100cqh - 16px);
+  }
+
+  /*
+   * A card wider than a standard one leaves no room for the card before it to
+   * peek out beside it, so that card shows a sliver at the edge, as it already
+   * does on a phone.
+   */
+  .research-stage:is([data-front-size='wide'], [data-front-size='feature']) .glass-card[data-slot='peek'] {
+    --peek: 14px;
+  }
+}
+
+/*
+ * On a wide screen the open stage widens a standard card (styles.css), and
+ * the other sizes are restated here at a specificity that outranks that rule.
+ */
+@media (min-width: 1000px) {
+  :is(.presence-shell[data-stage='open'], .lab-stage) .glass-card[data-size='glance'] {
+    --card-w: min(380px, calc(100cqw - 48px));
+  }
+
+  :is(.presence-shell[data-stage='open'], .lab-stage) .glass-card[data-size='wide'] {
+    --card-w: min(1040px, calc(100cqw - 64px));
+  }
+
+  :is(.presence-shell[data-stage='open'], .lab-stage) .glass-card[data-size='feature'] {
+    --card-w: calc(100cqw - 32px);
+  }
+}
+
+/* -- The well -------------------------------------------------------------- */
+
+/*
+ * A calm reading surface inside the glass, for tables, charts, maps and
+ * video. It has no backdrop filter of its own (the pane has already blurred the
+ * room), and its corner is the pane's minus its inset, so the curves stay
+ * concentric.
+ *
+ * How dark it is was measured, not chosen: composited over each mood the room
+ * can take, a well at 72% kept all eight data colours above 3:1 and every text
+ * ink above 4.5:1; at 60%, green fell to 2.76:1 over the warmest mood. It sits
+ * at 74%, a little past that line. `cards/contrast.test.ts` recomputes this
+ * from the room's own palettes.
+ */
+.card-well {
+  position: relative;
+  border-radius: 16px;
+  background: rgba(5, 7, 11, 0.74);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* -- The lab (development only) -------------------------------------------- */
+
+.lab {
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  padding: 18px clamp(14px, 3vw, 40px) 80px;
+}
+
+.lab-bar {
+  position: sticky;
+  z-index: 20;
+  top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: rgba(8, 10, 14, 0.72);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+}
+
+.lab-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lab-choice legend {
+  float: left;
+  margin-right: 6px;
+  color: rgba(191, 233, 255, 0.7);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.lab-choice button {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+
+.lab-choice button[aria-pressed='true'] {
+  border-color: rgba(191, 233, 255, 0.5);
+  background: rgba(191, 233, 255, 0.14);
+}
+
+.lab-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lab-cases {
+  display: grid;
+  gap: 42px;
+  margin-top: 26px;
+}
+
+.lab-case h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 400;
+}
+
+.lab-case h2 small {
+  color: rgba(214, 222, 234, 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lab-stage {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: clamp(320px, 56vh, 540px);
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* The pattern the refraction was tuned against: the bending is invisible over a plain wall. */
+.lab-stage[data-stripes='true'] {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0 14px, rgba(0, 0, 0, 0.2) 14px 28px);
+}
+
+.lab-stage .research-stage {
+  height: 100%;
+}
+
+@media (min-width: 1000px) {
+  /* The open stage on a wide screen widens a standard card; the lab's stage does the same. */
+  .lab-stage .glass-card {
+    --card-w: min(960px, calc(100cqw - 150px));
+  }
+}
