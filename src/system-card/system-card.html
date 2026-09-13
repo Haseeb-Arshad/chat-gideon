@@ -1,0 +1,1818 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How GIDEON’s cards grow from one kind into a system: sizes, blocks, recipes in liquid glass, narrow skills with tested boundaries, maps, video and newspaper cards.">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<title>GIDEON Card System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap">
+<style>
+[hidden]{display:none!important}
+.home{display:inline-flex;align-items:center;gap:8px;margin-bottom:26px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);text-decoration:none}
+.home:hover{color:var(--ink)}
+.home img{width:22px;height:22px;border-radius:6px}
+:root{
+  color-scheme:dark;
+  --space:#050608; --room:#0a0e18; --ink:#f6f8ff; --ink2:rgba(226,232,241,.80); --ink3:#a9b1bd;
+  --ice:#bfe9ff; --ice-soft:rgba(191,233,255,.70); --hair:rgba(255,255,255,.08); --hair2:rgba(255,255,255,.14);
+  --well:rgba(5,7,11,.74);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --display:'Fraunces','Iowan Old Style',Georgia,serif;
+  --text:'Manrope','Segoe UI',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--space);color:var(--ink);font-family:var(--text);font-size:15.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--ice)}
+a:focus-visible,button:focus-visible{outline:2px solid rgba(191,233,255,.9);outline-offset:3px;border-radius:6px}
+code,kbd{font-family:var(--mono);font-size:.84em;color:#dfe8f3;background:rgba(255,255,255,.06);padding:.08em .38em;border-radius:5px}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.55;color:#d7e0ec;background:rgba(255,255,255,.035);border:1px solid var(--hair);border-radius:14px;padding:16px 18px;overflow-x:auto;margin:0}
+pre code{background:none;padding:0;font-size:inherit}
+
+/* ---------- page frame ---------- */
+.page{display:grid;grid-template-columns:minmax(0,1fr);gap:0 56px;max-width:1240px;margin:0 auto;padding:40px clamp(18px,4vw,44px) 120px}
+@media (min-width:1180px){.page{grid-template-columns:200px minmax(0,1fr)}}
+.rail{display:none}
+@media (min-width:1180px){
+  .rail{display:block;position:sticky;top:28px;align-self:start;max-height:calc(100vh - 56px);overflow:auto;padding-right:6px;scrollbar-width:thin}
+}
+.rail p{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ice-soft);margin:0 0 10px}
+.rail ol{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.rail a{display:block;padding:4px 10px;border-radius:8px;color:var(--ink3);text-decoration:none;font-size:13px;line-height:1.35}
+.rail a:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+main{min-width:0}
+.prose{max-width:720px}
+
+/* ---------- type ---------- */
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ice-soft);margin:0}
+h1{font-family:var(--display);font-weight:300;font-size:clamp(2.4rem,5.4vw,4.1rem);line-height:1.02;letter-spacing:-.025em;margin:14px 0 18px;text-wrap:balance;font-variation-settings:'opsz' 144}
+h2{font-family:var(--display);font-weight:400;font-size:clamp(1.65rem,3vw,2.2rem);line-height:1.1;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+h3{font-family:var(--text);font-weight:700;font-size:1.02rem;letter-spacing:.005em;margin:26px 0 8px;color:#fff}
+p{margin:0 0 14px}
+.lede{font-size:1.14rem;line-height:1.6;color:var(--ink2);max-width:680px}
+.muted{color:var(--ink3)}
+.small{font-size:13px}
+section{padding:64px 0 8px;border-top:1px solid var(--hair);margin-top:56px;scroll-margin-top:20px}
+section:first-of-type{border-top:0;margin-top:0}
+.eyebrow{display:flex;gap:12px;align-items:baseline;margin-bottom:6px}
+.eyebrow span{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+ul.tight,ol.tight{margin:0 0 14px;padding-left:1.2em}
+ul.tight li,ol.tight li{margin:4px 0}
+strong{color:#fff;font-weight:650}
+
+/* ---------- header ---------- */
+.masthead{padding:10px 0 34px}
+.status{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.pill{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:5px 11px;border-radius:999px;border:1px solid var(--hair2);color:var(--ink2);background:rgba(255,255,255,.03)}
+.pill b{color:var(--ice);font-weight:500}
+
+/* ---------- tables ---------- */
+.table-wrap{overflow-x:auto;margin:10px 0 18px;border:1px solid var(--hair);border-radius:14px;background:rgba(255,255,255,.02)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;line-height:1.45}
+th,td{text-align:left;padding:10px 14px;vertical-align:top;border-top:1px solid var(--hair)}
+thead th{border-top:0;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ice-soft);font-weight:500;background:rgba(255,255,255,.025)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td code{white-space:nowrap}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+
+/* ---------- two-up lists ---------- */
+.two{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;margin-top:18px}
+@media (min-width:760px){.two{grid-template-columns:1fr 1fr}}
+.panel{border:1px solid var(--hair);border-radius:18px;padding:18px 20px;background:rgba(255,255,255,.025)}
+.panel h3{margin-top:0}
+.panel ol,.panel ul{margin:0;padding-left:1.15em}
+.panel li{margin:6px 0;color:var(--ink2);font-size:14px}
+.panel li strong{color:#fff}
+
+/* ---------- rules ---------- */
+.rules{display:grid;grid-template-columns:minmax(0,1fr);gap:0;margin-top:14px;border-top:1px solid var(--hair)}
+@media (min-width:760px){.rules{grid-template-columns:1fr 1fr;column-gap:36px}}
+.rule{display:grid;grid-template-columns:34px 1fr;gap:6px;padding:14px 0;border-bottom:1px solid var(--hair)}
+.rule i{font-style:normal;font-family:var(--mono);font-size:12px;color:var(--ice-soft);padding-top:2px}
+.rule b{display:block;color:#fff;font-weight:650;margin-bottom:2px}
+.rule span{color:var(--ink2);font-size:14px}
+
+/* ---------- figures ---------- */
+figure{margin:18px 0 22px}
+figcaption{font-size:13px;color:var(--ink3);margin-top:10px;max-width:720px}
+svg text{font-family:var(--mono)}
+
+/* ---------- the stage band (mockups) ---------- */
+.band{position:relative;isolation:isolate;overflow:hidden;border-radius:28px;padding:clamp(18px,3vw,34px);margin:22px 0 10px;background:linear-gradient(160deg,#0b1020,#070a12 60%,#0a0b12)}
+.band::before,.band::after{content:'';position:absolute;z-index:-1;border-radius:50%;filter:blur(60px);pointer-events:none}
+.band::before{width:62%;height:78%;left:-8%;top:-18%;background:radial-gradient(circle,rgba(92,128,184,.55),rgba(32,48,92,.25) 55%,transparent 72%);animation:drift 28s ease-in-out infinite alternate}
+.band::after{width:54%;height:70%;right:-10%;bottom:-22%;background:radial-gradient(circle,rgba(122,62,110,.5),rgba(52,28,62,.2) 55%,transparent 72%);animation:drift 34s ease-in-out infinite alternate-reverse}
+.band[data-mood=happy]::before{background:radial-gradient(circle,rgba(230,146,80,.5),rgba(96,48,32,.28) 55%,transparent 72%)}
+.band[data-mood=curious]::before{background:radial-gradient(circle,rgba(70,190,186,.42),rgba(20,70,76,.28) 55%,transparent 72%)}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(9%,7%) scale(1.12)}}
+.band-tag{position:absolute;top:14px;right:18px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(230,236,245,.55)}
+.band-grid{display:grid;gap:22px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:980px){.band-grid.split{grid-template-columns:1fr 1fr}}
+
+/* the glass */
+.glass{position:relative;border-radius:26px;color:var(--ink);background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.028) 46%,rgba(255,255,255,.058));-webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);box-shadow:inset 0 1px 0 rgba(255,255,255,.30),inset 0 -1px 0 rgba(255,255,255,.05),0 34px 80px -34px rgba(0,0,0,.75),0 14px 30px -16px rgba(0,0,0,.5)}
+.glass::before{content:'';position:absolute;inset:0;padding:1px;border-radius:inherit;pointer-events:none;background:conic-gradient(from 200deg,rgba(255,255,255,.6),rgba(255,255,255,.08) 22%,rgba(255,255,255,.28) 48%,rgba(255,255,255,.06) 72%,rgba(255,255,255,.6));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.glass .x{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);display:grid;place-items:center;color:rgba(230,236,245,.66);font-size:13px;line-height:1}
+.well{background:var(--well);border-radius:14px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),inset 0 1px 0 rgba(255,255,255,.05)}
+.ck{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ice-soft);margin:0}
+.ct{font-family:var(--display);font-weight:300;font-size:clamp(1.6rem,3.1vw,2.3rem);line-height:1.02;letter-spacing:-.028em;margin:6px 0 4px;text-wrap:balance;font-variation-settings:'opsz' 144}
+.cs{font-size:13.5px;color:rgba(214,222,234,.68);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font-family:var(--mono);font-size:10px;padding:4px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(226,232,241,.72)}
+.chip sup{color:var(--ice-soft)}
+.said{color:#fff!important;text-shadow:0 0 16px rgba(191,233,255,.45)}
+
+/* ---------- sizes demo ---------- */
+.sizes-controls{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}
+.seg{font-family:var(--mono);font-size:11.5px;padding:7px 13px;border-radius:999px;border:1px solid var(--hair2);background:rgba(255,255,255,.04);color:var(--ink2);cursor:pointer}
+.seg[aria-pressed=true]{background:rgba(191,233,255,.14);border-color:rgba(191,233,255,.45);color:#fff}
+.stage-demo{position:relative;display:grid;grid-template-columns:clamp(96px,22%,210px) minmax(0,1fr);gap:14px;min-height:390px}
+.stage-col{border-radius:18px;border:1px dashed rgba(255,255,255,.12);padding:14px;display:flex;flex-direction:column;gap:10px}
+.eyes{display:flex;gap:10px;padding:6px 2px}
+.eyes i{width:26px;height:12px;border-radius:12px;background:var(--ice);box-shadow:0 0 16px rgba(191,233,255,.7)}
+.stage-col .line{height:7px;border-radius:9px;background:rgba(255,255,255,.08)}
+.stage-area{position:relative;container-type:size;border-radius:18px;border:1px dashed rgba(255,255,255,.12);min-height:390px;overflow:hidden}
+.demo-card{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(700px,calc(100cqw - 160px));padding:18px 20px;transition:width .6s cubic-bezier(.22,1,.36,1),height .6s cubic-bezier(.22,1,.36,1)}
+.stage-area[data-size=glance] .demo-card{width:min(380px,calc(100cqw - 48px))}
+.stage-area[data-size=standard] .demo-card{width:min(700px,calc(100cqw - 160px))}
+.stage-area[data-size=wide] .demo-card{width:min(1040px,calc(100cqw - 64px))}
+.stage-area[data-size=feature] .demo-card{width:calc(100cqw - 32px);height:calc(100cqh - 32px)}
+.demo-peek{position:absolute;top:50%;right:-1px;transform:translateY(-50%);width:62px;height:62%;border-radius:22px 0 0 22px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.stage-area:is([data-size=wide],[data-size=feature]) .demo-peek{width:14px}
+.stage-area[data-size=glance] .demo-peek{width:62px}
+.demo-card .ck{margin-bottom:4px}
+.demo-body{display:grid;gap:8px;margin-top:10px}
+.demo-body .well{height:44px}
+.stage-area[data-size=glance] .demo-body .well:nth-child(n+2){display:none}
+.stage-area[data-size=feature] .demo-body{grid-template-columns:1.4fr 1fr;grid-auto-rows:1fr;height:calc(100% - 64px)}
+.stage-area[data-size=feature] .demo-body .well{height:auto}
+.stage-area[data-size=wide] .demo-body{grid-template-columns:1.5fr 1fr}
+.size-note{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:10px;min-height:1.6em}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .band::before,.band::after{animation:none}
+  .demo-card,.demo-peek{transition:none}
+}
+/* ---------- recipe mockups ---------- */
+.mock-cap{font-size:13px;color:var(--ink3);margin:10px 2px 0}
+.mock-cap b{color:var(--ink2);font-weight:600}
+.recipe-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin:40px 0 4px}
+.recipe-title h3{margin:0;font-family:var(--display);font-weight:400;font-size:1.35rem;letter-spacing:-.01em}
+.recipe-title span{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.src{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+
+/* profile */
+.profile{display:grid;grid-template-columns:minmax(0,1fr);overflow:hidden;max-width:820px;margin:0 auto}
+@media (min-width:760px){.profile{grid-template-columns:32% minmax(0,1fr)}}
+.portrait{position:relative;min-height:230px;background:radial-gradient(70% 55% at 50% 30%,rgba(236,226,208,.55),rgba(120,104,92,.35) 45%,rgba(24,22,26,.2) 80%),linear-gradient(180deg,#3d3833,#1a1818);display:grid;place-items:center}
+.portrait::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 58%,rgba(8,10,14,.45))}
+.portrait b{font-family:var(--display);font-style:italic;font-weight:300;font-size:64px;color:rgba(255,248,236,.72);letter-spacing:-.04em}
+.portrait small{position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.62);z-index:1}
+.pbody{padding:26px 58px 24px 26px;min-width:0}
+.facts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:22px;margin:14px 0 0}
+.fact{padding:10px 0 9px;border-top:1px solid rgba(255,255,255,.08)}
+.fact dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ice-soft);margin-bottom:3px}
+.fact dd{margin:0;font-size:14px;line-height:1.35;color:rgba(236,240,247,.86)}
+.timeline{margin-top:16px;padding:14px 14px 12px}
+.tl{position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.tl::before{content:'';position:absolute;left:4px;right:4px;top:23px;height:1px;background:rgba(255,255,255,.16)}
+.ev{position:relative;padding-top:0}
+.ev time{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.ev i{display:block;width:9px;height:9px;border-radius:50%;background:#5b6474;margin:6px 0 7px;box-shadow:0 0 0 2px #0b0e15}
+.ev span{display:block;font-size:11.5px;line-height:1.3;color:rgba(226,232,241,.78)}
+.ev[data-said] i{background:var(--ice);box-shadow:0 0 0 2px #0b0e15,0 0 14px rgba(191,233,255,.8)}
+.ev[data-said] time,.ev[data-said] span{color:#fff}
+@media (max-width:620px){.tl{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}.tl::before{display:none}}
+
+/* compare */
+.compare{max-width:900px;margin:0 auto;padding:26px 26px 22px}
+.cmp{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
+.compare .well{overflow-x:auto}
+@media (max-width:520px){.cmp .thumb{display:none}.cmp th,.cmp td{padding:9px 8px}.cmp tbody th{width:auto}}
+.cmp th,.cmp td{border-top:1px solid rgba(255,255,255,.08);padding:10px 12px;text-align:left}
+.cmp thead th{border-top:0;padding-bottom:12px;vertical-align:bottom}
+.cmp tbody th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ice-soft);font-weight:500;width:30%}
+.cmp td{color:rgba(236,240,247,.88)}
+.cmp td.num{font-variant-numeric:tabular-nums;text-align:right}
+.cmp .subj{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.cmp .subj.left{justify-content:flex-start}
+.thumb{width:44px;height:44px;border-radius:12px;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.subj b{font-family:var(--display);font-weight:400;font-size:1.25rem;letter-spacing:-.01em;color:#fff}
+.note{display:flex;gap:9px;align-items:flex-start;margin-top:12px;padding:9px 12px;border-radius:12px;background:rgba(191,233,255,.06);border:1px solid rgba(191,233,255,.14);font-size:12.5px;color:rgba(226,232,241,.8)}
+.note::before{content:'i';flex:none;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:#0b1020;background:var(--ice-soft);margin-top:1px}
+
+/* trend */
+.trend{max-width:1000px;margin:0 auto;padding:26px;display:grid;gap:18px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.trend{grid-template-columns:260px minmax(0,1fr)}}
+.stat .v{font-family:var(--text);font-weight:600;font-size:clamp(2.6rem,5vw,3.4rem);line-height:1;letter-spacing:-.03em;margin:10px 0 6px;color:#fff}
+.stat .v small{font-size:.42em;font-weight:500;color:var(--ink2);letter-spacing:0;margin-left:4px}
+.delta{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:rgba(226,232,241,.86)}
+.delta::before{content:'';width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--ice)}
+.derived{font-family:var(--mono);font-size:10px;color:var(--ink3);border-bottom:1px dotted rgba(169,177,189,.6);cursor:help}
+.chart-well{position:relative;padding:14px 12px 8px}
+.chart-well svg{display:block;width:100%;height:auto}
+.chart-title{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;color:var(--ink2);padding:0 4px 6px}
+.chart-title span:last-child{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.tip{position:absolute;pointer-events:none;padding:7px 10px;border-radius:12px;background:rgba(14,18,28,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 0 0 1px rgba(255,255,255,.1),0 10px 24px -10px rgba(0,0,0,.7);font-size:12px;white-space:nowrap;transform:translate(-50%,-115%);opacity:0;transition:opacity .12s}
+.tip b{display:block;font-size:14px;color:#fff;font-weight:650}
+.tip span{color:var(--ink3);font-family:var(--mono);font-size:10.5px}
+.tip.on{opacity:1}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.cmp tr.said-row td{color:#fff;text-shadow:0 0 16px rgba(191,233,255,.42)}
+
+/* weather spread */
+.weather{padding:24px;display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:900px){.weather{grid-template-columns:250px minmax(0,1fr)}}
+.wx-now{padding:18px 18px 16px;display:flex;flex-direction:column;gap:4px}
+.wx-temp{display:flex;align-items:center;gap:14px;margin:8px 0 2px}
+.wx-temp b{font-weight:600;font-size:3.6rem;line-height:1;letter-spacing:-.04em;color:#fff}
+.sun{width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#ffe7a8,#f2b64a 60%,#d98f2a);box-shadow:0 0 22px rgba(242,182,74,.55)}
+.wx-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-top:10px;font-size:12.5px;color:var(--ink2)}
+.wx-meta span b{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ice-soft);font-weight:500}
+.wx-charts{display:grid;gap:10px}
+.wx-week{grid-column:1/-1;padding:12px 16px;display:grid;gap:2px}
+.day{display:grid;grid-template-columns:44px 64px minmax(0,1fr) 44px;align-items:center;gap:10px;padding:5px 0;border-top:1px solid rgba(255,255,255,.06);font-size:12.5px}
+.day:first-child{border-top:0}
+.day .d{font-family:var(--mono);font-size:10.5px;color:var(--ink2)}
+.day .c{color:var(--ink3);font-size:11.5px}
+.day .lo,.day .hi{font-variant-numeric:tabular-nums;color:var(--ink2)}
+.day .hi{color:#fff;text-align:right}
+.rng{position:relative;height:6px;border-radius:6px;background:rgba(255,255,255,.07)}
+.rng i{position:absolute;top:0;bottom:0;border-radius:6px;background:var(--s1)}
+.meter{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center;padding:12px 16px}
+.meter .lab{font-size:12.5px;color:var(--ink2)}
+.meter .lab b{color:#fff;font-weight:650}
+.bands{display:grid;grid-template-columns:3fr 3fr 2fr 3fr 1fr;gap:2px}
+.bands span{height:8px;border-radius:2px;background:rgba(255,255,255,.08);position:relative}
+.bands span.on{background:var(--warn)}
+.bands span.fill{background:rgba(250,178,25,.35)}
+.bands small{display:block;margin-top:12px;font-family:var(--mono);font-size:9px;color:var(--ink3);white-space:nowrap}
+@media (max-width:520px){.meter{grid-template-columns:minmax(0,1fr)}.bands small{white-space:normal;font-size:8.5px;line-height:1.25;overflow-wrap:anywhere}}
+
+/* maps */
+.route{max-width:980px;margin:0 auto;padding:22px;display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.route{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr)}}
+.map-well{position:relative;overflow:hidden;min-height:300px;padding:0}
+.map-well svg{display:block;width:100%;height:100%}
+.map-chips{position:absolute;left:12px;top:12px;display:flex;gap:6px}
+.map-chips .chip{background:rgba(14,18,28,.62);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.map-chips .chip.on{border-color:rgba(191,233,255,.5);color:#fff}
+.attrib{position:absolute;right:10px;bottom:8px;font-family:var(--mono);font-size:9px;color:rgba(230,236,245,.5)}
+.steps{list-style:none;margin:12px 0 0;padding:0;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:22px 1fr;gap:8px;padding:7px 0;border-top:1px solid rgba(255,255,255,.07);font-size:13px;color:var(--ink2)}
+.steps li::before{content:counter(s);font-family:var(--mono);font-size:10.5px;color:var(--ice-soft);padding-top:2px}
+.nearby{padding:22px;display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.nearby{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}}
+.places{list-style:none;margin:10px 0 0;padding:0}
+.places li{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}
+.places .n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;color:#0b1020;background:var(--ice-soft)}
+.places b{display:block;font-weight:600;font-size:13.5px;color:#fff}
+.places small{color:var(--ink3);font-size:11.5px}
+.places .dist{font-family:var(--mono);font-size:11px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.places li.said b{text-shadow:0 0 16px rgba(191,233,255,.45)}
+.places li.said .n{background:var(--ice);box-shadow:0 0 12px rgba(191,233,255,.8)}
+
+/* video */
+.video{max-width:980px;margin:0 auto;padding:22px;display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.video{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}}
+.poster{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:radial-gradient(60% 70% at 30% 40%,rgba(64,120,150,.8),transparent 70%),radial-gradient(50% 60% at 75% 70%,rgba(180,120,70,.55),transparent 70%),linear-gradient(135deg,#1b2a36,#0e141b);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.poster svg{position:absolute;inset:0;width:100%;height:100%}
+.play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.12);-webkit-backdrop-filter:blur(12px) saturate(160%);backdrop-filter:blur(12px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 0 0 1px rgba(255,255,255,.2),0 12px 30px -10px rgba(0,0,0,.7)}
+.play::after{content:'';margin-left:5px;border-left:18px solid #fff;border-top:11px solid transparent;border-bottom:11px solid transparent}
+.progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.12)}
+.progress i{display:block;height:100%;width:0;background:var(--ice);transition:width .5s cubic-bezier(.22,1,.36,1)}
+.dur{position:absolute;right:10px;bottom:12px;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff}
+.chapters{list-style:none;margin:10px 0 0;padding:0}
+.chapters button{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:44px 1fr;gap:8px;width:100%;padding:8px 6px;border-top:1px solid rgba(255,255,255,.07);font-size:13px;color:var(--ink2);border-radius:8px}
+.chapters button:hover{background:rgba(255,255,255,.04)}
+.chapters button:focus-visible{outline:2px solid rgba(191,233,255,.9)}
+.chapters time{font-family:var(--mono);font-size:10.5px;color:var(--ice-soft);padding-top:2px;font-variant-numeric:tabular-nums}
+.chapters button[aria-current=true]{color:#fff;background:rgba(191,233,255,.08)}
+.hint{margin-top:12px;font-size:12px;color:var(--ink3)}
+.hint q{color:var(--ink2)}
+
+/* front page */
+.front{padding:22px 26px 24px}
+.mast{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.28);box-shadow:0 3px 0 -2px rgba(255,255,255,.14)}
+.mast b{font-family:var(--display);font-weight:400;font-size:1.5rem;letter-spacing:.02em}
+.mast span{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+.fp{display:grid;grid-template-columns:minmax(0,1fr);gap:0;margin-top:16px}
+@media (min-width:900px){.fp{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}}
+.lead{padding-right:0}
+@media (min-width:900px){.lead{padding-right:24px;border-right:1px solid rgba(255,255,255,.12)}}
+.lead-img{aspect-ratio:16/8;border-radius:12px;background:radial-gradient(40% 60% at 25% 55%,rgba(255,196,120,.55),transparent 70%),radial-gradient(60% 50% at 70% 35%,rgba(90,140,190,.5),transparent 70%),linear-gradient(180deg,#26344a,#101722);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);position:relative;overflow:hidden}
+.lead-img::after{content:'';position:absolute;left:0;right:0;bottom:22%;height:2px;background:rgba(255,220,170,.35);box-shadow:0 8px 0 rgba(255,220,170,.18),0 16px 0 rgba(255,220,170,.1)}
+.hed{font-family:var(--display);font-weight:400;letter-spacing:-.02em;line-height:1.05;margin:8px 0 6px;text-wrap:balance;color:#fff}
+.lead .hed{font-size:clamp(1.6rem,3vw,2.3rem)}
+.deck{font-family:var(--display);font-style:italic;font-weight:300;font-size:1.05rem;line-height:1.4;color:rgba(226,232,241,.82);margin:0}
+.dl{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ice-soft);margin:14px 0 0}
+.stories{display:grid;align-content:start}
+@media (min-width:900px){.stories{padding-left:24px}}
+.story{padding:12px 0;border-top:1px solid rgba(255,255,255,.12)}
+.story:first-child{border-top:0;padding-top:0}
+@media (max-width:899px){.story:first-child{border-top:1px solid rgba(255,255,255,.12);padding-top:12px;margin-top:14px}}
+.story .dl{margin:0}
+.story .hed{font-size:1.15rem}
+.story p{margin:0;font-size:13px;color:var(--ink2)}
+
+/* glance */
+.glances{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));max-width:980px;margin:0 auto}
+.glance{padding:18px 20px}
+.glance .big{font-weight:600;font-size:2.4rem;line-height:1;letter-spacing:-.03em;margin:10px 0 6px;color:#fff;font-variant-numeric:normal}
+.glance .sub{font-size:12.5px;color:var(--ink2);margin:0}
+/* skills and routing */
+.tool{font-family:var(--mono);font-size:12px;color:#fff;background:rgba(191,233,255,.08);border:1px solid rgba(191,233,255,.18);padding:1px 7px;border-radius:6px;white-space:nowrap}
+.tool.none{color:var(--ink3);background:transparent;border-style:dashed}
+.new{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#0b1020;background:var(--ice-soft);padding:1px 6px;border-radius:5px;margin-left:6px;vertical-align:1px}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 4px}
+.layers{counter-reset:l;list-style:none;margin:14px 0 0;padding:0;display:grid;gap:10px}
+.layers li{counter-increment:l;display:grid;grid-template-columns:40px 1fr;gap:10px;padding:14px 16px;border:1px solid var(--hair);border-radius:16px;background:rgba(255,255,255,.02)}
+.layers li::before{content:counter(l);font-family:var(--display);font-size:1.6rem;line-height:1;color:var(--ice)}
+.layers b{display:block;color:#fff;margin-bottom:2px}
+.layers span{color:var(--ink2);font-size:14px}
+.gate{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:14px 0}
+.gate div{border:1px solid var(--hair);border-radius:14px;padding:12px 14px;background:rgba(255,255,255,.02)}
+.gate b{display:block;font-family:var(--text);font-weight:600;font-size:1.5rem;color:#fff;line-height:1.1}
+.gate span{font-size:12.5px;color:var(--ink3)}
+.codepair{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:14px 0}
+@media (min-width:900px){.codepair{grid-template-columns:1fr 1fr}}
+.codepair h4{margin:0 0 8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ice-soft);font-weight:500}
+.k{color:#9fb8d6}.s{color:#bfe9ff}.n{color:#e8c07a}.c{color:#7d8795}
+/* fixes and chart marks */
+.band{padding-top:44px}
+.map-well{background:#121821;min-height:0}
+.map-well svg{height:auto}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{opacity:.75;transform:scale(.55)}100%{opacity:0;transform:scale(1.7)}}
+.chart-hit{cursor:crosshair}
+svg[tabindex]:focus-visible{outline:2px solid rgba(191,233,255,.9);outline-offset:4px;border-radius:8px}
+@media (max-width:640px){
+  .stage-demo{grid-template-columns:minmax(0,1fr)}
+  .stage-col{display:none}
+  .stage-area[data-size] .demo-card{width:calc(100cqw - 36px)}
+  .stage-area[data-size=glance] .demo-card{width:min(380px,calc(100cqw - 36px))}
+  .glass .x{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .pulse{animation:none;opacity:.5}
+  .progress i{transition:none}
+}
+</style>
+
+</head>
+<body>
+<div class="page">
+  <nav class="rail" aria-label="Contents">
+    <p>Contents</p>
+    <ol>
+      <li><a href="#asked">What was asked for</a></li>
+      <li><a href="#kept">Kept, and what limits it</a></li>
+      <li><a href="#rules">The rules</a></li>
+      <li><a href="#vocabulary">Blocks and crafting</a></li>
+      <li><a href="#sizes">Sizes</a></li>
+      <li><a href="#blocks">Blocks</a></li>
+      <li><a href="#recipes">Recipes, drawn</a></li>
+      <li><a href="#skills">Skills</a></li>
+      <li><a href="#wrong-skill">The wrong skill</a></li>
+      <li><a href="#made">How a card is made</a></li>
+      <li><a href="#wire">Schema and wire</a></li>
+      <li><a href="#glass">Glass for data</a></li>
+      <li><a href="#charts">Charts and tables</a></li>
+      <li><a href="#maps">Maps</a></li>
+      <li><a href="#video">Video</a></li>
+      <li><a href="#editorial">Front page, feature</a></li>
+      <li><a href="#live">Weather, markets</a></li>
+      <li><a href="#workspace">A workspace</a></li>
+      <li><a href="#sync">In step with speech</a></li>
+      <li><a href="#safety">Security and licences</a></li>
+      <li><a href="#budgets">Budgets</a></li>
+      <li><a href="#measure">Measuring it</a></li>
+      <li><a href="#phases">Phases</a></li>
+      <li><a href="#decisions">Your decisions</a></li>
+      <li><a href="#risks">Risks</a></li>
+      <li><a href="#sources">Sources</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="masthead">
+      <a class="home" href="/"><img src="/gideon-72.png" alt="" width="22" height="22">Talk to GIDEON</a>
+      <p class="kicker">GIDEON · the card system · planned 13 September 2026, being built in phases</p>
+      <h1>Cards that know what they are showing</h1>
+      <p class="lede">Today GIDEON draws one kind of card. This plan grows it into a system: four sizes, twenty blocks, tables, charts, timelines, Mapbox maps, video and broadsheet layouts, crafted from evidence that code captured rather than words a model typed, and gathered by narrow skills that are tested against each other so the wrong one does not fire.</p>
+      <div class="status">
+        <span class="pill">Full specification · <b>CARD_SYSTEM.md</b> in the repository</span>
+        <span class="pill">Mockups use <b>sample content</b></span>
+        <span class="pill">About <b>41</b> focused days, in 7 phases</span>
+      </div>
+    </header>
+
+    <section id="asked">
+      <div class="eyebrow"><p class="kicker">1</p></div>
+      <h2>What was asked for</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Asked for</th><th>Where it is answered</th></tr></thead>
+        <tbody>
+          <tr><td>Cards in different sizes, not one</td><td><a href="#sizes">Sizes</a>: glance, standard, wide, feature</td></tr>
+          <tr><td>Tables, comparison graphs, charts, informative graphics</td><td><a href="#blocks">Blocks</a>, <a href="#charts">Charts and tables</a></td></tr>
+          <tr><td>Newspaper and magazine cards</td><td><a href="#editorial">The front page and the feature</a></td></tr>
+          <tr><td>More meaningful information, of more than one kind</td><td><a href="#made">How a card is made</a>: drawn from everything the research saw, not only what it said</td></tr>
+          <tr><td>Mapbox maps</td><td><a href="#maps">Maps</a></td></tr>
+          <tr><td>Intelligent, “like Minecraft, with crafts and informatics”</td><td><a href="#vocabulary">Blocks and crafting</a>, <a href="#workspace">the screen as a workspace</a></td></tr>
+          <tr><td>Narrow skills, and never the wrong one</td><td><a href="#skills">Skills</a>, <a href="#wrong-skill">keeping the wrong skill from firing</a></td></tr>
+          <tr><td>Video</td><td><a href="#video">Video</a></td></tr>
+          <tr><td>Its own liquid UI, the same glass as the rest of the site</td><td><a href="#glass">Liquid glass for dense content</a></td></tr>
+        </tbody>
+      </table></div>
+      <div class="prose">
+        <p><strong>“Like Minecraft”</strong> is read as crafting from blocks. A card is not a template with blanks; it is small typed blocks arranged by a named recipe, from materials a skill gathered. Cards already on screen are materials too, so two can be crafted into a third.</p>
+        <p><strong>“Skills”</strong> is read as GIDEON’s own abilities at runtime: narrow tools with one job and a written boundary. A checklist for adding one closes the specification, and can become a repository skill file later.</p>
+      </div>
+    </section>
+
+    <section id="kept">
+      <div class="eyebrow"><p class="kicker">2</p></div>
+      <h2>What is kept, and what stops it growing</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>Kept, in every new card</h3>
+          <ul>
+            <li><strong>The card never delays the voice.</strong> It is drawn beside the answer.</li>
+            <li><strong>No number the brief did not state.</strong> <code>grounded()</code> removes it with whatever carried it.</li>
+            <li><strong>“No card” is an answer.</strong> An empty pane says less than no pane.</li>
+            <li><strong>Three layers per card</strong>, and only the card in front refracts.</li>
+            <li><strong>The choreography:</strong> the face docks, a card peeks, the shelf holds, the judge brings a card back.</li>
+            <li><strong>Facts brighten as they are said.</strong></li>
+            <li><strong>A guess’s cards wait with the guess.</strong></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>What stops it growing</h3>
+          <ol>
+            <li><strong>One flat shape.</strong> A field and a branch per feature; no card could hold two.</li>
+            <li><strong>One size</strong>, 700 px, 960 at most.</li>
+            <li><strong>Only what the brief said aloud</strong>: five facts, never a table.</li>
+            <li><strong>The layout model writes the numbers</strong>, so grounding has to delete them.</li>
+            <li><strong>Whole or nothing</strong>: the fast parts wait for the slowest.</li>
+            <li><strong>Known by title only</strong> to the speaking model.</li>
+            <li><strong>Nothing changes</strong>: no sorting, zooming, playing.</li>
+            <li><strong>The shelf is lost on reload.</strong></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="rules">
+      <div class="eyebrow"><p class="kicker">3</p></div>
+      <h2>The rules every card obeys</h2>
+      <div class="rules">
+        <div class="rule"><i>R1</i><div><b>The voice never waits for the screen.</b><span>A skill hands over its words first; the card follows beside them.</span></div></div>
+        <div class="rule"><i>R2</i><div><b>Nothing on screen a source did not say.</b><span>Copied from a response, taken from the brief, or computed in code and labelled so.</span></div></div>
+        <div class="rule"><i>R3</i><div><b>Values are referenced, never retyped.</b><span>The composer names where a value is; code copies it. A model cannot mistype a number it never writes.</span></div></div>
+        <div class="rule"><i>R4</i><div><b>A card earns its size.</b><span>Enough points for a chart, cells for a table, coordinates for a map, or it steps down.</span></div></div>
+        <div class="rule"><i>R5</i><div><b>One material.</b><span>The same liquid glass everywhere; dense content sits in calmer wells.</span></div></div>
+        <div class="rule"><i>R6</i><div><b>Narrow skills with sharp edges.</b><span>One job each, a stated boundary, and tests against the neighbours.</span></div></div>
+        <div class="rule"><i>R7</i><div><b>Unobservable until real.</b><span>Data skills are read-only; a guess may run them, and nothing shows until it is kept.</span></div></div>
+        <div class="rule"><i>R8</i><div><b>Measured before it ships.</b><span>Routing, grounding, time to card and frame size each have a gate.</span></div></div>
+        <div class="rule"><i>R9</i><div><b>It degrades like the rest of GIDEON.</b><span>No token, no WebGL, no key: a smaller card, a still, or no offer at all.</span></div></div>
+      </div>
+    </section>
+
+    <section id="vocabulary">
+      <div class="eyebrow"><p class="kicker">4</p></div>
+      <h2>Materials, blocks, recipes, skills, crafting</h2>
+      <div class="prose"><p>Crafting is the model of the whole system. A skill gathers <strong>materials</strong>, evidence captured by code with where and when it came from. <strong>Blocks</strong> reference those materials. A <strong>recipe</strong> arranges blocks into a card. Cards on screen feed back in as materials, which is what lets two of them be crafted into a third.</p></div>
+      <figure>
+        <svg viewBox="0 0 980 250" role="img" aria-label="A skill gathers materials, blocks reference them, a recipe arranges the blocks into a card, and cards on screen return as materials that can be crafted into a new card." style="width:100%;height:auto;color:var(--ink2)">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            <marker id="ahi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#bfe9ff"/></marker>
+          </defs>
+          <g font-size="12.5" fill="currentColor">
+            <rect x="10" y="52" width="150" height="64" rx="14" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+            <text x="85" y="80" text-anchor="middle" fill="#f6f8ff" font-size="14">skill</text>
+            <text x="85" y="100" text-anchor="middle">weather · research</text>
+            <rect x="230" y="52" width="170" height="64" rx="14" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+            <text x="315" y="80" text-anchor="middle" fill="#f6f8ff" font-size="14">materials</text>
+            <text x="315" y="100" text-anchor="middle">series · record · geo</text>
+            <rect x="470" y="52" width="150" height="64" rx="14" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+            <text x="545" y="80" text-anchor="middle" fill="#f6f8ff" font-size="14">blocks</text>
+            <text x="545" y="100" text-anchor="middle">chart · table · map</text>
+            <rect x="690" y="52" width="130" height="64" rx="14" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.18)"/>
+            <text x="755" y="80" text-anchor="middle" fill="#f6f8ff" font-size="14">recipe</text>
+            <text x="755" y="100" text-anchor="middle">trend · compare</text>
+            <rect x="880" y="52" width="90" height="64" rx="14" fill="rgba(191,233,255,.10)" stroke="#bfe9ff"/>
+            <text x="925" y="89" text-anchor="middle" fill="#bfe9ff" font-size="14">card</text>
+            <line x1="162" y1="84" x2="226" y2="84" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="194" y="74" text-anchor="middle" font-size="11">gathers</text>
+            <line x1="402" y1="84" x2="466" y2="84" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="434" y="74" text-anchor="middle" font-size="11">referenced</text>
+            <line x1="622" y1="84" x2="686" y2="84" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="654" y="74" text-anchor="middle" font-size="11">arranged</text>
+            <line x1="822" y1="84" x2="876" y2="84" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+            <path d="M925 118 V196 H315 V122" fill="none" stroke="#bfe9ff" stroke-width="1.4" stroke-dasharray="0" marker-end="url(#ahi)"/>
+            <rect x="520" y="178" width="200" height="36" rx="18" fill="#0b1020" stroke="#bfe9ff"/>
+            <text x="620" y="201" text-anchor="middle" fill="#bfe9ff">craft: card + card</text>
+            <text x="315" y="232" text-anchor="middle" font-size="11">a card’s materials, reused</text>
+          </g>
+        </svg>
+        <figcaption>The craft loop is the only path that makes a card from other cards, and it runs on their materials, not on their rendered text.</figcaption>
+      </figure>
+    </section>
+
+    <section id="sizes">
+      <div class="eyebrow"><p class="kicker">5</p></div>
+      <h2>Sizes</h2>
+      <div class="prose"><p>Measured against the stage, never the window. A recipe names a preferred size and what it may shrink to, and the stage uses the largest that fits. Try each size below. The stage is drawn smaller than life with the same width formulas, so the fixed margins look larger than they will on a real screen, where a 1440 × 900 window gives an open stage of about 913 × 782 px.</p></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Diagram · proportions only</span>
+        <div class="sizes-controls" role="group" aria-label="Card size">
+          <button class="seg" type="button" data-size="glance" aria-pressed="false">glance</button>
+          <button class="seg" type="button" data-size="standard" aria-pressed="true">standard</button>
+          <button class="seg" type="button" data-size="wide" aria-pressed="false">wide</button>
+          <button class="seg" type="button" data-size="feature" aria-pressed="false">feature</button>
+        </div>
+        <div class="stage-demo">
+          <div class="stage-col" aria-hidden="true">
+            <div class="eyes"><i></i><i></i></div>
+            <div class="line" style="width:90%"></div><div class="line" style="width:70%"></div><div class="line" style="width:82%"></div>
+            <div style="flex:1"></div>
+            <div class="line" style="height:30px;border-radius:16px"></div>
+          </div>
+          <div class="stage-area" data-size="standard" id="stageArea">
+            <div class="demo-peek glass" aria-hidden="true"></div>
+            <div class="demo-card glass">
+              <p class="ck" id="sizeKicker">standard · today’s card</p>
+              <div class="demo-body"><div class="well"></div><div class="well"></div><div class="well"></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="size-note" id="sizeNote">min(700px, 100cqw − 160px) · a person, a place, an answer, steps</p>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Size</th><th>Width on a wide stage</th><th>Height</th><th>For</th></tr></thead>
+        <tbody>
+          <tr><td><code>glance</code></td><td><code>min(380px, 100cqw − 48px)</code></td><td>content, 240 px at most</td><td>one number, the temperature now, a countdown, a rate</td></tr>
+          <tr><td><code>standard</code></td><td><code>min(700px, 100cqw − 160px)</code></td><td>up to the stage</td><td>a person, a place, an answer, steps</td></tr>
+          <tr><td><code>wide</code></td><td><code>min(1040px, 100cqw − 64px)</code></td><td>up to the stage</td><td>a comparison, a trend, a ranking, a route, a video</td></tr>
+          <tr><td><code>feature</code></td><td><code>100cqw − 32px</code></td><td>the stage</td><td>a front page, a feature, nearby places, the weather spread</td></tr>
+        </tbody>
+      </table></div>
+      <ul class="tight prose">
+        <li><strong>The peek gives way.</strong> Past <code>standard</code>, the previous card shows a 14 px sliver, as on a phone today.</li>
+        <li><strong>No scrolling inside a card on a wide screen.</strong> Each recipe has a fold budget checked at 1280 × 720, where the stage is about 811 × 602 px.</li>
+        <li><strong>On a phone</strong> every card is standard width and its blocks rearrange: tables stack into records, the week scrolls in its own well, maps take 16:10.</li>
+      </ul>
+    </section>
+
+    <section id="blocks">
+      <div class="eyebrow"><p class="kicker">6</p></div>
+      <h2>Blocks</h2>
+      <div class="prose"><p>Twenty blocks. Each has an id stable within its card, a slot its recipe places it in, and the sources it cites. The last column is the signature of the stage: what brightens when GIDEON says it.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Block</th><th>Shows</th><th>Contract and limits</th><th>Lights when said</th></tr></thead>
+        <tbody>
+          <tr><td><code>headline</code></td><td>kicker, title, deck, dateline</td><td>title ≤ 64 characters, deck ≤ 30 words</td><td>—</td></tr>
+          <tr><td><code>stat</code></td><td>a value, its change, a sparkline</td><td>value copied; change computed in code; ≤ 60 spark points</td><td>the value</td></tr>
+          <tr><td><code>facts</code></td><td>2–8 label and value pairs</td><td>today’s facts, now cited</td><td>the value</td></tr>
+          <tr><td><code>prose</code></td><td>1–3 short paragraphs</td><td>≤ 120 words at feature size; number-checked</td><td>—</td></tr>
+          <tr><td><code>quote</code></td><td>a pull quote</td><td>must appear word for word in a page the desk read</td><td>—</td></tr>
+          <tr><td><code>media</code>, <code>gallery</code></td><td>pictures</td><td>today’s portrait, wide and grid handling</td><td>—</td></tr>
+          <tr><td><code>table</code></td><td>rows and columns</td><td>typed columns with units; 8 × 12 shown, 50 rows sent; numeric columns sort</td><td>the row named</td></tr>
+          <tr><td><code>chart</code></td><td>line, area, column, ranked bar, range, sparkline</td><td>one y-axis always; ≤ 5 series; a line needs 4 points; bars from zero; computed summary</td><td>the point named</td></tr>
+          <tr><td><code>timeline</code></td><td>3–12 dated events</td><td>year, month or day precision</td><td>the year said</td></tr>
+          <tr><td><code>map</code></td><td>pin, pins, route, area</td><td>live in front, a still elsewhere</td><td>the pin named</td></tr>
+          <tr><td><code>list</code>, <code>steps</code></td><td>ordered items; 3–8 steps</td><td>items paired with pins; steps ≤ 20 words</td><td>the item named</td></tr>
+          <tr><td><code>video</code></td><td>a YouTube video behind a poster</td><td>chapters when the description has them</td><td>the chapter</td></tr>
+          <tr><td><code>forecast</code></td><td>the hours and the days</td><td>an hour strip and low-to-high bars</td><td>the hour or day</td></tr>
+          <tr><td><code>meter</code></td><td>a value on named bands</td><td>bands from the skill (WHO UV scale), never a model</td><td>the value</td></tr>
+          <tr><td><code>note</code>, <code>chips</code></td><td>a caveat; follow-up questions</td><td>stale, disagreeing, delayed; a chip sends a turn</td><td>—</td></tr>
+          <tr><td><code>countdown</code>, <code>memory</code></td><td>a live timer; what GIDEON remembers</td><td>from <code>set_timer</code>; each memory can be forgotten</td><td>—</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="recipes">
+      <div class="eyebrow"><p class="kicker">7</p></div>
+      <h2>Recipes, drawn</h2>
+      <div class="prose"><p>Twenty recipes arrange the blocks. Eight are drawn below in GIDEON’s glass over a stand-in for its room. Every mockup is sample content for judging layout, and says so; the real cards fill from sources.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Recipe</th><th>Size (shrinks to)</th><th>Needs, or else</th></tr></thead>
+        <tbody>
+          <tr><td><code>answer</code> · <code>profile</code> · <code>figure</code> · <code>gallery</code></td><td>standard, glance</td><td>today’s kinds, rebuilt on blocks; a portrait only when surely right</td></tr>
+          <tr><td><code>compare</code></td><td>wide (standard)</td><td>2–4 subjects, ≥ 3 shared attributes, 60% of cells filled, one unit per row · else <code>profile</code></td></tr>
+          <tr><td><code>trend</code> · <code>ranking</code></td><td>wide (standard)</td><td>a series of ≥ 4 points in one unit; ≥ 3 ranked items · else <code>figure</code></td></tr>
+          <tr><td><code>timeline</code> · <code>steps</code> · <code>recipe</code></td><td>wide, standard</td><td>≥ 3 dated events; ≥ 3 steps; schema.org Recipe data · else <code>answer</code></td></tr>
+          <tr><td><code>front-page</code> · <code>feature</code></td><td>feature (wide)</td><td>≥ 3 dated stories in the window; a deep brief from ≥ 2 sources · else <code>profile</code></td></tr>
+          <tr><td><code>place</code> · <code>route</code> · <code>nearby</code></td><td>wide, feature</td><td>a confident geocode (else ask); a route; ≥ 3 places</td></tr>
+          <tr><td><code>weather</code> · <code>market</code></td><td>feature, wide</td><td>a forecast for a resolved place; a price from the provider</td></tr>
+          <tr><td><code>video</code> · <code>memory</code> · <code>spread</code></td><td>wide, standard, feature</td><td>one embeddable video; one memory; each tile’s own needs</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="recipe-title"><h3>profile</h3><span>standard · research · Wikipedia portrait · timeline block</span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup</span>
+        <article class="glass profile" aria-label="Profile card mockup: Marie Curie">
+          <div class="portrait" aria-hidden="true"><b>M·C</b><small>Portrait · Wikipedia</small></div>
+          <div class="pbody">
+            <span class="x" aria-hidden="true">✕</span>
+            <p class="ck">Profile</p>
+            <h4 class="ct">Marie Curie</h4>
+            <p class="cs">Physicist and chemist</p>
+            <dl class="facts">
+              <div class="fact"><dt>Born</dt><dd>7 November 1867, Warsaw</dd></div>
+              <div class="fact"><dt>Died</dt><dd>4 July 1934</dd></div>
+              <div class="fact"><dt>Discovered</dt><dd>Polonium and radium, 1898</dd></div>
+              <div class="fact"><dt>Nobel Prizes</dt><dd class="said">Physics 1903, Chemistry 1911</dd></div>
+            </dl>
+            <div class="well timeline">
+              <div class="tl">
+                <div class="ev"><time>1867</time><i></i><span>Born in Warsaw</span></div>
+                <div class="ev"><time>1891</time><i></i><span>Moves to Paris</span></div>
+                <div class="ev"><time>1898</time><i></i><span>Polonium, radium</span></div>
+                <div class="ev" data-said><time>1903</time><i></i><span>Nobel, Physics</span></div>
+                <div class="ev"><time>1911</time><i></i><span>Nobel, Chemistry</span></div>
+                <div class="ev"><time>1934</time><i></i><span>Dies</span></div>
+              </div>
+            </div>
+            <div class="src"><span class="chip">nobelprize.org <sup>1</sup></span><span class="chip">britannica.com <sup>2</sup></span><span class="chip">wikipedia.org <sup>3</sup></span></div>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> the timeline and the facts share one mention index, so when GIDEON says “in 1903” the event and the fact both brighten, and the docked eyes glance toward them.</p>
+
+      <div class="recipe-title"><h3>compare</h3><span>wide · research or craft · table in a well</span></div>
+      <div class="band" data-mood="curious">
+        <span class="band-tag">Mockup · sample values</span>
+        <article class="glass compare" aria-label="Comparison card mockup: Lisbon and Porto">
+          <span class="x" aria-hidden="true">✕</span>
+          <p class="ck">Compare</p>
+          <h4 class="ct">Lisbon and Porto</h4>
+          <div class="well" style="padding:4px 6px 2px;margin-top:12px">
+            <table class="cmp">
+              <thead><tr><th scope="col"><span class="sr-only">Attribute</span></th>
+                <th scope="col"><div class="subj left"><span class="thumb" style="background:linear-gradient(135deg,#e7b777,#b76a4a 55%,#3a5f8a)"></span><b>Lisbon</b></div></th>
+                <th scope="col"><div class="subj left"><span class="thumb" style="background:linear-gradient(135deg,#d9c3a0,#7d5a4a 50%,#2f4c6e)"></span><b>Porto</b></div></th></tr></thead>
+              <tbody>
+                <tr><th scope="row">City population</th><td class="num" style="text-align:left">545 k</td><td class="num" style="text-align:left">232 k</td></tr>
+                <tr class="said-row"><th scope="row">River</th><td>Tagus</td><td>Douro</td></tr>
+                <tr><th scope="row">July average high</th><td class="num" style="text-align:left">28 °C</td><td class="num" style="text-align:left">25 °C</td></tr>
+                <tr><th scope="row">Airport</th><td>LIS</td><td>OPO</td></tr>
+                <tr><th scope="row">Known for</th><td>Trams, fado</td><td>Port wine, the Ribeira</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">Populations are for the cities themselves, not their metropolitan areas.</p>
+          <div class="src"><span class="chip">ine.pt <sup>1</sup></span><span class="chip">wikidata.org <sup>2</sup></span><span class="chip">ipma.pt <sup>3</sup></span></div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> every value is a pointer resolved to a table cell by its labels, never retyped; the note is a block the validator adds when two sources measure different things; no “winner” is marked, because the skill declared no better direction for these rows.</p>
+
+      <div class="recipe-title"><h3>trend</h3><span>wide · research with <code>chart_data</code> or <code>country_data</code></span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup · sample series</span>
+        <article class="glass trend" aria-label="Trend card mockup: harbour ferry passengers">
+          <span class="x" aria-hidden="true">✕</span>
+          <div class="stat">
+            <p class="ck">Trend</p>
+            <h4 class="ct" style="font-size:1.7rem">Harbour ferry passengers</h4>
+            <p class="cs">Per year, 2014 to 2025</p>
+            <p class="v">4.9<small>million</small></p>
+            <p class="delta">+58% since 2014 <span class="derived" title="(4.9 − 3.1) ÷ 3.1, computed in code">computed</span></p>
+            <dl class="facts" style="grid-template-columns:1fr;margin-top:10px">
+              <div class="fact"><dt>Peak</dt><dd>4.9 M in 2025</dd></div>
+              <div class="fact"><dt>Low</dt><dd class="said">1.9 M in 2020</dd></div>
+            </dl>
+          </div>
+          <div>
+            <div class="well chart-well" id="trendWell">
+              <div class="chart-title"><span>Passengers, millions</span><span>as of 2025 · sample</span></div>
+              <svg id="trendChart" viewBox="0 0 640 300" role="img" aria-label="Line chart, sample series: rose from 3.1 million in 2014 to 4.4 million in 2019, fell to 1.9 million in 2020, then climbed to 4.9 million in 2025."></svg>
+              <div class="tip" id="trendTip"><b></b><span></span></div>
+            </div>
+            <p class="small muted" style="margin:8px 4px 0">Rose from 3.1 M in 2014 to 4.4 M in 2019, fell to 1.9 M in 2020, then climbed to 4.9 M in 2025.</p>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> the change is computed and says so on hover; the summary under the chart is generated from the data, not written; the low point brightens because GIDEON has just said “2020”. Hover the chart for the readout.</p>
+
+      <div class="recipe-title"><h3>weather</h3><span>feature · a spread of four tiles · no model in the loop</span></div>
+      <div class="band" data-mood="happy">
+        <span class="band-tag">Mockup · sample forecast</span>
+        <article class="glass weather" aria-label="Weather spread mockup for Lisbon">
+          <div class="well wx-now">
+            <p class="ck">Lisbon · Saturday</p>
+            <div class="wx-temp"><span class="sun" aria-hidden="true"></span><b>24°</b></div>
+            <p class="cs" style="color:#fff">Sunny, a cooler evening</p>
+            <div class="wx-meta">
+              <span><b>Feels like</b>25°</span>
+              <span><b>High · low</b>27° · 18°</span>
+              <span><b>Wind</b>14 km/h NW</span>
+              <span><b>Sunset</b>19:52</span>
+            </div>
+          </div>
+          <div class="wx-charts">
+            <div class="well chart-well" id="wxWell">
+              <div class="chart-title"><span>Temperature, next 24 hours</span><span>°C</span></div>
+              <svg id="wxTemp" viewBox="0 0 640 150" role="img" aria-label="Temperature line, sample forecast: 24 at noon, peaking at 27 at 15:00, falling to 18 overnight, back to 25 by noon tomorrow."></svg>
+              <div class="tip" id="wxTip"><b></b><span></span></div>
+              <div class="chart-title" style="padding-top:8px"><span>Chance of rain</span><span>%</span></div>
+              <svg id="wxRain" viewBox="0 0 640 96" role="img" aria-label="Chance of rain columns, sample forecast: dry until evening, highest at 60 percent around 03:00."></svg>
+            </div>
+          </div>
+          <div class="well wx-week" aria-label="The week, low to high">
+            <div class="day"><span class="d">SAT</span><span class="c">Sunny</span><span class="rng"><i style="left:25%;width:56.25%"></i></span><span class="hi">18–27°</span></div>
+            <div class="day"><span class="d">SUN</span><span class="c">Cloud</span><span class="rng"><i style="left:18.75%;width:50%"></i></span><span class="hi">17–25°</span></div>
+            <div class="day"><span class="d">MON</span><span class="c">Showers</span><span class="rng"><i style="left:12.5%;width:50%"></i></span><span class="hi">16–24°</span></div>
+            <div class="day"><span class="d">TUE</span><span class="c">Rain</span><span class="rng"><i style="left:6.25%;width:43.75%"></i></span><span class="hi">15–22°</span></div>
+            <div class="day"><span class="d">WED</span><span class="c">Cloud</span><span class="rng"><i style="left:12.5%;width:43.75%"></i></span><span class="hi">16–23°</span></div>
+            <div class="day"><span class="d">THU</span><span class="c">Sunny</span><span class="rng"><i style="left:18.75%;width:56.25%"></i></span><span class="hi">17–26°</span></div>
+            <div class="day"><span class="d">FRI</span><span class="c">Sunny</span><span class="rng"><i style="left:25%;width:62.5%"></i></span><span class="hi">18–28°</span></div>
+          </div>
+          <div class="well meter">
+            <span class="lab">UV index <b>7 · High</b></span>
+            <div class="bands" aria-label="WHO UV scale">
+              <span class="fill"><small>Low 0–2</small></span><span class="fill"><small>Moderate 3–5</small></span><span class="on"><small>High 6–7</small></span><span><small>Very high 8–10</small></span><span><small>11+</small></span>
+            </div>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> temperature and rain share the hours, not an axis, so there is no dual-axis chart; the UV bands are the WHO scale from the skill, with the word “High” beside the colour; the room behind is at its warmest mood, the worst case measured for the wells.</p>
+
+      <div class="recipe-title"><h3>route</h3><span>wide · <code>show_map</code> route · Mapbox Directions</span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup · drawn map, sample values</span>
+        <article class="glass route" aria-label="Route card mockup from Lisbon to Porto">
+          <div class="well map-well">
+            <svg viewBox="0 0 600 380" role="img" aria-label="A stylised map with a route line running north up the coast from Lisbon to Porto.">
+              <rect width="600" height="380" fill="#121821"/>
+              <path d="M0 0 H158 C176 58 146 112 170 160 C190 206 156 252 178 300 C192 334 174 358 184 380 H0 Z" fill="#0b1524"/>
+              <g stroke="rgba(255,255,255,.06)" stroke-width="1.2" fill="none">
+                <path d="M260 0 C300 90 360 150 420 380"/><path d="M600 60 C470 120 380 220 300 380"/><path d="M180 200 H600"/><path d="M200 120 C330 140 460 110 600 150"/>
+              </g>
+              <polyline points="210,330 232,290 240,250 262,210 270,170 290,130 300,92 318,58" fill="none" stroke="#0b1020" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+              <polyline points="210,330 232,290 240,250 262,210 270,170 290,130 300,92 318,58" fill="none" stroke="#3987e5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="210" cy="330" r="7" fill="#f6f8ff" stroke="#0b1020" stroke-width="3"/>
+              <circle cx="318" cy="58" r="7" fill="#bfe9ff" stroke="#0b1020" stroke-width="3"/>
+              <text x="226" y="350" fill="#dfe6f0" font-size="12">Lisbon</text>
+              <text x="334" y="62" fill="#dfe6f0" font-size="12">Porto</text>
+              <text x="70" y="220" fill="rgba(191,233,255,.35)" font-size="11" letter-spacing="2">ATLANTIC</text>
+            </svg>
+            <div class="map-chips"><span class="chip on">Drive</span><span class="chip">Walk</span><span class="chip">Cycle</span></div>
+            <span class="attrib">Mapbox logo and attribution sit here</span>
+          </div>
+          <div>
+            <p class="ck">Route · by car</p>
+            <h4 class="ct" style="font-size:1.7rem">Lisbon to Porto</h4>
+            <div class="stat"><p class="v" style="font-size:2.6rem">3 h 5<small>min</small></p></div>
+            <dl class="facts" style="grid-template-columns:1fr 1fr">
+              <div class="fact"><dt>Distance</dt><dd>313 km</dd></div>
+              <div class="fact"><dt>Traffic</dt><dd>Light, as of 18:40</dd></div>
+            </dl>
+            <ol class="steps">
+              <li>Head north on the A1</li>
+              <li>Stay on the A1 past Coimbra</li>
+              <li>Take the exit for the city centre</li>
+            </ol>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> walking or cycling is a new Directions call, so the chips send a turn rather than restyling the card; the duration and distance come from the API response, and the map in front is the one Mapbox map the page ever runs.</p>
+
+      <div class="recipe-title"><h3>nearby</h3><span>feature · <code>show_map</code> nearby · Search Box category</span></div>
+      <div class="band" data-mood="curious">
+        <span class="band-tag">Mockup · sample places</span>
+        <article class="glass nearby" aria-label="Nearby places card mockup">
+          <div class="well map-well">
+            <svg viewBox="0 0 640 380" role="img" aria-label="A stylised street map with the user's position at the centre and five numbered pins around it.">
+              <rect width="640" height="380" fill="#121821"/>
+              <path d="M0 300 C160 270 300 330 460 290 C540 270 600 280 640 270 V380 H0 Z" fill="#0b1524"/>
+              <g stroke="rgba(255,255,255,.07)" stroke-width="7" stroke-linecap="round">
+                <line x1="40" y1="60" x2="600" y2="100"/><line x1="20" y1="180" x2="620" y2="170"/><line x1="140" y1="10" x2="200" y2="280"/><line x1="340" y1="0" x2="330" y2="270"/><line x1="500" y1="20" x2="560" y2="260"/>
+              </g>
+              <g stroke="rgba(255,255,255,.035)" stroke-width="3"><line x1="0" y1="120" x2="640" y2="135"/><line x1="250" y1="0" x2="260" y2="280"/><line x1="430" y1="0" x2="450" y2="280"/></g>
+              <circle cx="320" cy="176" r="18" fill="rgba(191,233,255,.12)"/><circle cx="320" cy="176" r="6" fill="#bfe9ff" stroke="#0b1020" stroke-width="2"/>
+              <g font-size="11" font-weight="500" text-anchor="middle">
+                <circle cx="372" cy="140" r="12" fill="#bfe9ff" stroke="#0b1020" stroke-width="2"/><text x="372" y="144" fill="#0b1020">1</text>
+                <circle cx="262" cy="214" r="12" fill="rgba(191,233,255,.7)" stroke="#0b1020" stroke-width="2"/><text x="262" y="218" fill="#0b1020">2</text>
+                <circle cx="438" cy="226" r="12" fill="rgba(191,233,255,.7)" stroke="#0b1020" stroke-width="2"/><text x="438" y="230" fill="#0b1020">3</text>
+                <circle cx="190" cy="104" r="12" fill="rgba(191,233,255,.7)" stroke="#0b1020" stroke-width="2"/><text x="190" y="108" fill="#0b1020">4</text>
+                <circle cx="520" cy="92" r="12" fill="rgba(191,233,255,.7)" stroke="#0b1020" stroke-width="2"/><text x="520" y="96" fill="#0b1020">5</text>
+              </g>
+            </svg>
+            <span class="attrib">Mapbox logo and attribution sit here</span>
+          </div>
+          <div>
+            <p class="ck">Near you · cafés</p>
+            <h4 class="ct" style="font-size:1.7rem">Five within 600 m</h4>
+            <ol class="places">
+              <li class="said"><span class="n">1</span><span><b>Roastery by the tram stop</b><small>Café · coffee roaster</small></span><span class="dist">180 m</span></li>
+              <li><span class="n">2</span><span><b>Bakery on the square</b><small>Bakery · café</small></span><span class="dist">240 m</span></li>
+              <li><span class="n">3</span><span><b>Corner café</b><small>Café</small></span><span class="dist">310 m</span></li>
+              <li><span class="n">4</span><span><b>Kiosk in the park</b><small>Kiosk</small></span><span class="dist">450 m</span></li>
+              <li><span class="n">5</span><span><b>Tea room near the station</b><small>Tea room</small></span><span class="dist">590 m</span></li>
+            </ol>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> the pins and the list share numbers, and the first brightens because GIDEON has just named it; “near me” used the browser’s permission, rounded to about 110 m, and nothing about the position is stored.</p>
+
+      <div class="recipe-title"><h3>video</h3><span>wide · <code>show_video</code> · poster first, player on play</span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup · sample video</span>
+        <article class="glass video" aria-label="Video card mockup with chapters">
+          <div>
+            <div class="poster" aria-hidden="true">
+              <svg viewBox="0 0 320 180"><path d="M40 120 C90 60 150 150 190 90 C220 45 250 70 280 58" fill="none" stroke="rgba(255,240,220,.55)" stroke-width="7" stroke-linecap="round"/><circle cx="190" cy="92" r="20" fill="none" stroke="rgba(255,240,220,.45)" stroke-width="6"/></svg>
+              <span class="play"></span>
+              <span class="dur">4:12</span>
+              <span class="progress"><i id="vidProgress"></i></span>
+            </div>
+            <p class="ck" style="margin-top:14px">Video · Sample channel</p>
+            <h4 class="ct" style="font-size:1.6rem">How to tie a bowline</h4>
+          </div>
+          <div>
+            <p class="ck">Chapters</p>
+            <ol class="chapters" id="chapters">
+              <li><button type="button" data-at="0" aria-current="true"><time>0:00</time><span>Why the bowline</span></button></li>
+              <li><button type="button" data-at="38"><time>0:38</time><span>Make the small loop</span></button></li>
+              <li><button type="button" data-at="86"><time>1:26</time><span>The rabbit comes out of the hole</span></button></li>
+              <li><button type="button" data-at="134"><time>2:14</time><span>Round the tree</span></button></li>
+              <li><button type="button" data-at="182"><time>3:02</time><span>Dress and set the knot</span></button></li>
+            </ol>
+            <p class="hint">Say <q>skip to the rabbit</q>, or press a chapter. GIDEON never starts a video by itself.</p>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> nothing from YouTube loads until play, which keeps its iframe and cookies off every page that only shows a card; chapters come from timestamps in the video’s description.</p>
+
+      <div class="recipe-title"><h3>front-page</h3><span>feature · research with news search · a broadsheet in glass</span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup · sample stories, not news</span>
+        <article class="glass front" aria-label="Front page card mockup with sample stories">
+          <div class="mast"><b>GIDEON</b><span>Saturday 13 September 2026 · Evening edition</span></div>
+          <div class="fp">
+            <div class="lead">
+              <div class="lead-img" aria-hidden="true"></div>
+              <p class="dl">Lead · 1 hour ago · sample</p>
+              <h4 class="hed">Night ferries return to the harbour after a summer of repairs</h4>
+              <p class="deck">The service resumes on Monday with a shorter crossing and a new stop by the old market, the city says.</p>
+              <div class="src"><span class="chip">source one <sup>1</sup></span><span class="chip">source two <sup>2</sup></span></div>
+            </div>
+            <div class="stories">
+              <div class="story"><p class="dl">3 hours ago · sample</p><h5 class="hed">Library opens its reading room around the clock for exams</h5><p>Doors stay open until the end of the month.</p></div>
+              <div class="story"><p class="dl">5 hours ago · sample</p><h5 class="hed">Rain expected to end a long dry spell by midweek</h5><p>Forecasters give Tuesday the best chance.</p></div>
+              <div class="story"><p class="dl">Yesterday · sample</p><h5 class="hed">Orchestra announces a free open-air season</h5><p>Six evenings in the park, starting in October.</p></div>
+            </div>
+          </div>
+        </article>
+      </div>
+      <p class="mock-cap"><b>What to notice:</b> GIDEON’s register is a formal 1955 letter, so the news borrows the same decade; every story is dated and cited, the edition follows the user’s clock, and a story older than two days gives its date in full.</p>
+
+      <div class="recipe-title"><h3>glance</h3><span>the smallest size · one number and its context</span></div>
+      <div class="band" data-mood="neutral">
+        <span class="band-tag">Mockup · sample values</span>
+        <div class="glances">
+          <article class="glass glance"><p class="ck">Timer · tea</p><p class="big">3:42</p><p class="sub">Set for 5 minutes at 18:36</p></article>
+          <article class="glass glance"><p class="ck">Exchange rate</p><p class="big">1.17</p><p class="sub">US dollars for 1 euro · ECB reference rate and its date</p></article>
+          <article class="glass glance"><p class="ck">Lisbon now</p><p class="big">24°</p><p class="sub">Sunny · feels like 25°</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="skills">
+      <div class="eyebrow"><p class="kicker">8</p></div>
+      <h2>Skills</h2>
+      <div class="prose"><p>The speaking model’s front door stays small. Each tool is a decision it must get right while someone waits, and every description is prompt it reads before its first word. The list grows from 8 tools to 14, and no further.</p></div>
+      <h3>Tools the speaking model sees</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tool</th><th>Its one job</th><th>Recipes</th><th>Sources</th><th>Phase</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tool">research</span></td><td>find out anything about the world and brief it</td><td>answer, profile, figure, compare, trend, ranking, timeline, steps, front-page, feature, recipe</td><td>Exa and the desk tools</td><td class="num">1</td></tr>
+          <tr><td><span class="tool">show_images</span></td><td>pictures of a thing</td><td>gallery</td><td>Exa, Openverse</td><td class="num">built</td></tr>
+          <tr><td><span class="tool">weather</span><span class="new">new</span></td><td>forecast or conditions now for one place</td><td>weather, figure</td><td>Open-Meteo or MET Norway; Mapbox geocoding</td><td class="num">2</td></tr>
+          <tr><td><span class="tool">markets</span><span class="new">new</span></td><td>price and history of a stock, index, currency or coin</td><td>market</td><td>a provider to choose; Frankfurter</td><td class="num">2b</td></tr>
+          <tr><td><span class="tool">show_map</span><span class="new">new</span></td><td>where a place is, how to get between two, what is near one</td><td>place, route, nearby</td><td>Mapbox Geocoding v6, Directions v5, Search Box</td><td class="num">3</td></tr>
+          <tr><td><span class="tool">show_video</span><span class="new">new</span></td><td>a video the user asked to watch</td><td>video</td><td>YouTube Data API; Exa and oEmbed fallback</td><td class="num">4</td></tr>
+          <tr><td><span class="tool">craft</span><span class="new">new</span></td><td>combine cards already on screen</td><td>compare, trend, pins map</td><td>the cards’ own materials</td><td class="num">5</td></tr>
+          <tr><td><span class="tool">show_memories</span><span class="new">new</span></td><td>show what GIDEON remembers, each item removable</td><td>memory</td><td>the memory store</td><td class="num">5</td></tr>
+        </tbody>
+      </table></div>
+      <p class="prose small muted">All are read-only. The one exception lives inside <code>show_map</code>: “near me” asks the browser for its position through a new <code>get_location</code> bridge call the model never makes. A permission prompt is observable, so a speculative turn stops before asking and the real turn asks, exactly as a guess reaching for <code>set_timer</code> is dropped today.</p>
+      <h3>Tools only the research desk sees</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Desk tool</th><th>Captures</th><th>Source</th><th>For</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tool">search</span> <span class="tool">read</span></td><td>dated stories, page text (quotes are checked against it)</td><td>Exa; <code>category: "news"</code> for the front page</td><td>every recipe</td></tr>
+          <tr><td><span class="tool">entity_facts</span></td><td>dates, places, coordinates, population, founding, portrait</td><td>Wikidata, Wikipedia</td><td>profile, place, compare</td></tr>
+          <tr><td><span class="tool">country_data</span></td><td>indicator series by country and year</td><td>World Bank API</td><td>trend, compare, ranking</td></tr>
+          <tr><td><span class="tool">chart_data</span></td><td>the series behind a published chart</td><td>Our World in Data <code>.csv</code> and <code>.metadata.json</code></td><td>trend, ranking</td></tr>
+          <tr><td><span class="tool">page_data</span></td><td>schema.org Recipe, Event, Product, NewsArticle</td><td>a page already in the results</td><td>recipe, compare, timeline</td></tr>
+          <tr><td><span class="tool">geocode</span></td><td>coordinates for a place in the brief</td><td>Mapbox Geocoding v6</td><td>a map on a profile or feature</td></tr>
+        </tbody>
+      </table></div>
+      <p class="prose small muted">Not built: sports (no dependable free source yet), flights (licensing), calculators (the voice answers; a card adds nothing).</p>
+    </section>
+
+    <section id="wrong-skill">
+      <div class="eyebrow"><p class="kicker">9</p></div>
+      <h2>Keeping the wrong skill from firing</h2>
+      <div class="prose"><p>Five layers, cheapest first, so most mistakes are stopped before they cost a round of silence.</p></div>
+      <ol class="layers">
+        <li><div><b>Narrow jobs, generated descriptions.</b><span>Each skill’s manifest holds its one job, when to use it, what it is never for and which tool is, three examples and two counter-examples. The description is generated from it, so none can be vague, and no description example is reused in the test corpus.</span></div></li>
+        <li><div><b>The boundary table.</b><span>Written before a skill is built, for every pair that could be confused, and turned straight into test cases. Filter it below.</span></div></li>
+        <li><div><b>Guards inside each skill.</b><span>Arguments are checked before any request leaves; a call that does not fit is refused in one sentence the model can act on (“That is beyond the forecast; use research”).</span></div></li>
+        <li><div><b>Recipes gated on materials, in code.</b><span>The composer is only offered recipes its materials qualify for. It cannot choose a trend when no series has four points.</span></div></li>
+        <li><div><b>A corpus that gates every change.</b><span>About 240 utterances through the real speaking model with every tool stubbed, printed as a confusion matrix.</span></div></li>
+      </ol>
+
+      <h3>The boundary table</h3>
+      <div class="filters" role="group" aria-label="Filter the boundary table by tool" id="bFilters">
+        <button class="seg" type="button" data-tool="all" aria-pressed="true">all</button>
+        <button class="seg" type="button" data-tool="weather" aria-pressed="false">weather</button>
+        <button class="seg" type="button" data-tool="show_map" aria-pressed="false">show_map</button>
+        <button class="seg" type="button" data-tool="show_images" aria-pressed="false">show_images</button>
+        <button class="seg" type="button" data-tool="show_video" aria-pressed="false">show_video</button>
+        <button class="seg" type="button" data-tool="markets" aria-pressed="false">markets</button>
+        <button class="seg" type="button" data-tool="craft" aria-pressed="false">craft</button>
+        <button class="seg" type="button" data-tool="memory" aria-pressed="false">memory</button>
+        <button class="seg" type="button" data-tool="none" aria-pressed="false">no tool</button>
+      </div>
+      <div class="table-wrap"><table id="bTable">
+        <thead><tr><th>The user says</th><th>Right</th><th>Tempting</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr data-tools="weather research"><td>what’s the weather in Lisbon</td><td><span class="tool">weather</span></td><td><span class="tool">research</span></td><td>a forecast is data with a source; the desk costs seconds</td></tr>
+          <tr data-tools="weather research"><td>what’s Lisbon like in spring</td><td><span class="tool">research</span></td><td><span class="tool">weather</span></td><td>climate and character, not a forecast</td></tr>
+          <tr data-tools="weather research"><td>what was the weather on the day of the moon landing</td><td><span class="tool">research</span></td><td><span class="tool">weather</span></td><td>history, not a forecast</td></tr>
+          <tr data-tools="show_images show_map"><td>show me Lisbon</td><td><span class="tool">show_images</span></td><td><span class="tool">show_map</span></td><td>“show me” a place means pictures unless the words are map, where, directions or near</td></tr>
+          <tr data-tools="show_map show_images"><td>where is Lisbon · show it on a map</td><td><span class="tool">show_map</span> place</td><td><span class="tool">show_images</span></td><td>asked for the map</td></tr>
+          <tr data-tools="show_map research"><td>tell me about Lisbon</td><td><span class="tool">research</span> profile</td><td><span class="tool">show_map</span></td><td>knowledge; the map arrives as a block on the card</td></tr>
+          <tr data-tools="show_map research"><td>how far is Porto from Lisbon</td><td><span class="tool">show_map</span> route</td><td><span class="tool">research</span></td><td>a distance by road</td></tr>
+          <tr data-tools="show_map research"><td>how long is the flight to Porto</td><td><span class="tool">research</span></td><td><span class="tool">show_map</span></td><td>flights are not in the Directions API</td></tr>
+          <tr data-tools="show_map research"><td>coffee near me</td><td><span class="tool">show_map</span> nearby</td><td><span class="tool">research</span></td><td>places by category around a point</td></tr>
+          <tr data-tools="show_map research"><td>best coffee in Lisbon</td><td><span class="tool">research</span></td><td><span class="tool">show_map</span></td><td>“best” is reviews and opinion</td></tr>
+          <tr data-tools="show_video research"><td>show me a video on tying a bowline</td><td><span class="tool">show_video</span></td><td><span class="tool">research</span></td><td>a video was asked for</td></tr>
+          <tr data-tools="show_video research"><td>how do I tie a bowline</td><td><span class="tool">research</span> steps</td><td><span class="tool">show_video</span></td><td>words were asked for; the card may offer a video chip</td></tr>
+          <tr data-tools="markets research"><td>how’s Apple doing</td><td><span class="tool">markets</span></td><td><span class="tool">research</span></td><td>“doing”, “stock”, “shares” of a listed company</td></tr>
+          <tr data-tools="markets research"><td>what does Apple make</td><td><span class="tool">research</span></td><td><span class="tool">markets</span></td><td>about the company, not its price</td></tr>
+          <tr data-tools="markets research"><td>price of apples</td><td><span class="tool">research</span></td><td><span class="tool">markets</span></td><td>groceries</td></tr>
+          <tr data-tools="research"><td>compare Python and Rust</td><td><span class="tool">research</span> compare</td><td><span class="tool">research</span> profile</td><td>compare, versus, difference between, which is better</td></tr>
+          <tr data-tools="craft research"><td>compare them, with two cards on screen</td><td><span class="tool">craft</span></td><td><span class="tool">research</span></td><td>the subjects are already on screen</td></tr>
+          <tr data-tools="research"><td>population of Japan since 1960</td><td><span class="tool">research</span> trend</td><td><span class="tool">research</span> figure</td><td>since, over time, history of</td></tr>
+          <tr data-tools="none show_images"><td>picture this</td><td><span class="tool none">no tool</span></td><td><span class="tool">show_images</span></td><td>a figure of speech</td></tr>
+          <tr data-tools="none weather"><td>I’m under the weather</td><td><span class="tool none">no tool</span></td><td><span class="tool">weather</span></td><td>a figure of speech</td></tr>
+          <tr data-tools="none show_map"><td>map out my week</td><td><span class="tool none">no tool</span></td><td><span class="tool">show_map</span></td><td>a figure of speech</td></tr>
+          <tr data-tools="none research"><td>sort it by price</td><td><span class="tool none">stage control</span></td><td><span class="tool">research</span></td><td>about the open card; the screen follows by itself</td></tr>
+          <tr data-tools="memory"><td>what do you remember about me</td><td><span class="tool">show_memories</span></td><td><span class="tool">recall</span></td><td>asked to see</td></tr>
+          <tr data-tools="memory"><td>do you remember my sister’s name</td><td><span class="tool">recall</span></td><td><span class="tool">show_memories</span></td><td>asked a question</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>The gate on every change to the prompt or the tools</h3>
+      <div class="gate">
+        <div><b>95%</b><span>overall routing accuracy</span></div>
+        <div><b>92% · 90%</b><span>precision and recall, per tool</span></div>
+        <div><b>0</b><span>stray side effects: timers, memories, links nobody asked for</span></div>
+        <div><b>8 of 8</b><span>of today’s routing cases still pass</span></div>
+        <div><b>≤ 60 ms</b><span>added to time to first token at the median</span></div>
+      </div>
+    </section>
+
+    <section id="made">
+      <div class="eyebrow"><p class="kicker">10</p></div>
+      <h2>How a card is made</h2>
+      <div class="prose"><p>At the skill the turn splits in two. Its words go straight back to the speaking model, which starts talking. Its evidence goes down the card path, and the only way a value reaches the screen is through the resolver.</p></div>
+      <figure>
+        <svg viewBox="0 0 1100 390" role="img" aria-label="The skill's words go back to the speaking model and are spoken; its captured materials go to the composer, which writes pointers, then to the resolver and validator, then out as card and card_patch frames to the stage, which holds them while the turn is a guess. Direct skills skip the composer." style="width:100%;height:auto;color:#aab3c0">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+            <marker id="a2i" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#bfe9ff"/></marker>
+          </defs>
+          <g font-size="12" fill="currentColor">
+            <text x="580" y="26" font-size="10.5" letter-spacing="2" fill="#7d8795">VOICE</text>
+            <text x="580" y="204" font-size="10.5" letter-spacing="2" fill="#7d8795">SCREEN</text>
+            <rect x="10" y="124" width="110" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="65" y="155" text-anchor="middle" fill="#f6f8ff">user asks</text>
+            <rect x="150" y="124" width="180" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="240" y="147" text-anchor="middle" fill="#f6f8ff">speaking model</text>
+            <text x="240" y="164" text-anchor="middle" font-size="10.5">picks one tool</text>
+            <rect x="360" y="124" width="160" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="440" y="147" text-anchor="middle" fill="#f6f8ff">skill</text>
+            <text x="440" y="164" text-anchor="middle" font-size="10.5">APIs, or the research desk</text>
+            <line x1="122" y1="150" x2="146" y2="150" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <line x1="332" y1="150" x2="356" y2="150" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <text x="344" y="116" text-anchor="middle" font-size="10.5">tool call</text>
+
+            <rect x="580" y="40" width="220" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="690" y="63" text-anchor="middle" fill="#f6f8ff">speaking model answers</text>
+            <text x="690" y="80" text-anchor="middle" font-size="10.5">from the words or the brief</text>
+            <rect x="850" y="40" width="240" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="970" y="70" text-anchor="middle" fill="#f6f8ff">heard, never waiting</text>
+            <path d="M522 140 C552 140 548 66 576 66" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <text x="530" y="98" font-size="10.5">words</text>
+            <line x1="802" y1="66" x2="846" y2="66" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+
+            <rect x="580" y="214" width="170" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="665" y="237" text-anchor="middle" fill="#f6f8ff">materials</text>
+            <text x="665" y="254" text-anchor="middle" font-size="10.5">captured by code</text>
+            <path d="M522 160 C552 160 548 240 576 240" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <text x="524" y="214" font-size="10.5">evidence</text>
+            <rect x="780" y="214" width="150" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="855" y="237" text-anchor="middle" fill="#f6f8ff">composer</text>
+            <text x="855" y="254" text-anchor="middle" font-size="10.5">writes pointers</text>
+            <rect x="960" y="214" width="130" height="52" rx="12" fill="rgba(191,233,255,.10)" stroke="#bfe9ff"/>
+            <text x="1025" y="237" text-anchor="middle" fill="#bfe9ff">resolver</text>
+            <text x="1025" y="254" text-anchor="middle" font-size="10.5" fill="#bfe9ff">and validator</text>
+            <line x1="752" y1="240" x2="776" y2="240" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <line x1="932" y1="240" x2="956" y2="240" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+            <path d="M720 212 C780 164 910 164 990 210" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#a2)"/>
+            <text x="855" y="174" text-anchor="middle" font-size="10.5">direct skills: a template in code</text>
+            <path d="M985 268 C965 300 880 300 860 270" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#a2)"/>
+            <text x="800" y="304" font-size="10.5">fails: next recipe, then no card</text>
+
+            <rect x="880" y="326" width="210" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="985" y="349" text-anchor="middle" fill="#f6f8ff">card · card_patch</text>
+            <text x="985" y="366" text-anchor="middle" font-size="10.5">bounded frames</text>
+            <line x1="1060" y1="268" x2="1060" y2="322" stroke="#bfe9ff" stroke-width="1.4" marker-end="url(#a2i)"/>
+            <rect x="580" y="326" width="260" height="52" rx="12" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)"/>
+            <text x="710" y="349" text-anchor="middle" fill="#f6f8ff">stage</text>
+            <text x="710" y="366" text-anchor="middle" font-size="10.5">held while the turn is a guess</text>
+            <line x1="878" y1="352" x2="844" y2="352" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+          </g>
+        </svg>
+        <figcaption>The resolver is the one gate between evidence and the screen. The composer never touches a value, and a direct skill needs no model at all.</figcaption>
+      </figure>
+
+      <h3>Richer than the brief, and still only what the brief relied on</h3>
+      <div class="prose">
+        <p>The desk already sees every result and page. It now keeps them as materials, stamped with their URL and when they were fetched: eight results of up to 900 characters per search and pages of up to 10,000, not just the 180 words that were spoken. Results the brief did not cite are left out, so a card cannot bring back a stale page the desk decided against; materials from data tools are always kept, because the desk called those on purpose.</p>
+      </div>
+
+      <h3>The composer writes pointers; the resolver writes values</h3>
+      <div class="codepair">
+        <div>
+          <h4>What the composer writes</h4>
+<pre><code>{ <span class="k">"slot"</span>: <span class="s">"lead"</span>, <span class="k">"type"</span>: <span class="s">"stat"</span>,
+  <span class="k">"value"</span>:  { <span class="k">"from"</span>: <span class="s">"m2"</span>, <span class="k">"pick"</span>: <span class="s">"last"</span> },
+  <span class="k">"change"</span>: { <span class="k">"derive"</span>: <span class="s">"percent-change"</span>,
+              <span class="k">"of"</span>: { <span class="k">"from"</span>: <span class="s">"m2"</span>, <span class="k">"pick"</span>: <span class="s">"first"</span> },
+              <span class="k">"to"</span>: { <span class="k">"from"</span>: <span class="s">"m2"</span>, <span class="k">"pick"</span>: <span class="s">"last"</span> } },
+  <span class="k">"label"</span>: <span class="s">"Passengers, latest year"</span> }</code></pre>
+        </div>
+        <div>
+          <h4>What reaches the browser</h4>
+<pre><code>{ <span class="k">"id"</span>: <span class="s">"b1"</span>, <span class="k">"slot"</span>: <span class="s">"lead"</span>, <span class="k">"type"</span>: <span class="s">"stat"</span>,
+  <span class="k">"value"</span>: <span class="s">"4.9 M"</span>, <span class="k">"label"</span>: <span class="s">"Passengers, latest year"</span>,
+  <span class="k">"change"</span>: { <span class="k">"value"</span>: <span class="s">"+58%"</span>, <span class="k">"direction"</span>: <span class="s">"up"</span>,
+    <span class="k">"derived"</span>: { <span class="k">"formula"</span>: <span class="s">"(4.9 − 3.1) ÷ 3.1"</span>,
+                 <span class="k">"inputs"</span>: [<span class="s">"m2@2014"</span>, <span class="s">"m2@2025"</span>] } },
+  <span class="k">"cite"</span>: [<span class="n">0</span>] }  <span class="c">// sample series</span></code></pre>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Pointer</th><th>Means</th></tr></thead>
+        <tbody>
+          <tr><td><code>{ from }</code></td><td>a whole material</td></tr>
+          <tr><td><code>{ from, field }</code></td><td>one field of a record</td></tr>
+          <tr><td><code>{ from, row, column }</code></td><td>one table cell <strong>by its labels</strong>, never by index, so a miscount cannot pick the wrong row</td></tr>
+          <tr><td><code>{ from, pick }</code></td><td><code>first</code>, <code>last</code>, <code>max</code>, <code>min</code> or <code>at:2020</code> of a series</td></tr>
+          <tr><td><code>{ derive, … }</code></td><td>change, percent change, CAGR, rank or distance, computed in code and shown with its formula</td></tr>
+        </tbody>
+      </table></div>
+      <p class="prose">The validator keeps today’s number check and adds five more: quotes word for word, dates found in a material, one unit per row and axis, the recipe’s minimums after resolution, and the fold budget. A card that fails steps down its chain (trend, figure, answer, no card); a block that fails alone is dropped and the recipe closes over the gap.</p>
+
+      <h3>Sent as soon as something is certain, then patched</h3>
+      <figure>
+        <svg viewBox="0 0 1000 210" role="img" aria-label="Timeline of a research turn. Searching pane at zero; holding line heard from 0.3 seconds; a partial card at about 1 second; the brief returns between 4 and 6 seconds and the answer is spoken; the final card patch lands between 6 and 8 seconds." style="width:100%;height:auto;color:#aab3c0">
+          <g font-size="11" fill="currentColor">
+            <text x="10" y="64" fill="#f6f8ff" font-size="12">voice</text>
+            <text x="10" y="134" fill="#f6f8ff" font-size="12">screen</text>
+            <rect x="514" y="30" width="187" height="150" fill="rgba(191,233,255,.05)"/>
+            <text x="607" y="24" text-anchor="middle" font-size="10.5">brief returns, 4–6 s</text>
+            <g stroke="rgba(255,255,255,.08)"><line x1="140" y1="40" x2="140" y2="178"/><line x1="233" y1="40" x2="233" y2="178"/><line x1="327" y1="40" x2="327" y2="178"/><line x1="420" y1="40" x2="420" y2="178"/><line x1="514" y1="40" x2="514" y2="178"/><line x1="607" y1="40" x2="607" y2="178"/><line x1="701" y1="40" x2="701" y2="178"/><line x1="794" y1="40" x2="794" y2="178"/><line x1="888" y1="40" x2="888" y2="178"/><line x1="981" y1="40" x2="981" y2="178"/></g>
+            <rect x="168" y="50" width="112" height="20" rx="10" fill="rgba(255,255,255,.14)"/>
+            <text x="176" y="64" fill="#f6f8ff" font-size="10.5">“Let me look that up.”</text>
+            <rect x="607" y="50" width="374" height="20" rx="10" fill="#3987e5"/>
+            <text x="617" y="64" fill="#ffffff" font-size="10.5">the answer, spoken</text>
+            <rect x="140" y="120" width="93" height="20" rx="10" fill="rgba(255,255,255,.1)"/>
+            <text x="148" y="134" fill="#f6f8ff" font-size="10.5">searching</text>
+            <rect x="233" y="120" width="468" height="20" rx="10" fill="rgba(191,233,255,.22)"/>
+            <text x="243" y="134" fill="#f6f8ff" font-size="10.5">partial card: portrait, name, dates</text>
+            <rect x="701" y="120" width="280" height="20" rx="10" fill="#bfe9ff"/>
+            <text x="711" y="134" fill="#0b1020" font-size="10.5">card_patch: summary, timeline, facts</text>
+            <g text-anchor="middle" font-size="10.5"><text x="140" y="198">0 s</text><text x="233" y="198">1</text><text x="327" y="198">2</text><text x="420" y="198">3</text><text x="514" y="198">4</text><text x="607" y="198">5</text><text x="701" y="198">6</text><text x="794" y="198">7</text><text x="888" y="198">8</text><text x="981" y="198">9 s</text></g>
+          </g>
+        </svg>
+        <figcaption>Targets, built from today’s measurements (a brief in 3.5 to 6.4 s, a card 2.7 s after it at the median) plus one composer call. A partial card is sent early only when the subject’s identity is certain. A guess’s frames still wait until the guess is kept.</figcaption>
+      </figure>
+    </section>
+
+    <section id="wire">
+      <div class="eyebrow"><p class="kicker">11</p></div>
+      <h2>The schema and the wire</h2>
+      <div class="codepair">
+        <div>
+          <h4>The card</h4>
+<pre><code><span class="k">interface</span> CardV2 {
+  schema: <span class="n">2</span>
+  recipe: RecipeId
+  size: <span class="s">'glance'</span> | <span class="s">'standard'</span> | <span class="s">'wide'</span> | <span class="s">'feature'</span>
+  query: string
+  title: string          <span class="c">// shelf, director, speaking model</span>
+  blocks: Block[]        <span class="c">// resolved values only</span>
+  sources: CardSource[]
+  asOf: string | null
+  freshForMs: number | null
+  origin: { tool, args } <span class="c">// so "refresh it" can run it again</span>
+  controls: CardControl[]
+  mentions: Mention[]
+  partial: boolean       <span class="c">// more blocks are coming</span>
+}</code></pre>
+        </div>
+        <div>
+          <h4>The materials behind it</h4>
+<pre><code><span class="k">type</span> Material =
+  | { kind: <span class="s">'record'</span>, subject, fields }
+  | { kind: <span class="s">'table'</span>,  columns, rows }
+  | { kind: <span class="s">'series'</span>, name, unit, x, points }
+  | { kind: <span class="s">'geo'</span>,    features }
+  | { kind: <span class="s">'events'</span>, items }
+  | { kind: <span class="s">'stories'</span>, items }
+  | { kind: <span class="s">'text'</span>,   text }
+<span class="c">// every one: { id, source: { url, title, fetchedAt } }</span>
+<span class="c">// built by code from responses; never by a model;</span>
+<span class="c">// kept on the server, keyed by card, for crafting</span></code></pre>
+        </div>
+      </div>
+      <h3>Protocol version 3</h3>
+      <ul class="tight prose">
+        <li><code>ready</code> gains <code>features</code> and the public <code>mapboxToken</code>; <code>/api/config</code> carries the same for the HTTP fallback.</li>
+        <li><code>card</code> carries a <code>CardV2</code> or today’s card, drawn through an adapter, so a tab left open on an older build keeps working.</li>
+        <li><code>card_patch</code> is new: blocks upserted by id; a patch for a card no longer on screen is ignored.</li>
+        <li><code>stage</code> gains <code>{ op: 'control', card, control, value }</code>; <code>turn.screen</code> gains the open card’s digest, 400 characters at most.</li>
+        <li><strong>Bounds in code before sending:</strong> card 64 KB, patch 32 KB, 50 table rows, 400 points per series, 50 map features, 500 route coordinates. Cloudflare accepts 32 MiB WebSocket messages since October 2025, so these bounds are for the phone’s radio and the renderer, not the platform.</li>
+      </ul>
+    </section>
+
+    <section id="glass">
+      <div class="eyebrow"><p class="kicker">12</p></div>
+      <h2>Liquid glass for dense content</h2>
+      <div class="prose"><p>One material, four surfaces. The pane is today’s card. Dense content sits in a <strong>well</strong>: a calmer, darker surface inside the pane with no backdrop filter of its own (the pane has already blurred the room), and a corner radius of the pane’s minus its inset, 30 − 14 = 16 px, so the curves stay concentric.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Surface</th><th>What it is</th><th>Refracts</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Pane</strong></td><td>today’s <code>.glass-pane</code>, the card itself</td><td>yes, in front</td></tr>
+          <tr><td><strong>Well</strong></td><td>the reading surface for tables, charts, maps and video</td><td>no</td></tr>
+          <tr><td><strong>Chip</strong></td><td>sources, controls, follow-ups</td><td>small buttons share one map</td></tr>
+          <tr><td><strong>Lens</strong></td><td>a glass readout over a chart point or pin, in three fixed sizes so its maps are built once</td><td>yes</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>How dark a well has to be, measured</h3>
+      <div class="prose"><p>The room is a moving shader that changes colour with the mood, so the wells were computed rather than chosen. On 13 September 2026 each mood palette in <code>mood.ts</code> was blurred into a backdrop (its body with 35% of its crest, a deliberately bright case), given the pane’s 5% of white, then the well’s tint of <code>rgb(5, 7, 11)</code>.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Mood</th><th>Backdrop</th><th>Well at 60%</th><th>Well at 72%</th></tr></thead>
+        <tbody>
+          <tr><td>neutral</td><td><span class="swatch" style="background:#364a76"></span><code>#364a76</code></td><td><span class="swatch" style="background:#1d2538"></span><code>#1d2538</code></td><td><span class="swatch" style="background:#161c2b"></span><code>#161c2b</code></td></tr>
+          <tr><td>curious</td><td><span class="swatch" style="background:#256d71"></span><code>#256d71</code></td><td><span class="swatch" style="background:#163336"></span><code>#163336</code></td><td><span class="swatch" style="background:#112629"></span><code>#112629</code></td></tr>
+          <tr><td>focused</td><td><span class="swatch" style="background:#273f93"></span><code>#273f93</code></td><td><span class="swatch" style="background:#172144"></span><code>#172144</code></td><td><span class="swatch" style="background:#111933"></span><code>#111933</code></td></tr>
+          <tr><td>happy</td><td><span class="swatch" style="background:#8e5431"></span><code>#8e5431</code></td><td><span class="swatch" style="background:#3e291e"></span><code>#3e291e</code></td><td><span class="swatch" style="background:#2d1f18"></span><code>#2d1f18</code></td></tr>
+          <tr><td>concerned</td><td><span class="swatch" style="background:#5c3258"></span><code>#5c3258</code></td><td><span class="swatch" style="background:#2b1c2d"></span><code>#2b1c2d</code></td><td><span class="swatch" style="background:#201623"></span><code>#201623</code></td></tr>
+          <tr><td>surprised</td><td><span class="swatch" style="background:#6b399c"></span><code>#6b399c</code></td><td><span class="swatch" style="background:#311f47"></span><code>#311f47</code></td><td><span class="swatch" style="background:#241835"></span><code>#241835</code></td></tr>
+        </tbody>
+      </table></div>
+      <div class="two">
+        <div class="panel">
+          <h3>Data colours on those wells</h3>
+          <p style="margin:0 0 10px">
+            <span class="swatch" style="background:#3987e5"></span><span class="swatch" style="background:#d95926"></span><span class="swatch" style="background:#199e70"></span><span class="swatch" style="background:#c98500"></span><span class="swatch" style="background:#d55181"></span><span class="swatch" style="background:#008300"></span><span class="swatch" style="background:#9085e9"></span><span class="swatch" style="background:#e66767"></span>
+          </p>
+          <ul>
+            <li>All eight, in this fixed order, pass every check on <strong>all six wells at 72%</strong>: lightness, chroma, colour-blind and normal-vision separation, 3:1 contrast.</li>
+            <li>At 60%, green falls to <strong>2.76:1</strong> on the happy well.</li>
+            <li><strong>Wells are tinted at 74%</strong>, just past the measured line.</li>
+            <li>Maps and charts where any two marks can touch use only the first three.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Text on those wells (4.5:1 needed)</h3>
+          <ul>
+            <li>Primary ink <code>#f6f8ff</code>: <strong>14.84:1</strong> at worst.</li>
+            <li>Today’s fact labels, ice at 55%: <strong>4.69:1</strong>, a narrow pass; in wells they move to 70% (6.70:1).</li>
+            <li>A common muted grey, <code>#898781</code>: <strong>4.39:1</strong>, fails on the curious and happy wells.</li>
+            <li>Proposed muted and axis ink <code>#a9b1bd</code>: <strong>7.28:1</strong>.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="prose small muted">A unit test recomputes both tables from <code>PALETTES</code>, so a change to the room that makes a well unreadable fails the build rather than a card.</p>
+
+      <h3>Type, colour and motion</h3>
+      <ul class="tight prose">
+        <li><strong>GT Alpina</strong> for headlines, mastheads and decks, and the number on a figure card, which is GIDEON’s voice. <strong>Frances</strong> for body text and every number inside a data block. <strong>Plex Mono</strong> for kickers, datelines, units and axes. (This page substitutes the project’s own fallbacks: Fraunces, Manrope, IBM Plex Mono.)</li>
+        <li><strong>Tabular figures only where digits line up</strong>; a standalone number uses proportional figures, which means dropping <code>tabular-nums</code> from today’s large figure.</li>
+        <li><strong>Text never wears a series colour</strong>, status colours only mean good or bad and always come with a word, and <strong>the room may change colour while the data may not</strong>.</li>
+        <li><strong>Numbers never count up.</strong> A counter passes through values that are not true, and this is the one place where everything shown must be. Lines draw in 700 ms, bars grow from the baseline, table rows rise 30 ms apart, a map flies in during the holding line; reduced motion turns each into a cross-fade.</li>
+        <li><strong>Searching panes take the skill’s shape</strong>: a dim world for a map, a tile and a faint curve for weather, a 16:9 shimmer for video, and research gains its progress line.</li>
+      </ul>
+    </section>
+
+    <section id="charts">
+      <div class="eyebrow"><p class="kicker">13</p></div>
+      <h2>Charts and tables</h2>
+      <div class="prose"><p>Charts are GIDEON’s own SVG components on four d3 modules (<code>d3-scale</code>, <code>d3-shape</code>, <code>d3-array</code>, <code>d3-time-format</code>) rather than a charting library. Glass needs its own chrome, spoken highlighting needs a hook on every point, the motion rules must hold, the server pass has no canvas, and Recharts alone is 7.4 MB unpacked on npm.</p></div>
+      <div class="two">
+        <div class="panel">
+          <h3>Charts</h3>
+          <ul>
+            <li><strong>One y-axis, always.</strong> Two units become two charts sharing the x-axis.</li>
+            <li>A line needs 4 points; bars need 3 and stop at 15; bars start at zero.</li>
+            <li>At most 5 series; past 4, each is labelled at its end.</li>
+            <li>A missing value is a gap, never a zero; over 400 points is downsampled keeping its shape.</li>
+            <li>2 px lines, bars ≤ 24 px with 4 px rounded ends, solid hairline grids, at most 5 round ticks.</li>
+            <li>Label the end, the peak, and the series the story is about, never every point.</li>
+            <li>A computed summary, a table view, and the same readout on hover and keyboard.</li>
+            <li>An “as of” date and the source under every chart.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Tables</h3>
+          <ul>
+            <li>Numbers right-aligned in tabular figures, one precision per column, the unit in the header.</li>
+            <li>The first column stays put when the table scrolls sideways in its well.</li>
+            <li>12 rows shown; “show all 34” grows the card to feature size instead of scrolling it.</li>
+            <li>Numeric columns sort by tap or by voice.</li>
+            <li>A “best” marker only where the skill declares which direction is better. The model never picks a winner.</li>
+            <li>Missing values are a dash with a note, never a zero.</li>
+            <li>Each cell’s source on hover, through the lens.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="maps">
+      <div class="eyebrow"><p class="kicker">14</p></div>
+      <h2>Maps</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>The map itself</h3>
+          <ul>
+            <li><strong><code>mapbox-gl</code> 3.30.0</strong>, released 3 September 2026, loaded with <code>import()</code> on the first map block and fetched early the moment a <code>show_map</code> call is pending.</li>
+            <li><strong>One map for the whole page.</strong> A single <code>mapboxgl.Map</code> is moved into whichever map block is in front. The room’s shader and this map are the only WebGL contexts ever alive, and a session costs one map load.</li>
+            <li><strong>Mapbox Standard, configured:</strong> <code>lightPreset: 'night'</code>, <code>theme: 'monochrome'</code> or <code>'faded'</code>, POI labels off, <code>colorWater</code> and <code>colorLand</code> tuned toward the room’s blues. Satellite on request.</li>
+            <li><strong>Stills</strong> from the Static Images API for the peek, the shelf, no WebGL and data saver.</li>
+            <li><strong>Attribution and the logo stay visible</strong>, recoloured only.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Tokens, location, cost</h3>
+          <ul>
+            <li><code>MAPBOX_PUBLIC_TOKEN</code>, URL-restricted to chatgideon.com and localhost, sent in <code>ready</code>; still-image URLs use it because the browser loads them.</li>
+            <li><code>MAPBOX_SERVER_TOKEN</code>, a secret, for geocoding, directions and search.</li>
+            <li><strong>Coarse location by default</strong> from <code>request.cf</code>, read in <code>server.ts</code> when the socket opens. <strong>Precise only for “near me”</strong>, with the browser’s permission, rounded to about 110 m, never stored unasked.</li>
+            <li><strong>Free monthly allowances:</strong> 50,000 web map loads, 100,000 temporary geocodes, 100,000 directions, 50,000 static images.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Mode</th><th>Calls</th><th>Card</th><th>GIDEON says</th></tr></thead>
+        <tbody>
+          <tr><td><code>place</code></td><td>Geocoding v6, biased to the user’s city</td><td>pin, name, type, local time, the weather now</td><td>where it is, in a line</td></tr>
+          <tr><td><code>route</code></td><td>Geocoding for both ends, Directions v5 (driving-traffic, walking, cycling)</td><td>line, duration, distance, first turns</td><td>how long it takes</td></tr>
+          <tr><td><code>nearby</code></td><td>Search Box <code>/category</code> around a point</td><td>numbered pins and the same numbers in a list</td><td>the first two or three names</td></tr>
+        </tbody>
+      </table></div>
+      <ul class="tight prose">
+        <li><strong>An ambiguous name is asked about, never guessed.</strong> If results span countries and nothing in the talk decides, GIDEON asks “Springfield, Illinois or Massachusetts?” A wrong pin is worse than no pin.</li>
+        <li><strong>The camera follows the voice:</strong> a place flies in during the holding line, a route fits both ends, nearby pins appear in the order they are named and brighten as they are said.</li>
+        <li><strong>The map never captures a page scroll</strong>: zooming needs a modifier key, and zoom, fit, satellite and 3D are glass chips and voice controls.</li>
+        <li><strong>“As the crow flies”</strong> is computed from two geocodes in code and labelled as computed.</li>
+      </ul>
+    </section>
+
+    <section id="video">
+      <div class="eyebrow"><p class="kicker">15</p></div>
+      <h2>Video</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>Finding and showing it</h3>
+          <ul>
+            <li><strong>YouTube Data API v3:</strong> embeddable, syndicated, moderate safe search; then duration, description and region.</li>
+            <li><strong>Quota:</strong> 10,000 units a day; a search costs 100, so 100 searches; cached by query for 24 hours.</li>
+            <li><strong>Fallback:</strong> Exa limited to youtube.com plus oEmbed. The card loses duration and chapters, nothing else.</li>
+            <li><strong>Chapters</strong> from at least three timestamped lines in the description, the first at 0:00.</li>
+            <li><strong>Poster first.</strong> The <code>youtube-nocookie.com</code> player loads only on play. GIDEON never starts a video by itself. Embed only; nothing downloaded or re-hosted.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>A video in a room with an open microphone</h3>
+          <ol>
+            <li><strong>Spike first.</strong> Three minutes of dialogue at normal volume with echo cancellation on; count the turns that start. Whether the browser cancels the page’s own video audio decides the rest.</li>
+            <li><strong>If it does not,</strong> a turn during playback needs GIDEON’s name or a tap.</li>
+            <li><strong>Either way,</strong> addressing GIDEON pauses the video (not ducks it), and “carry on” resumes.</li>
+          </ol>
+          <p class="small muted" style="margin:10px 0 0">Gate: zero false turns across those three minutes before video ships.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="editorial">
+      <div class="eyebrow"><p class="kicker">16</p></div>
+      <h2>The front page and the feature</h2>
+      <div class="prose">
+        <p>GIDEON speaks like a very formal 1955 letter, so its newspaper borrows the decade: a broadsheet set in glass, drawn above under <a href="#recipes">recipes</a>.</p>
+      </div>
+      <ul class="tight prose">
+        <li><strong>The edition follows the user’s clock:</strong> morning before noon, afternoon before five, evening after.</li>
+        <li><strong>Stories come from news search with a start date</strong>, each dated; older than 48 hours, a story gives its date in full.</li>
+        <li><strong>Headlines ≤ 10 words, decks ≤ 30</strong>, written from each story’s own passages and number-checked against them.</li>
+        <li><strong>The lead is the most recent story carried by the most sources</strong>; every story carries its own source markers.</li>
+        <li><strong>The feature</strong> answers “tell me everything”, “explain”, “the full story”. <code>research</code> gains <code>depth: 'deep'</code>: pages read, a second round allowed, the voice still under sixty words. <strong>The voice stays short; the card goes deep.</strong> Hero picture, headline and deck, two paragraphs with a drop cap, one verbatim pull quote, a facts sidebar, a timeline strip.</li>
+      </ul>
+    </section>
+
+    <section id="live">
+      <div class="eyebrow"><p class="kicker">17</p></div>
+      <h2>Weather and markets</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th></th><th>Open-Meteo</th><th>MET Norway</th></tr></thead>
+        <tbody>
+          <tr><td>Cost</td><td>free for non-commercial use under 10,000 calls a day; a subscription for commercial use</td><td>free</td></tr>
+          <tr><td>Licence</td><td>CC BY 4.0</td><td>CC BY 4.0</td></tr>
+          <tr><td>Horizon</td><td>16 days</td><td>9 days</td></tr>
+          <tr><td>Also</td><td>hourly, air quality, its own geocoding</td><td>UV; a User-Agent with contact details, honour <code>Expires</code>, under 20 requests a second</td></tr>
+        </tbody>
+      </table></div>
+      <div class="prose">
+        <p><strong>Recommendation:</strong> while chatgideon.com stays a non-commercial portfolio with no ads or subscriptions, Open-Meteo. The day it becomes commercial, MET Norway or a paid Open-Meteo plan. The skill sits behind a provider interface, so the switch is configuration.</p>
+        <p><strong>Markets:</strong> currencies from Frankfurter (the ECB’s reference rates, no key); stocks and coins from a provider chosen by latency, coverage outside the US, and a licence that allows display. The card shows the price, change against the previous close, 1D, 1M, 1Y and 5Y tabs, and how delayed the price is. <strong>Never advice:</strong> asked whether to buy, GIDEON says it cannot advise, and the card carries no recommendation.</p>
+      </div>
+    </section>
+
+    <section id="workspace">
+      <div class="eyebrow"><p class="kicker">18</p></div>
+      <h2>The screen as a workspace</h2>
+      <div class="prose"><p>The stage judge becomes a <strong>stage director</strong>. It keeps what made the judge work (asked what a message is <em>about</em>, with code deciding the move) and adds one question: does the message ask to change the open card, and how? The answer must be a control that card declares. <strong>A control never fetches</strong>; anything needing new data is a new tool call.</p></div>
+      <div class="two">
+        <div class="panel">
+          <h3>Controls</h3>
+          <ul>
+            <li><strong>Table:</strong> sort by a column; highlight a row.</li>
+            <li><strong>Chart:</strong> show as a table; highlight a series; change range.</li>
+            <li><strong>Map:</strong> zoom; fit; satellite; 3D; focus pin <em>n</em>.</li>
+            <li><strong>Video:</strong> play; pause; seek to a chapter or time; mute.</li>
+            <li><strong>Gallery and timeline:</strong> open, next, previous; focus an event.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Crafting</h3>
+          <ul>
+            <li><strong>Records of one kind</strong> → a comparison; research fills fields only one has.</li>
+            <li><strong>Places</strong> → pins on one map; for two, a route chip.</li>
+            <li><strong>Series in one unit</strong> → one trend; <strong>in different units</strong> → small multiples, never a dual axis.</li>
+            <li><strong>A figure with a history</strong> → its trend.</li>
+            <li><strong>By voice</strong> (“compare them”) or <strong>by dragging</strong> a shelf tab onto the front card, where only the crafts those two can make light up.</li>
+          </ul>
+        </div>
+      </div>
+      <ul class="tight prose">
+        <li><strong>Spreads</strong> lay several blocks on a 12-column grid in one feature card. The frame refracts and the tiles are wells, so five tiles cost one displacement map.</li>
+        <li><strong>The shelf survives a reload</strong> in IndexedDB: 12 cards at most, put away on restore. A stale card says “From three hours ago” and offers refresh, which re-runs its <code>origin</code> with arguments checked again on the server.</li>
+        <li><strong>The memory card:</strong> “What do you remember about me?” lists every memory with a control to forget it. The tap goes over the socket, the server removes it and logs it, and memory becomes answerable and editable where the user is already looking.</li>
+      </ul>
+    </section>
+
+    <section id="sync">
+      <div class="eyebrow"><p class="kicker">19</p></div>
+      <h2>Speaking in step with the screen</h2>
+      <ul class="tight prose">
+        <li><strong>Mentions.</strong> When a card is made, the server indexes its numbers (normalised as <code>numbersIn()</code> does), years and proper names against the elements they should light. As the caption reveals words on the audio clock, the browser lights those elements: a row, a point, a pin, an event, a chapter. A token that points at more than three elements lights none.</li>
+        <li><strong>The eyes follow.</strong> The docked face already takes its gaze from <code>--gaze-x</code> and <code>--gaze-y</code>; when an element lights, the gaze turns toward it for a moment.</li>
+        <li><strong>The speaking model knows the open card</strong> through a 400-character digest: a table’s columns and rows, a chart’s series with first, last and peak, a map’s places in order, a video’s chapters. “Which is cheaper?” is answered from what the user can see, and the old rule stands: refer to the card, never read it out.</li>
+      </ul>
+    </section>
+
+    <section id="safety">
+      <div class="eyebrow"><p class="kicker">20</p></div>
+      <h2>Security, privacy and licences</h2>
+      <div class="two">
+        <div class="panel">
+          <h3>What the card may contain</h3>
+          <ul>
+            <li>No <code>dangerouslySetInnerHTML</code>; charts are React elements built from numbers.</li>
+            <li>Links <code>http</code>/<code>https</code> only; pictures <code>https</code> only; video ids match <code>^[A-Za-z0-9_-]{11}$</code>; coordinates finite and in range.</li>
+            <li>Colours from tokens; no model output reaches a style.</li>
+            <li>Pages read through Exa; a direct fetch must be https, a public host, under 2 MB, HTML, within 5 s.</li>
+            <li>Secrets in Wrangler secrets and <code>.env</code>, never <code>VITE_</code>; the Mapbox public token is public by design and URL-restricted.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>What leaves, and what must be credited</h3>
+          <ul>
+            <li>YouTube loads nothing until play; Mapbox counts map loads for billing, and the README should say so.</li>
+            <li>A future content security policy must allow Mapbox workers, tiles and events, <code>i.ytimg.com</code> images and <code>youtube-nocookie.com</code> frames.</li>
+            <li><strong>Credit:</strong> Mapbox on every map and still; CC BY 4.0 for weather, World Bank and Our World in Data; Wikidata is CC0 and cited anyway; Wikipedia pictures keep their credit line; ECB rates shown as reference rates with their date.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="budgets">
+      <div class="eyebrow"><p class="kicker">21</p></div>
+      <h2>Performance budgets</h2>
+      <div class="two">
+        <div class="table-wrap" style="margin:0"><table>
+          <thead><tr><th>Budget</th><th class="num">Limit</th></tr></thead>
+          <tbody>
+            <tr><td>Main bundle growth</td><td class="num">15 KB gz</td></tr>
+            <tr><td>Chart kit, with the first chart</td><td class="num">25 KB gz</td></tr>
+            <tr><td>Mapbox GL in the main bundle</td><td class="num">never</td></tr>
+            <tr><td>WebGL contexts</td><td class="num">2</td></tr>
+            <tr><td>DOM nodes per card</td><td class="num">1,500</td></tr>
+            <tr><td>Card frame · patch</td><td class="num">64 KB · 32 KB</td></tr>
+            <tr><td>Materials per session, server</td><td class="num">2 MB</td></tr>
+          </tbody>
+        </table></div>
+        <div class="table-wrap" style="margin:0"><table>
+          <thead><tr><th>Tool call to card</th><th class="num">p50</th><th class="num">p90</th></tr></thead>
+          <tbody>
+            <tr><td><code>weather</code></td><td class="num">1.2 s</td><td class="num">2.5 s</td></tr>
+            <tr><td><code>show_map</code> place, map loaded</td><td class="num">1.2 s</td><td class="num">2.5 s</td></tr>
+            <tr><td><code>show_map</code> place, first map</td><td class="num">2.5 s</td><td class="num">4 s</td></tr>
+            <tr><td><code>show_map</code> route, nearby</td><td class="num">1.5 s</td><td class="num">3 s</td></tr>
+            <tr><td><code>show_video</code></td><td class="num">1.5 s</td><td class="num">3 s</td></tr>
+            <tr><td><code>research</code> card</td><td class="num">brief + 2.5 s</td><td class="num">brief + 5 s</td></tr>
+            <tr><td><code>craft</code></td><td class="num">2.5 s</td><td class="num">5 s</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <p class="prose small muted" style="margin-top:14px">Workers on the free plan allow 50 external subrequests per invocation and paid plans 10,000. A deep research turn with data tools can approach 50, so the latency panel counts subrequests per turn from Phase 1.</p>
+    </section>
+
+    <section id="measure">
+      <div class="eyebrow"><p class="kicker">22</p></div>
+      <h2>Measuring it</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Live benchmark</th><th>Answers</th><th>Gate</th></tr></thead>
+        <tbody>
+          <tr><td><code>benchmark:routing</code></td><td>the right tool, and no tool when none fits, over 240 utterances</td><td>95% overall; 92% precision and 90% recall per tool; zero stray side effects</td></tr>
+          <tr><td><code>benchmark:compose</code></td><td>60 fixtures: right recipe, valid card, nothing invented</td><td>90% right recipe; 100% valid; zero grounding violations over 5 runs each</td></tr>
+          <tr><td><code>benchmark:director</code></td><td>40 screen commands: the right control and value</td><td>90% right; zero invalid controls applied</td></tr>
+          <tr><td><code>benchmark:skills</code></td><td>time to card and success per skill</td><td>the budgets above</td></tr>
+          <tr><td><code>benchmark:models</code> (exists)</td><td>time to first token as tools are added</td><td>≤ 60 ms slower at the median</td></tr>
+        </tbody>
+      </table></div>
+      <ul class="tight prose">
+        <li><strong>In <code>npm test</code>, with no network:</strong> the schema, pointers and derives; numbers, verbatim quotes, dates and units; every recipe’s minimums and fallback chain; downsampling that keeps first, last, peak and low; chapters; geocode ambiguity; mention matching; the adapter for today’s cards; well and ink contrast recomputed from <code>PALETTES</code>; every block from fixtures; patch ordering around guesses and <code>done</code>.</li>
+        <li><strong>Live runs spend money</strong>, so check OpenRouter credit first; any grading by a model uses <code>openai/gpt-5.6-luna</code>.</li>
+        <li><strong>The lab</strong>, <code>/lab/cards</code> in development only, draws every recipe at every size over all six moods beside a striped test pattern for judging the glass, and each phase ends with a screenshot pass of it.</li>
+      </ul>
+    </section>
+
+    <section id="phases">
+      <div class="eyebrow"><p class="kicker">23</p></div>
+      <h2>Phases</h2>
+      <div class="prose"><p>About 41 focused days for one person, estimated roughly. Phase 0 blocks everything; after Phase 1’s chart block exists, weather, maps and video depend only on those two and not on each other.</p></div>
+      <figure>
+        <svg viewBox="0 0 1000 300" role="img" aria-label="Phases on a 41-day scale: groundwork 4 days, research cards 10, weather 3 plus 2 for markets once a provider is chosen, maps 6, video 5, workspace 7, hardening 4. Phases 2, 3 and 4 need only phases 0 and 1." style="width:100%;height:auto;color:#aab3c0">
+          <defs>
+            <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(255,255,255,.06)"/><line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,.35)" stroke-width="2"/></pattern>
+          </defs>
+          <g font-size="12" fill="currentColor">
+            <rect x="424" y="110" width="332" height="92" rx="10" fill="rgba(191,233,255,.05)" stroke="rgba(191,233,255,.25)" stroke-dasharray="3 4"/>
+            <g stroke="rgba(255,255,255,.07)">
+              <line x1="150" y1="44" x2="150" y2="262"/><line x1="250" y1="44" x2="250" y2="262"/><line x1="350" y1="44" x2="350" y2="262"/><line x1="450" y1="44" x2="450" y2="262"/><line x1="550" y1="44" x2="550" y2="262"/><line x1="650" y1="44" x2="650" y2="262"/><line x1="750" y1="44" x2="750" y2="262"/><line x1="850" y1="44" x2="850" y2="262"/><line x1="950" y1="44" x2="950" y2="262"/>
+            </g>
+            <text x="10" y="70" fill="#f6f8ff">0 · Groundwork</text>
+            <text x="10" y="100" fill="#f6f8ff">1 · Research cards</text>
+            <text x="10" y="130" fill="#f6f8ff">2 · Weather</text>
+            <text x="10" y="160" fill="#f6f8ff">3 · Maps</text>
+            <text x="10" y="190" fill="#f6f8ff">4 · Video</text>
+            <text x="10" y="220" fill="#f6f8ff">5 · Workspace</text>
+            <text x="10" y="250" fill="#f6f8ff">6 · Hardening</text>
+            <rect x="150" y="56" width="80" height="18" rx="6" fill="#bfe9ff"/>
+            <rect x="230" y="86" width="200" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <rect x="430" y="116" width="60" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <rect x="492" y="116" width="38" height="18" rx="6" fill="url(#hatch)"/>
+            <rect x="530" y="146" width="120" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <rect x="650" y="176" width="100" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <rect x="750" y="206" width="140" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <rect x="890" y="236" width="80" height="18" rx="6" fill="rgba(255,255,255,.26)"/>
+            <g font-size="11">
+              <text x="236" y="70">4 d, blocks everything</text>
+              <text x="436" y="100">10 d</text>
+              <text x="536" y="130">3 d, + 2 d markets</text>
+              <text x="656" y="160">6 d</text>
+              <text x="756" y="190">5 d</text>
+              <text x="896" y="220">7 d</text>
+              <text x="858" y="250" text-anchor="end">4 d</text>
+              <text x="590" y="102" text-anchor="middle" fill="#bfe9ff">2, 3 and 4 need only 0 and 1</text>
+            </g>
+            <line x1="150" y1="266" x2="970" y2="266" stroke="rgba(255,255,255,.18)"/>
+            <g text-anchor="middle" font-size="10.5"><text x="150" y="284">day 0</text><text x="250" y="284">5</text><text x="350" y="284">10</text><text x="450" y="284">15</text><text x="550" y="284">20</text><text x="650" y="284">25</text><text x="750" y="284">30</text><text x="850" y="284">35</text><text x="950" y="284">40</text></g>
+          </g>
+        </svg>
+        <figcaption>Drawn in the order recommended for one person; the hatched stretch is markets, which waits for a provider decision. With more hands, phases 2, 3 and 4 run at once and the calendar shortens by about two weeks; the effort does not.</figcaption>
+      </figure>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Phase</th><th>Builds</th><th>Done when</th></tr></thead>
+        <tbody>
+          <tr><td><strong>0 · Groundwork</strong></td><td><code>CardV2</code>, materials, pointer resolver, adapter; the stage split into frame, recipes and blocks; protocol 3 with <code>card_patch</code>; the lab</td><td>every existing test passes; today’s cards look the same drawn through <code>CardV2</code>; <code>benchmark:cards</code> no worse</td></tr>
+          <tr><td><strong>1 · Research cards</strong></td><td>table, chart, timeline, stat, note, prose, quote, chips, list, steps; three new sizes; composer with pointers; desk data tools; compare, trend, ranking, timeline, steps, front-page, feature, recipe; mentions, digest, the eyes following</td><td>compose gates pass; routing holds today’s cases and the new research shapes; contrast test passes; cards within brief + 2.5 s at the median</td></tr>
+          <tr><td><strong>2 · Weather, markets</strong></td><td>provider interface, coarse location, the weather spread, UV meter, freshness; currencies, then the chosen market provider</td><td>weather card within 1.2 s at the median; weather against research at 97% or better; market cards show their delay and no advice across 20 questions</td></tr>
+          <tr><td><strong>3 · Maps</strong></td><td>tokens, lazy chunk and early fetch, one-map pool, style, stills; place, route, nearby; <code>get_location</code>; controls</td><td>95% map precision and zero map calls on figures of speech; ten ambiguous names asked, none guessed; 2.5 s cold, 1.2 s warm; never more than two WebGL contexts</td></tr>
+          <tr><td><strong>4 · Video</strong></td><td>the echo spike, then <code>show_video</code>, cache, fallback, poster and player, chapters, controls, the microphone rule</td><td>95% precision, and every “how do I” stays with research; zero false turns over three minutes; daily quota on the latency panel</td></tr>
+          <tr><td><strong>5 · Workspace</strong></td><td>stage director and controls; <code>craft</code> by voice and drag; spreads; persistence and refresh; the memory card</td><td>director gates pass; ten scripted crafts succeed; reload restores the shelf; forgetting from the card removes the memory on the server</td></tr>
+          <tr><td><strong>6 · Hardening</strong></td><td>keyboard and screen-reader pass, reduced motion, profiling on a mid-range laptop and a phone, frame audit, error states</td><td>README and RESEARCH_STAGE.md carry the measured numbers, dated</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="decisions">
+      <div class="eyebrow"><p class="kicker">24</p></div>
+      <h2>Decisions that are yours</h2>
+      <ol class="tight prose">
+        <li><strong>Mapbox tokens.</strong> A URL-restricted public token and a secret server token, and which plan the account is on.</li>
+        <li><strong>Is chatgideon.com commercial?</strong> Ads, subscriptions or a business decide Open-Meteo’s free API or MET Norway.</li>
+        <li><strong>Markets.</strong> A stock data provider and budget, or currencies only for now.</li>
+        <li><strong>YouTube.</strong> A Google Cloud project for a Data API key (100 free searches a day), or discovery through Exa without durations and chapters.</li>
+        <li><strong>Cloudflare plan.</strong> The free plan’s 50 external subrequests per invocation can be approached by a rich research turn.</li>
+        <li><strong>Composer model.</strong> <code>openai/gpt-5.6-luna</code> by default; if it misses the card budget, whether to compose with <code>gpt-4.1-mini</code> instead.</li>
+        <li><strong>Video and the open microphone.</strong> Whether needing GIDEON’s name or a tap during playback is acceptable, if the spike shows it is needed.</li>
+        <li><strong>The masthead.</strong> “GIDEON · Evening edition”, or a name of its own.</li>
+        <li><strong>Sports.</strong> Now, later, or not at all.</li>
+      </ol>
+    </section>
+
+    <section id="risks">
+      <div class="eyebrow"><p class="kicker">25</p></div>
+      <h2>Risks</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Risk</th><th>Why it matters</th><th>What contains it</th></tr></thead>
+        <tbody>
+          <tr><td>Routing worsens as tools are added</td><td>the wrong skill is a spoken, visible mistake</td><td>generated descriptions, the boundary table, the corpus gate</td></tr>
+          <tr><td>A longer prompt slows the first word</td><td>the one number a person feels</td><td>the 60 ms gate on <code>benchmark:models</code></td></tr>
+          <tr><td>The composer invents structure</td><td>a confident wrong table</td><td>pointers, JSON schema, validator, fallbacks</td></tr>
+          <tr><td>The desk slows with more tools</td><td>silence after the holding line</td><td>parallel calls per round, desk timings each phase, the existing hedge</td></tr>
+          <tr><td>Dense content unreadable over the room</td><td>glass fails its only job</td><td>wells at 74%, the contrast test</td></tr>
+          <tr><td>WebGL contexts or GPU memory run out</td><td>a blank map, a lost room</td><td>one map, stills everywhere else</td></tr>
+          <tr><td>Phones struggle with glass, shader and map</td><td>stutter on the device people hold</td><td>refraction already Chromium-only; slow the room while a map is live</td></tr>
+          <tr><td>Video audio starts turns</td><td>GIDEON answers a film</td><td>the spike and its gate</td></tr>
+          <tr><td>Licences change or are breached</td><td>a provider revokes the key</td><td>the licence list, attribution on every card</td></tr>
+          <tr><td>Twenty recipes, nothing shipped</td><td>scope creep</td><td>phases with exits; “no card” stays the default</td></tr>
+          <tr><td>Other sessions editing the same files</td><td>merge collisions</td><td>new files wherever possible; block styles in <code>src/styles/cards.css</code>, imported by one line</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="sources">
+      <div class="eyebrow"><p class="kicker">Sources</p></div>
+      <h2>Checked on 13 September 2026</h2>
+      <ul class="tight prose small">
+        <li>Mapbox GL JS 3.30.0, published 3 September 2026: <a href="https://registry.npmjs.org/mapbox-gl">npm registry</a></li>
+        <li>Mapbox Standard themes and colour configuration: <a href="https://docs.mapbox.com/map-styles/guides/standard-styles/">docs.mapbox.com</a>; light presets: <a href="https://docs.mapbox.com/mapbox-gl-js/example/set-config-property/">example</a>; Search Box category search: <a href="https://docs.mapbox.com/api/search/search-box/">API docs</a></li>
+        <li>Mapbox free allowances, from 2026 pricing summaries (confirm on the account): <a href="https://www.woosmap.com/blog/mapbox-pricing">woosmap.com</a>, <a href="https://apicostcalc.com/mapbox.html">apicostcalc.com</a></li>
+        <li>Open-Meteo <a href="https://open-meteo.com/en/terms">terms</a> and <a href="https://open-meteo.com/en/pricing">pricing</a>; MET Norway <a href="https://docs.api.met.no/doc/TermsOfService">terms</a> and <a href="https://api.met.no/weatherapi/locationforecast/2.0/documentation">Locationforecast 2.0</a></li>
+        <li>YouTube Data API quota: <a href="https://developers.google.com/youtube/v3/getting-started">developers.google.com</a></li>
+        <li>Cloudflare Workers <a href="https://developers.cloudflare.com/workers/platform/limits/">limits</a>, <a href="https://developers.cloudflare.com/changelog/post/2026-02-11-subrequests-limit/">subrequest change</a>, <a href="https://developers.cloudflare.com/changelog/2025-10-31-increased-websocket-message-size-limit/">32 MiB WebSocket messages</a></li>
+        <li>Our World in Data <a href="https://docs.owid.io/projects/etl/api/chart-api/">chart API</a>; Exa <a href="https://exa.ai/docs/reference/search">search categories</a>; <a href="https://frankfurter.dev/">Frankfurter</a></li>
+        <li>Colour checks: the eight-slot dark categorical palette and six-check validator from the data-visualisation method used here, run against wells computed from GIDEON’s own <code>mood.ts</code></li>
+      </ul>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg'
+  const RING = '#121826'
+  const add = (parent, name, attrs = {}, text) => {
+    const node = document.createElementNS(NS, name)
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value))
+    if (text !== undefined) node.textContent = text
+    parent.appendChild(node)
+    return node
+  }
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  /* ---- sizes ---- */
+  const area = document.getElementById('stageArea')
+  const sizeNotes = {
+    glance: ['glance · one number', 'min(380px, 100cqw − 48px) · the temperature now, a countdown, a rate'],
+    standard: ['standard · today’s card', 'min(700px, 100cqw − 160px) · a person, a place, an answer, steps'],
+    wide: ['wide · the peek becomes a sliver', 'min(1040px, 100cqw − 64px) · a comparison, a trend, a route, a video'],
+    feature: ['feature · the whole stage', '100cqw − 32px · a front page, nearby places, the weather spread'],
+  }
+  const sizeButtons = document.querySelectorAll('.sizes-controls .seg')
+  sizeButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const size = button.dataset.size
+      area.dataset.size = size
+      sizeButtons.forEach((other) => other.setAttribute('aria-pressed', String(other === button)))
+      document.getElementById('sizeKicker').textContent = sizeNotes[size][0]
+      document.getElementById('sizeNote').textContent = sizeNotes[size][1]
+    })
+  })
+
+  /* ---- boundary table filter ---- */
+  const boundaryRows = [...document.querySelectorAll('#bTable tbody tr')]
+  const filterButtons = document.querySelectorAll('#bFilters .seg')
+  filterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const tool = button.dataset.tool
+      filterButtons.forEach((other) => other.setAttribute('aria-pressed', String(other === button)))
+      boundaryRows.forEach((row) => {
+        row.hidden = tool !== 'all' && !row.dataset.tools.split(' ').includes(tool)
+      })
+    })
+  })
+
+  /* ---- a readout that follows the pointer or the arrow keys ---- */
+  function readout({ svg, well, tip, count, place, describe, onIndex }) {
+    let current = -1
+    const show = (index) => {
+      current = Math.max(0, Math.min(count - 1, index))
+      const { x, y } = place(current)
+      onIndex(current)
+      const svgBox = svg.getBoundingClientRect()
+      const wellBox = well.getBoundingClientRect()
+      const scale = svgBox.width / svg.viewBox.baseVal.width
+      tip.style.left = `${svgBox.left - wellBox.left + x * scale}px`
+      tip.style.top = `${svgBox.top - wellBox.top + y * scale}px`
+      const [value, label] = describe(current)
+      tip.querySelector('b').textContent = value
+      tip.querySelector('span').textContent = label
+      tip.classList.add('on')
+    }
+    const hide = () => {
+      tip.classList.remove('on')
+      onIndex(-1)
+    }
+    return { show, hide, get current() { return current } }
+  }
+
+  function nearestIndex(event, svg, xs) {
+    const box = svg.getBoundingClientRect()
+    const x = ((event.clientX - box.left) / box.width) * svg.viewBox.baseVal.width
+    let best = 0
+    xs.forEach((value, index) => { if (Math.abs(value - x) < Math.abs(xs[best] - x)) best = index })
+    return best
+  }
+
+  function keyboard(svg, control) {
+    svg.addEventListener('focus', () => control.show(control.current < 0 ? 0 : control.current))
+    svg.addEventListener('blur', control.hide)
+    svg.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') control.show(control.current + 1)
+      else if (event.key === 'ArrowLeft') control.show(control.current - 1)
+      else if (event.key === 'Escape') control.hide()
+      else return
+      event.preventDefault()
+    })
+  }
+
+  /* ---- trend chart (sample series) ---- */
+  const trendSvg = document.getElementById('trendChart')
+  if (trendSvg) {
+    const years = [2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+    const values = [3.1, 3.3, 3.6, 3.9, 4.2, 4.4, 1.9, 2.6, 3.5, 4.1, 4.5, 4.9]
+    const W = 640, H = 300, L = 44, R = 70, T = 22, B = 34
+    const x = (i) => L + (i / (years.length - 1)) * (W - L - R)
+    const y = (v) => T + (1 - v / 6) * (H - T - B)
+    for (const tick of [0, 2, 4, 6]) {
+      add(trendSvg, 'line', { x1: L, x2: W - R, y1: y(tick), y2: y(tick), stroke: tick === 0 ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.07)', 'stroke-width': 1 })
+      add(trendSvg, 'text', { x: L - 10, y: y(tick) + 4, 'text-anchor': 'end', 'font-size': 11, fill: '#a9b1bd' }, tick === 0 ? '0' : `${tick} M`)
+    }
+    years.forEach((year, i) => {
+      if (i % 3 === 0 || i === years.length - 1) add(trendSvg, 'text', { x: x(i), y: H - 12, 'text-anchor': 'middle', 'font-size': 11, fill: '#a9b1bd' }, year)
+    })
+    const line = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+    add(trendSvg, 'path', { d: `${line} L${x(values.length - 1)},${y(0)} L${x(0)},${y(0)} Z`, fill: 'rgba(57,135,229,.10)' })
+    const path = add(trendSvg, 'path', { d: line, fill: 'none', stroke: '#3987e5', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' })
+    if (!reduced && path.getTotalLength) {
+      const length = path.getTotalLength()
+      path.style.strokeDasharray = `${length}`
+      path.style.strokeDashoffset = `${length}`
+      path.getBoundingClientRect()
+      path.style.transition = 'stroke-dashoffset 700ms cubic-bezier(.22,1,.36,1)'
+      requestAnimationFrame(() => { path.style.strokeDashoffset = '0' })
+    }
+    const low = 6, last = values.length - 1
+    add(trendSvg, 'circle', { class: 'pulse', cx: x(low), cy: y(values[low]), r: 12, fill: 'none', stroke: '#bfe9ff', 'stroke-width': 1.5 })
+    add(trendSvg, 'circle', { cx: x(low), cy: y(values[low]), r: 4, fill: '#bfe9ff', stroke: RING, 'stroke-width': 2 })
+    add(trendSvg, 'text', { x: x(low), y: y(values[low]) + 24, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#f6f8ff' }, 'Low · 1.9 M')
+    add(trendSvg, 'circle', { cx: x(last), cy: y(values[last]), r: 4, fill: '#3987e5', stroke: RING, 'stroke-width': 2 })
+    add(trendSvg, 'text', { x: x(last) + 10, y: y(values[last]) + 4, 'font-size': 12, fill: '#f6f8ff' }, '4.9 M')
+    const cross = add(trendSvg, 'line', { y1: T, y2: y(0), stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1, visibility: 'hidden' })
+    const dot = add(trendSvg, 'circle', { r: 4.5, fill: '#3987e5', stroke: '#f6f8ff', 'stroke-width': 2, visibility: 'hidden' })
+    const hit = add(trendSvg, 'rect', { class: 'chart-hit', x: L, y: T, width: W - L - R, height: H - T - B, fill: 'transparent' })
+    const xs = values.map((_, i) => x(i))
+    const control = readout({
+      svg: trendSvg,
+      well: document.getElementById('trendWell'),
+      tip: document.getElementById('trendTip'),
+      count: values.length,
+      place: (i) => ({ x: x(i), y: y(values[i]) - 10 }),
+      describe: (i) => [`${values[i]} M`, `${years[i]} · sample`],
+      onIndex: (i) => {
+        const on = i >= 0
+        cross.setAttribute('visibility', on ? 'visible' : 'hidden')
+        dot.setAttribute('visibility', on ? 'visible' : 'hidden')
+        if (on) {
+          cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i))
+          dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(values[i]))
+        }
+      },
+    })
+    hit.addEventListener('pointermove', (event) => control.show(nearestIndex(event, trendSvg, xs)))
+    hit.addEventListener('pointerleave', control.hide)
+    trendSvg.setAttribute('tabindex', '0')
+    keyboard(trendSvg, control)
+  }
+
+  /* ---- weather: temperature line and rain columns share the hours ---- */
+  const tempSvg = document.getElementById('wxTemp')
+  const rainSvg = document.getElementById('wxRain')
+  if (tempSvg && rainSvg) {
+    const temps = [24, 25, 26, 27, 27, 26, 25, 23, 22, 21, 20, 19.5, 19, 18.5, 18, 18, 18, 18, 18.5, 19, 20, 21.5, 23, 24, 25]
+    const rain = [0, 0, 0, 0, 0, 5, 5, 10, 10, 15, 20, 30, 40, 50, 55, 60, 50, 40, 30, 20, 10, 5, 5, 0, 0]
+    const hour = (i) => `${String((12 + i) % 24).padStart(2, '0')}:00`
+    const W = 640, L = 38, R = 18
+    const x = (i) => L + (i / (temps.length - 1)) * (W - L - R)
+    const tT = 16, tB = 26, tH = 150
+    const ty = (v) => tT + (1 - (v - 16) / 12) * (tH - tT - tB)
+    for (const tick of [18, 22, 26]) {
+      add(tempSvg, 'line', { x1: L, x2: W - R, y1: ty(tick), y2: ty(tick), stroke: 'rgba(255,255,255,.07)', 'stroke-width': 1 })
+      add(tempSvg, 'text', { x: L - 8, y: ty(tick) + 4, 'text-anchor': 'end', 'font-size': 10.5, fill: '#a9b1bd' }, `${tick}°`)
+    }
+    temps.forEach((_, i) => {
+      if (i % 3 === 0) add(tempSvg, 'text', { x: x(i), y: tH - 6, 'text-anchor': 'middle', 'font-size': 10.5, fill: '#a9b1bd' }, hour(i))
+    })
+    const tline = temps.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${ty(v).toFixed(1)}`).join(' ')
+    add(tempSvg, 'path', { d: `${tline} L${x(temps.length - 1)},${tH - tB} L${x(0)},${tH - tB} Z`, fill: 'rgba(57,135,229,.10)' })
+    add(tempSvg, 'path', { d: tline, fill: 'none', stroke: '#3987e5', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' })
+    add(tempSvg, 'circle', { cx: x(3), cy: ty(27), r: 4, fill: '#3987e5', stroke: RING, 'stroke-width': 2 })
+    add(tempSvg, 'text', { x: x(3), y: ty(27) - 9, 'text-anchor': 'middle', 'font-size': 11, fill: '#f6f8ff' }, '27°')
+    add(tempSvg, 'circle', { cx: x(14), cy: ty(18), r: 4, fill: '#3987e5', stroke: RING, 'stroke-width': 2 })
+    add(tempSvg, 'text', { x: x(14), y: ty(18) - 9, 'text-anchor': 'middle', 'font-size': 11, fill: '#f6f8ff' }, '18°')
+
+    const rT = 16, rB = 10, rH = 96
+    const base = rH - rB
+    const rh = (p) => (p / 100) * (rH - rT - rB)
+    add(rainSvg, 'line', { x1: L, x2: W - R, y1: base, y2: base, stroke: 'rgba(255,255,255,.18)', 'stroke-width': 1 })
+    rain.forEach((p, i) => {
+      if (!p) return
+      const w = 12, h = rh(p), left = x(i) - w / 2, top = base - h, r = Math.min(4, h)
+      add(rainSvg, 'path', { d: `M${left},${base} V${top + r} Q${left},${top} ${left + r},${top} H${left + w - r} Q${left + w},${top} ${left + w},${top + r} V${base} Z`, fill: '#3987e5' })
+    })
+    add(rainSvg, 'text', { x: x(15), y: base - rh(60) - 5, 'text-anchor': 'middle', 'font-size': 11, fill: '#f6f8ff' }, '60%')
+
+    const crossT = add(tempSvg, 'line', { y1: tT, y2: tH - tB, stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1, visibility: 'hidden' })
+    const crossR = add(rainSvg, 'line', { y1: rT - 6, y2: base, stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1, visibility: 'hidden' })
+    const dot = add(tempSvg, 'circle', { r: 4.5, fill: '#3987e5', stroke: '#f6f8ff', 'stroke-width': 2, visibility: 'hidden' })
+    const xs = temps.map((_, i) => x(i))
+    const control = readout({
+      svg: tempSvg,
+      well: document.getElementById('wxWell'),
+      tip: document.getElementById('wxTip'),
+      count: temps.length,
+      place: (i) => ({ x: x(i), y: ty(temps[i]) - 10 }),
+      describe: (i) => [`${temps[i]}° · ${rain[i]}% rain`, `${hour(i)} · sample`],
+      onIndex: (i) => {
+        const on = i >= 0
+        for (const node of [crossT, crossR, dot]) node.setAttribute('visibility', on ? 'visible' : 'hidden')
+        if (on) {
+          for (const node of [crossT, crossR]) { node.setAttribute('x1', x(i)); node.setAttribute('x2', x(i)) }
+          dot.setAttribute('cx', x(i)); dot.setAttribute('cy', ty(temps[i]))
+        }
+      },
+    })
+    for (const svg of [tempSvg, rainSvg]) {
+      const height = svg.viewBox.baseVal.height
+      const hit = add(svg, 'rect', { class: 'chart-hit', x: L, y: 0, width: W - L - R, height, fill: 'transparent' })
+      hit.addEventListener('pointermove', (event) => control.show(nearestIndex(event, svg, xs)))
+      hit.addEventListener('pointerleave', control.hide)
+    }
+    tempSvg.setAttribute('tabindex', '0')
+    keyboard(tempSvg, control)
+  }
+
+  /* ---- video chapters ---- */
+  const progress = document.getElementById('vidProgress')
+  const chapterButtons = document.querySelectorAll('#chapters button')
+  chapterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      chapterButtons.forEach((other) => other.setAttribute('aria-current', String(other === button)))
+      progress.style.width = `${(Number(button.dataset.at) / 252) * 100}%`
+    })
+  })
+})()
+</script>
+
+</body>
+</html>
