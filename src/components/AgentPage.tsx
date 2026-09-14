@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatRole } from '../lib/openrouter'
 import { hostOf } from '../lib/cards'
+import { digestOf } from '../lib/cards/digest'
 import { applyPatch, readPatch, type CardPatch } from '../lib/cards/patch'
 import { readCard } from '../lib/cards/read'
 import type { CardV2 } from '../lib/cards/schema'
@@ -48,6 +49,7 @@ import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
 import { GlassButton, useGlass } from './LiquidGlass'
+import { GLANCE_EVENT, gazeToward, type Glance } from './stage/glance'
 import { Stage, type StageEntry } from './stage/Stage'
 import { ResourcesPanel, type Resource, type ResourceLink } from './ResourcesPanel'
 import { StageShelf } from './StageShelf'
@@ -145,6 +147,8 @@ const CARD_GIVE_UP_MS = 12_000
 const MAX_STAGE = 12
 /** Where the docked face looks: across and down, at the card in the middle. */
 const CARD_GAZE = { x: 0.85, y: 0.45 }
+/** How long a glance at something just said lingers before the eyes return to the card. */
+const GLANCE_HOLD_MS = 1_300
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
@@ -336,6 +340,32 @@ function LivingPresence({
     },
     [],
   )
+
+  // Docked beside a card, the face glances at whatever on it GIDEON has just
+  // said, then back to the card as a whole.
+  useEffect(() => {
+    if (!docked) return
+    let back: ReturnType<typeof setTimeout> | undefined
+    const onGlance = (event: Event) => {
+      const point = (event as CustomEvent<Glance>).detail
+      const face = faceRef.current
+      if (!point || !face) return
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+      attentionRef.current = gazeToward(face.getBoundingClientRect(), point, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+      clearTimeout(back)
+      back = setTimeout(() => {
+        if (dockedRef.current) attentionRef.current = CARD_GAZE
+      }, GLANCE_HOLD_MS)
+    }
+    window.addEventListener(GLANCE_EVENT, onGlance)
+    return () => {
+      window.removeEventListener(GLANCE_EVENT, onGlance)
+      clearTimeout(back)
+    }
+  }, [docked])
 
   return (
     <div
@@ -870,7 +900,13 @@ export function AgentPage() {
     const front = open
       ? (cards.find((card) => card.id === frontIdRef.current) ?? cards[cards.length - 1]).id
       : null
-    return { open, front, cards }
+    // The card in front is described in full, so a question about what it shows can be answered.
+    const shown = stageEntriesRef.current.find((entry) => entry.id === front)?.card
+    return {
+      open,
+      front,
+      cards: shown ? cards.map((card) => (card.id === front ? { ...card, digest: digestOf(shown) } : card)) : cards,
+    }
   }, [])
 
   /** One thing a real turn did to the screen. */

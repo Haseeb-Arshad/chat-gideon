@@ -45,25 +45,25 @@ const pictures: CardPicture[] = [
 const LAB_NOW = Date.UTC(2026, 8, 14)
 
 /** A card drawn from real materials by the code a conversation uses; the lab has no network, so a portrait is drawn in. */
-function drawn(id: string, name: string, question: string, materials: Material[], portrait?: string): Fixture {
+function drawn(id: string, name: string, question: string, materials: Material[], spoken: string, portrait?: string): Fixture {
   const card = cardFromMaterials(question, materials, LAB_NOW)
   if (!card) throw new Error(`the lab's materials for ${name} draw no card`)
   const blocks: Block[] = portrait
     ? [{ id: 'media', slot: 'media', type: 'media', image: { url: svg(640, 800, '#5a5048', '#1c1a1a', portrait), alt: card.title, credit: 'Wikipedia' } }, ...card.blocks]
     : card.blocks
-  return { id, name, card: { ...card, blocks } }
+  return { id, name, spoken, card: { ...card, blocks } }
 }
 
 export const FIXTURES: Fixture[] = [
-  drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN]),
+  drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN], 'It peaked at about 128 million in 2010.'),
   drawn('lab:data-compare', 'three countries on one chart', 'Compare the populations of Japan, South Korea and China', [
     POPULATION_JPN,
     POPULATION_KOR,
     POPULATION_CHN,
-  ]),
-  drawn('lab:data-years', 'a measure in years', 'How long do people live in Japan?', [LIFE_EXPECTANCY_JPN]),
-  drawn('lab:data-profile', 'profile from a Wikidata record', 'Who was Marie Curie?', [MARIE_CURIE], 'M·C'),
-  drawn('lab:data-cities', 'two records compared', 'Compare Lisbon and Porto', [LISBON, PORTO]),
+  ], 'China is far larger than the other two.'),
+  drawn('lab:data-years', 'a measure in years', 'How long do people live in Japan?', [LIFE_EXPECTANCY_JPN], 'About 84 years, up from under 68 in 1960.'),
+  drawn('lab:data-profile', 'profile from a Wikidata record', 'Who was Marie Curie?', [MARIE_CURIE], 'She won the Nobel Prize in Physics in 1903.', 'M·C'),
+  drawn('lab:data-cities', 'two records compared', 'Compare Lisbon and Porto', [LISBON, PORTO], 'Lisbon has more than twice the population.'),
   {
     id: 'lab:profile',
     name: 'profile',

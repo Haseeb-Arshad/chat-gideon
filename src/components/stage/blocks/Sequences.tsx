@@ -11,11 +11,11 @@ import { rise } from '../stagger'
 const beat = (index: number) => ({ '--row': index }) as CSSProperties
 
 /** Dated events along a line: down the card, or across it on a wide one. */
-export function Timeline({ block, start }: { block: TimelineBlock; start: number }) {
+export function Timeline({ block, start, said }: { block: TimelineBlock; start: number; said?: Set<string> }) {
   return (
     <ol className="card-timeline card-well" style={rise(start)} data-count={block.events.length}>
       {block.events.map((event, index) => (
-        <li className="timeline-event" key={event.id} style={beat(index)}>
+        <li className="timeline-event" key={event.id} style={beat(index)} data-said={said?.has(event.id) ? 'true' : undefined}>
           <time>{event.date}</time>
           <i aria-hidden="true" />
           <span className="timeline-label">{event.label}</span>
@@ -26,7 +26,7 @@ export function Timeline({ block, start }: { block: TimelineBlock; start: number
   )
 }
 
-export function List({ block, start, front }: { block: ListBlock; start: number; front: boolean }) {
+export function List({ block, start, front, said }: { block: ListBlock; start: number; front: boolean; said?: Set<string> }) {
   const Tag = block.ordered ? 'ol' : 'ul'
   return (
     <Tag className="card-list" style={rise(start)} data-ordered={block.ordered}>
@@ -41,7 +41,7 @@ export function List({ block, start, front }: { block: ListBlock; start: number;
           </>
         )
         return (
-          <li key={item.id} style={beat(index)}>
+          <li key={item.id} style={beat(index)} data-said={said?.has(item.id) ? 'true' : undefined}>
             {item.url ? (
               <a href={item.url} target="_blank" rel="noreferrer noopener" tabIndex={front ? 0 : -1}>
                 {body}

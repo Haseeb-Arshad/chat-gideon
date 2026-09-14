@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import { hear, saidEvents, saidItems, saidPoints, saidRows, type Heard } from '../../lib/cards/mentions'
 import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type MediaBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
@@ -45,10 +47,12 @@ interface BodyBlockProps {
   size: CardSize
   /** The card has a table as well as a chart, so the chart gives up some height. */
   shared: boolean
+  /** What GIDEON has said so far, read for what it mentions on this card. */
+  heard: Heard
   onAsk?: (text: string) => void
 }
 
-function BodyBlock({ block, start: planned, spoken, front, size, shared, onAsk }: BodyBlockProps) {
+function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, onAsk }: BodyBlockProps) {
   const start = useFirst(planned)
   switch (block.type) {
     case 'headline':
@@ -60,13 +64,13 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, onAsk }
     case 'facts':
       return <Facts block={block} start={start} spoken={spoken} />
     case 'table':
-      return <Table block={block} start={start} />
+      return <Table block={block} start={start} said={saidRows(block, heard)} />
     case 'timeline':
-      return <Timeline block={block} start={start} />
+      return <Timeline block={block} start={start} said={saidEvents(block, heard)} />
     case 'note':
       return <Note block={block} start={start} />
     case 'list':
-      return <List block={block} start={start} front={front} />
+      return <List block={block} start={start} front={front} said={saidItems(block, heard)} />
     case 'steps':
       return <Steps block={block} start={start} />
     case 'chips':
@@ -74,7 +78,7 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, onAsk }
     case 'quote':
       return <Quote block={block} start={start} />
     case 'chart':
-      return <Chart block={block} start={start} size={size} front={front} shared={shared} />
+      return <Chart block={block} start={start} size={size} front={front} shared={shared} said={saidPoints(block, heard)} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.
@@ -86,6 +90,7 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
   const body = orderBySlot(card.blocks.filter((block) => block.slot !== 'media' && block.type !== 'media'))
   const { starts, after } = risePlan(body)
   const shared = body.some((block) => block.type === 'chart') && body.some((block) => block.type === 'table')
+  const heard = useMemo(() => hear(spoken), [spoken])
   const render = (block: Block) => (
     <BodyBlock
       key={block.id}
@@ -95,6 +100,7 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
       front={front}
       size={card.size}
       shared={shared}
+      heard={heard}
       onAsk={onAsk}
     />
   )

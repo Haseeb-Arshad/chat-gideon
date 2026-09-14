@@ -810,3 +810,57 @@ div.card-figure strong {
 .card-lead .card-change {
   justify-content: flex-end;
 }
+
+/* -- Mentioned aloud ---------------------------------------------------------- */
+
+/*
+ * What GIDEON has just said, marked where it is on the card. A ring pulses
+ * once as it appears and stays; nothing else moves, so a card read aloud never
+ * turns into a light show.
+ */
+.chart-said-ring {
+  fill: none;
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: said-ring 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chart-said-band {
+  fill: rgba(191, 233, 255, 0.08);
+}
+
+.card-chart-svg g[data-said='true'] .chart-category,
+.card-chart-svg g[data-said='true'] .chart-value {
+  fill: #fff;
+}
+
+.card-chart-svg g[data-said='true'] .chart-bar {
+  filter: brightness(1.25);
+}
+
+.card-list li[data-said='true'] .card-list-title {
+  color: #fff;
+  text-shadow: 0 0 16px rgba(191, 233, 255, 0.42);
+}
+
+@keyframes said-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-said-ring {
+    animation: none;
+  }
+}

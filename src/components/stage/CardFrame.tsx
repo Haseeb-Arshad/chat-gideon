@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { blockOf } from '../../lib/cards/schema'
 import { useGlass } from '../LiquidGlass'
 import { CardBoundary } from './CardBoundary'
@@ -7,8 +7,12 @@ import { CardFace } from './CardFace'
 import type { MediaShape } from './blocks/Media'
 import { SearchingFace } from './SearchingFace'
 import type { StageEntry } from './Stage'
+import { glanceAt } from './glance'
 
 export type Slot = 'front' | 'peek' | 'behind'
+
+/** A glance every sentence at most: a face darting at every word looks nervous, not attentive. */
+const GLANCE_GAP_MS = 900
 
 interface CardFrameProps {
   entry: StageEntry
@@ -58,6 +62,27 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
   // and half off the screen, and each map costs a pane-sized image to build.
   const glass = useGlass({ enabled: front, blur: 14, saturate: 180 })
 
+  // What has lit up so far in this reply, so the face glances only at what is new.
+  const pane = useRef<HTMLDivElement | null>(null)
+  const lit = useRef(new WeakSet<Element>())
+  const heardSoFar = useRef('')
+  const lastGlance = useRef(0)
+  useEffect(() => {
+    const node = pane.current
+    if (!front || !node) return
+    // A new reply starts again from nothing: the same row said twice is worth two glances.
+    if (!spoken.startsWith(heardSoFar.current)) lit.current = new WeakSet()
+    heardSoFar.current = spoken
+    if (!spoken) return
+    const fresh = [...node.querySelectorAll('[data-said="true"]')].filter((element) => !lit.current.has(element))
+    for (const element of fresh) lit.current.add(element)
+    const newest = fresh.at(-1)
+    const now = performance.now()
+    if (!newest || now - lastGlance.current < GLANCE_GAP_MS) return
+    lastGlance.current = now
+    glanceAt(newest)
+  }, [front, spoken])
+
   // The sheen follows the pointer across the glass, and the pane leans toward
   // it a few degrees. Written straight to the element; nothing re-renders.
   const lean = (event: PointerEvent<HTMLElement>) => {
@@ -94,7 +119,10 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
       <div className="glass-float">
         <div
           className="glass-pane"
-          ref={glass.ref}
+          ref={(node) => {
+            glass.ref(node)
+            pane.current = node
+          }}
           style={glass.style}
           data-state={card ? 'ready' : 'searching'}
           data-recipe={card?.recipe}

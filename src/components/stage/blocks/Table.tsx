@@ -16,7 +16,7 @@ type Order = { key: string; direction: 'descending' | 'ascending' } | null
  * it: largest first, then smallest first, then back to the order the table
  * came in, which is the order its source gave.
  */
-export function Table({ block, start }: { block: TableBlock; start: number }) {
+export function Table({ block, start, said }: { block: TableBlock; start: number; said?: Set<string> }) {
   const [order, setOrder] = useState<Order>(null)
   const [open, setOpen] = useState(false)
 
@@ -76,7 +76,7 @@ export function Table({ block, start }: { block: TableBlock; start: number }) {
           </thead>
           <tbody>
             {shown.map((row, rowIndex) => (
-              <tr key={row.id} style={{ '--row': rowIndex } as CSSProperties}>
+              <tr key={row.id} style={{ '--row': rowIndex } as CSSProperties} data-said={said?.has(row.id) ? 'true' : undefined}>
                 {row.cells.map((cell, index) => {
                   const column = block.columns[index]
                   return index === 0 && block.rowHeaders ? (

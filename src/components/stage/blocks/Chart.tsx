@@ -43,6 +43,8 @@ interface ChartProps {
   front: boolean
   /** The card has other data under the chart, a table say, so the chart gives up some height to it. */
   shared?: boolean
+  /** Positions on the axis GIDEON has just mentioned, which light up. */
+  said?: Set<number>
 }
 
 /**
@@ -77,7 +79,7 @@ function useWidth() {
   return [ref, width] as const
 }
 
-export function Chart({ block, start, size, front, shared = false }: ChartProps) {
+export function Chart({ block, start, size, front, shared = false, said }: ChartProps) {
   const [figure, width] = useWidth()
   const [asTable, setAsTable] = useState(false)
   const [focus, setFocus] = useState<number | null>(null)
@@ -110,7 +112,7 @@ export function Chart({ block, start, size, front, shared = false }: ChartProps)
       ) : (
         <div className="card-well card-chart-well" style={{ minHeight: plotHeight(block, size, shared) + 4 }}>
           {width === null ? null : (
-            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={focus} onFocus={setFocus} summary={summary} />
+            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={focus} onFocus={setFocus} summary={summary} said={said} />
           )}
         </div>
       )}
@@ -178,6 +180,7 @@ interface PlotProps {
   focus: number | null
   onFocus: (index: number | null) => void
   summary: string
+  said?: Set<number>
 }
 
 function Plot(props: PlotProps) {
@@ -185,7 +188,7 @@ function Plot(props: PlotProps) {
 }
 
 /** Lines, an area, columns or ranges over x positions, against a y-axis. */
-function AxisPlot({ block, width, height, front, focus, onFocus, summary }: PlotProps) {
+function AxisPlot({ block, width, height, front, focus, onFocus, summary, said }: PlotProps) {
   const { form, x, series } = block
   const values = series.flatMap((each) => each.values.filter((value): value is number => value !== null))
   const scale = niceScale(Math.min(...values), Math.max(...values), { zero: form === 'area' || form === 'column' })
@@ -244,6 +247,8 @@ function AxisPlot({ block, width, height, front, focus, onFocus, summary }: Plot
       )}
 
       <Marks block={block} xAt={xAt} yAt={yAt} top={top} />
+
+      {said?.size ? <Said block={block} said={said} xAt={xAt} yAt={yAt} top={top} height={plotHeight} band={band} banded={banded} /> : null}
 
       {shownLabels.map((index) => (
         <text key={index} className="chart-x" x={xAt(index)} y={height - 8} textAnchor={xAnchor(index, x.length, banded)}>
@@ -480,6 +485,48 @@ function Ranges({
   )
 }
 
+/**
+ * What GIDEON has just mentioned, marked on the chart: a ring on every line's
+ * point at that position, or the band behind a column. The ring pulses once
+ * as it appears and then stays, the way a finger stays on a line being read.
+ */
+function Said({
+  block,
+  said,
+  xAt,
+  yAt,
+  top,
+  height,
+  band,
+  banded,
+}: {
+  block: ChartBlock
+  said: Set<number>
+  xAt: (index: number) => number
+  yAt: (value: number) => number
+  top: number
+  height: number
+  band: number
+  banded: boolean
+}) {
+  return (
+    <g className="chart-said">
+      {[...said].map((index) =>
+        banded ? (
+          <rect key={index} className="chart-said-band" x={xAt(index) - band / 2} y={top} width={band} height={height} />
+        ) : (
+          block.series.map((series, seriesIndex) => {
+            const value = series.values[index]
+            return value === null ? null : (
+              <circle key={`${index}-${series.key}`} className="chart-said-ring" cx={xAt(index)} cy={yAt(value)} r={7} stroke={SERIES[seriesIndex]} />
+            )
+          })
+        ),
+      )}
+    </g>
+  )
+}
+
 function Marks({ block, xAt, yAt, top }: { block: ChartBlock; xAt: (index: number) => number; yAt: (value: number) => number; top: number }) {
   if (!block.marks?.length || block.form === 'range') return null
   return (
@@ -504,7 +551,7 @@ function Marks({ block, xAt, yAt, top }: { block: ChartBlock; xAt: (index: numbe
 }
 
 /** Ranked bars, the largest first, each labelled at its tip. */
-function BarPlot({ block, width, front, focus, onFocus, summary }: PlotProps) {
+function BarPlot({ block, width, front, focus, onFocus, summary, said }: PlotProps) {
   const series = block.series[0]
   const rowHeight = BAR_ROW
   const top = BAR_TOP
@@ -537,7 +584,7 @@ function BarPlot({ block, width, front, focus, onFocus, summary }: PlotProps) {
         const value = series.values[index]
         const y = top + index * rowHeight
         return (
-          <g key={index} data-focus={focus === index ? 'true' : undefined}>
+          <g key={index} data-focus={focus === index ? 'true' : undefined} data-said={said?.has(index) ? 'true' : undefined}>
             {focus === index ? <rect className="chart-band" x={0} y={y} width={width} height={rowHeight} /> : null}
             <text className="chart-category" x={barLeft - 10} y={y + rowHeight / 2 + 4} textAnchor="end">
               {label}
