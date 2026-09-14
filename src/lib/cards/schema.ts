@@ -309,6 +309,34 @@ export interface CardV2 {
 }
 
 /**
+ * Where each slot sits on a card, top to bottom. A block's place follows its
+ * slot, not its position in the list, so a sentence that arrives in a patch
+ * lands under the headline rather than at the bottom. `body` is the slot every
+ * block of the first cards has, and those keep the order they were sent in.
+ *
+ * `data` is what the card is for, such as a trend's chart, and comes before the
+ * facts; `more` is data that supports the facts, such as a person's timeline,
+ * and comes after them.
+ */
+const SLOT_ORDER: Record<string, number> = {
+  media: 0,
+  head: 1,
+  figure: 2,
+  summary: 3,
+  body: 3,
+  data: 4,
+  facts: 5,
+  more: 6,
+  aside: 7,
+}
+
+export function orderBySlot(blocks: Block[]): Block[] {
+  const rank = (block: Block) => SLOT_ORDER[block.slot] ?? SLOT_ORDER.body
+  // Sorting is stable, so blocks in the same slot keep the order they came in.
+  return [...blocks].sort((a, b) => rank(a) - rank(b))
+}
+
+/**
  * The first block of a type. Tolerant of a card with no block list at all,
  * which `readCard` never lets through but a page swapping code under a live
  * stage in development has shown to happen; the frame asks this before its

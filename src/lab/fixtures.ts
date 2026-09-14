@@ -6,7 +6,10 @@
  * nothing in it can fail to load. Sample figures are marked as samples.
  */
 
-import type { CardPicture, CardV2 } from '../lib/cards/schema'
+import { cardFromMaterials } from '../lib/cards/from-materials'
+import type { Material } from '../lib/cards/materials'
+import type { Block, CardPicture, CardV2 } from '../lib/cards/schema'
+import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO } from './materials'
 
 function svg(width: number, height: number, from: string, to: string, label: string): string {
   const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="${width}" height="${height}" fill="url(#g)"/><text x="50%" y="54%" font-family="Georgia, serif" font-size="${Math.round(height / 7)}" fill="rgba(255,255,255,0.78)" text-anchor="middle">${label}</text></svg>`
@@ -38,7 +41,29 @@ const pictures: CardPicture[] = [
   host: 'pexels.com',
 }))
 
+/** When the lab pretends it is, so a card's "latest figures" note reads as it did on the day. */
+const LAB_NOW = Date.UTC(2026, 8, 14)
+
+/** A card drawn from real materials by the code a conversation uses; the lab has no network, so a portrait is drawn in. */
+function drawn(id: string, name: string, question: string, materials: Material[], portrait?: string): Fixture {
+  const card = cardFromMaterials(question, materials, LAB_NOW)
+  if (!card) throw new Error(`the lab's materials for ${name} draw no card`)
+  const blocks: Block[] = portrait
+    ? [{ id: 'media', slot: 'media', type: 'media', image: { url: svg(640, 800, '#5a5048', '#1c1a1a', portrait), alt: card.title, credit: 'Wikipedia' } }, ...card.blocks]
+    : card.blocks
+  return { id, name, card: { ...card, blocks } }
+}
+
 export const FIXTURES: Fixture[] = [
+  drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN]),
+  drawn('lab:data-compare', 'three countries on one chart', 'Compare the populations of Japan, South Korea and China', [
+    POPULATION_JPN,
+    POPULATION_KOR,
+    POPULATION_CHN,
+  ]),
+  drawn('lab:data-years', 'a measure in years', 'How long do people live in Japan?', [LIFE_EXPECTANCY_JPN]),
+  drawn('lab:data-profile', 'profile from a Wikidata record', 'Who was Marie Curie?', [MARIE_CURIE], 'M·C'),
+  drawn('lab:data-cities', 'two records compared', 'Compare Lisbon and Porto', [LISBON, PORTO]),
   {
     id: 'lab:profile',
     name: 'profile',
@@ -327,10 +352,10 @@ export const FIXTURES: Fixture[] = [
       query: 'harbour ferry passengers over time',
       title: 'Harbour ferry passengers',
       blocks: [
-        { id: 'headline', slot: 'body', type: 'headline', kicker: 'Trend', title: 'Harbour ferry passengers' },
+        { id: 'headline', slot: 'head', type: 'headline', kicker: 'Trend', title: 'Harbour ferry passengers' },
         {
           id: 'stat',
-          slot: 'body',
+          slot: 'figure',
           type: 'stat',
           value: '4.9 M',
           label: 'In 2025',
@@ -338,7 +363,7 @@ export const FIXTURES: Fixture[] = [
         },
         {
           id: 'chart',
-          slot: 'body',
+          slot: 'data',
           type: 'chart',
           form: 'line',
           title: 'Passengers a year',

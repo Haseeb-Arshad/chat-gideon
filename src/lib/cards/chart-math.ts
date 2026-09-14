@@ -58,11 +58,20 @@ export function niceScale(low: number, high: number, { zero = false, maxTicks = 
   return { min, max, ticks: [min, max], decimals: 0 }
 }
 
-/** A number as an axis or a readout shows it: grouped, and compact once it is large. */
+/**
+ * A number as an axis or a readout shows it: grouped, and compact once it is
+ * large. The compact letters are written here rather than asked of `Intl`,
+ * whose answer depends on the locale data the engine shipped with: the same
+ * call gave "1.3M" under Node and "1.3m" in Chrome.
+ */
 export function formatNumber(value: number, decimals = 0): string {
-  if (Math.abs(value) >= 10_000) {
-    return new Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
-  }
+  const magnitude = Math.abs(value)
+  // One place, dropped when it is a zero: an axis reads "100M", a sentence "123.4M".
+  const compact = (divisor: number, letter: string) => `${(value / divisor).toFixed(1).replace(/\.0$/, '')}${letter}`
+  if (magnitude >= 1e12) return compact(1e12, 'T')
+  if (magnitude >= 1e9) return compact(1e9, 'B')
+  if (magnitude >= 1e6) return compact(1e6, 'M')
+  if (magnitude >= 1e4) return compact(1e3, 'K')
   return value.toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 }
 
@@ -97,10 +106,12 @@ function defined(values: Array<number | null>): Point[] {
   return values.flatMap((value, index) => (value === null || !Number.isFinite(value) ? [] : [{ index, value }]))
 }
 
-/** A value with its unit: "18 °C" and "4.9 M", but "70%", which is never spaced. */
+/** A value with its unit: "18 °C" and "4.9 M", but "70%", which is never spaced, and "$4.2T". */
 export function withUnit(text: string, unit = ''): string {
   if (!unit) return text
-  return unit === '%' ? `${text}%` : `${text} ${unit}`
+  if (unit === '%') return `${text}%`
+  if (unit === 'US$') return text.startsWith('-') ? `-$${text.slice(1)}` : `$${text}`
+  return `${text} ${unit}`
 }
 
 /** "in 2020", "on Tue", "at 15:00", by what the positions are. */
@@ -161,10 +172,8 @@ export interface ChartSummaryInput {
 export function summarizeChart({ form, x, series, unit = '', xLabel = '' }: ChartSummaryInput): string {
   const first = series[0]
   if (!first) return ''
-  if (form === 'line' || form === 'area') {
-    const sentence = summarize(x, first.values, unit, xLabel)
-    return series.length > 1 && sentence ? `${first.label}: ${sentence}` : sentence
-  }
+  if ((form === 'line' || form === 'area') && series.length > 1) return compareAtEnd(x, series, unit, xLabel)
+  if (form === 'line' || form === 'area') return summarize(x, first.values, unit, xLabel)
 
   const extremes = (values: Array<number | null>) => {
     const points = defined(values)
@@ -196,6 +205,41 @@ export function summarizeChart({ form, x, series, unit = '', xLabel = '' }: Char
     return `${x[found.high.index]} is highest at ${found.say(found.high.value)}, and ${x[found.low.index]} lowest at ${found.say(found.low.value)}.`
   }
   return `Highest ${at(x[found.high.index], xLabel)} at ${found.say(found.high.value)}, lowest ${at(x[found.low.index], xLabel)} at ${found.say(found.low.value)}.`
+}
+
+/**
+ * Several lines, compared where they end: at the last position every line has
+ * a value, which one is highest and which lowest. How each one moved is the
+ * table's job beside it; the sentence says where they stand.
+ */
+function compareAtEnd(x: string[], series: ChartSummaryInput['series'], unit: string, xLabel: string): string {
+  let end = -1
+  for (let index = x.length - 1; index >= 0; index -= 1) {
+    if (series.every((each) => each.values[index] !== null && each.values[index] !== undefined)) {
+      end = index
+      break
+    }
+  }
+  if (end < 0) return ''
+  const decimals = decimalsIn(series.flatMap((each) => defined(each.values)))
+  const ranked = series
+    .map((each) => ({ label: each.label, value: each.values[end] as number }))
+    .sort((a, b) => b.value - a.value)
+  const say = (value: number) => withUnit(formatNumber(value, decimals), unit)
+  const high = ranked[0]
+  const low = ranked[ranked.length - 1]
+  const when = capitalFirst(at(x[end], xLabel))
+  if (high.value === low.value) return `${when}, ${joinLabels(ranked.map((each) => each.label))} were level at ${say(high.value)}.`
+  if (ranked.length === 2) return `${when}, ${high.label} was at ${say(high.value)} and ${low.label} at ${say(low.value)}.`
+  return `${when}, ${high.label} was highest, at ${say(high.value)}, and ${low.label} lowest, at ${say(low.value)}.`
+}
+
+function capitalFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function joinLabels(labels: string[]): string {
+  return labels.length <= 1 ? (labels[0] ?? '') : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
 }
 
 /** As many decimals as the values themselves carry, up to two. */

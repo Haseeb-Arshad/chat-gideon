@@ -1,5 +1,19 @@
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { Block } from '../../lib/cards/schema'
+
+/**
+ * A value as it was on the first render, kept for the life of the component.
+ *
+ * A piece's place in the rising line only matters when it first appears. When
+ * a patch adds a block above it, its place moves down one, and an animation
+ * whose delay changes after it has played can step back into its first frame
+ * and play again: the whole card blinking out and rising a second time because
+ * one sentence arrived. So each piece keeps the place it had when it rose.
+ */
+export function useFirst<T>(value: T): T {
+  const [first] = useState(value)
+  return first
+}
 
 /**
  * Every piece of a card rises in turn, so it reads top to bottom as it arrives

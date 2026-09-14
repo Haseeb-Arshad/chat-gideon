@@ -115,19 +115,26 @@ describe('summarizeChart', () => {
     ).toBe('Highs from 22.5 to 27.5 °C, lows from 15 to 18 °C.')
   })
 
-  it('names the series it summarizes when a line has more than one, and at the hour for hours', () => {
+  it('compares several lines where they all end, at the hour for hours', () => {
+    const cities = [
+      { label: 'Porto', values: [17, 21, 24] },
+      { label: 'Lisbon', values: [19, 24, 27] },
+    ]
+    expect(summarizeChart({ form: 'line', x: ['09:00', '12:00', '15:00'], xLabel: 'Hour', unit: '°C', series: cities })).toBe(
+      'At 15:00, Lisbon was at 27 °C and Porto at 24 °C.',
+    )
+    // Three or more: the highest and the lowest, at the last year every line has a value.
     expect(
       summarizeChart({
         form: 'line',
-        x: ['09:00', '12:00', '15:00'],
-        xLabel: 'Hour',
-        unit: '°C',
+        x: ['2023', '2024', '2025'],
         series: [
-          { label: 'Lisbon', values: [19, 24, 27] },
-          { label: 'Porto', values: [17, 21, 24] },
+          { label: 'Japan', values: [124.5, 123.9, 123.4] },
+          { label: 'China', values: [1410.2, 1408.4, null] },
+          { label: 'South Korea', values: [51.7, 51.7, 51.6] },
         ],
       }),
-    ).toBe('Lisbon: Rose from 19 °C at 09:00 to 27 °C at 15:00.')
+    ).toBe('In 2024, China was highest, at 1,408.4, and South Korea lowest, at 51.7.')
   })
 
   it('says nothing when there is nothing to compare', () => {

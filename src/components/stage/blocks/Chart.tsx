@@ -41,6 +41,8 @@ interface ChartProps {
   start: number
   size: CardSize
   front: boolean
+  /** The card has other data under the chart, a table say, so the chart gives up some height to it. */
+  shared?: boolean
 }
 
 /**
@@ -75,7 +77,7 @@ function useWidth() {
   return [ref, width] as const
 }
 
-export function Chart({ block, start, size, front }: ChartProps) {
+export function Chart({ block, start, size, front, shared = false }: ChartProps) {
   const [figure, width] = useWidth()
   const [asTable, setAsTable] = useState(false)
   const [focus, setFocus] = useState<number | null>(null)
@@ -106,9 +108,9 @@ export function Chart({ block, start, size, front }: ChartProps) {
       {asTable ? (
         <Table block={tableOf(block)} start={0} />
       ) : (
-        <div className="card-well card-chart-well" style={{ minHeight: plotHeight(block, size) + 4 }}>
+        <div className="card-well card-chart-well" style={{ minHeight: plotHeight(block, size, shared) + 4 }}>
           {width === null ? null : (
-            <Plot block={block} width={width} height={plotHeight(block, size)} front={front} focus={focus} onFocus={setFocus} summary={summary} />
+            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={focus} onFocus={setFocus} summary={summary} />
           )}
         </div>
       )}
@@ -124,8 +126,9 @@ export function Chart({ block, start, size, front }: ChartProps) {
 }
 
 /** Ranked bars take a row each; everything else is as tall as its card's size allows. */
-function plotHeight(block: ChartBlock, size: CardSize): number {
-  return block.form === 'bar' ? BAR_TOP * 2 + block.x.length * BAR_ROW : HEIGHT[size]
+function plotHeight(block: ChartBlock, size: CardSize, shared: boolean): number {
+  if (block.form === 'bar') return BAR_TOP * 2 + block.x.length * BAR_ROW
+  return shared ? Math.round(HEIGHT[size] * 0.7) : HEIGHT[size]
 }
 
 /** The chart's values as a table: the same numbers, reachable without a pointer. */

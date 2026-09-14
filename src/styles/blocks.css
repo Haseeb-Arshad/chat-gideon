@@ -94,7 +94,7 @@ div.card-figure strong {
 
 .card-table th,
 .card-table td {
-  padding: 9px 14px;
+  padding: 8px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   text-align: left;
   vertical-align: top;
@@ -775,4 +775,38 @@ div.card-figure strong {
   .chart-bar {
     animation: none;
   }
+}
+
+/* -- The lead row: a wide card's headline with its figure beside it ---------- */
+
+.card-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 32px;
+}
+
+/* The headline's pieces keep the spacing they have in the card body. */
+.card-lead-head {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card-lead .card-figure {
+  align-items: flex-end;
+  margin: 0;
+  text-align: right;
+}
+
+/* Beside a headline, a figure needs to be read, not to shout. */
+.card-lead .card-figure strong {
+  font-size: clamp(2.2rem, 5.2cqw, 3.4rem);
+}
+
+.card-lead .card-change {
+  justify-content: flex-end;
 }

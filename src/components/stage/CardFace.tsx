@@ -1,4 +1,4 @@
-import { blockOf, type Block, type CardSize, type CardV2, type MediaBlock } from '../../lib/cards/schema'
+import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type MediaBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
 import { Gallery } from './blocks/Gallery'
@@ -7,7 +7,7 @@ import { List, Steps, Timeline } from './blocks/Sequences'
 import { Sources } from './blocks/Sources'
 import { Table } from './blocks/Table'
 import { Facts, Headline, Prose, Stat } from './blocks/TextBlocks'
-import { rise, risePlan } from './stagger'
+import { rise, risePlan, useFirst } from './stagger'
 
 /**
  * A card's face: its blocks, laid out by its recipe.
@@ -43,10 +43,13 @@ interface BodyBlockProps {
   spoken: string
   front: boolean
   size: CardSize
+  /** The card has a table as well as a chart, so the chart gives up some height. */
+  shared: boolean
   onAsk?: (text: string) => void
 }
 
-function BodyBlock({ block, start, spoken, front, size, onAsk }: BodyBlockProps) {
+function BodyBlock({ block, start: planned, spoken, front, size, shared, onAsk }: BodyBlockProps) {
+  const start = useFirst(planned)
   switch (block.type) {
     case 'headline':
       return <Headline block={block} start={start} />
@@ -71,7 +74,7 @@ function BodyBlock({ block, start, spoken, front, size, onAsk }: BodyBlockProps)
     case 'quote':
       return <Quote block={block} start={start} />
     case 'chart':
-      return <Chart block={block} start={start} size={size} front={front} />
+      return <Chart block={block} start={start} size={size} front={front} shared={shared} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.
@@ -80,8 +83,29 @@ function BodyBlock({ block, start, spoken, front, size, onAsk }: BodyBlockProps)
 }
 
 function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAsk }: CardFaceProps) {
-  const body = card.blocks.filter((block) => block.slot !== 'media' && block.type !== 'media')
+  const body = orderBySlot(card.blocks.filter((block) => block.slot !== 'media' && block.type !== 'media'))
   const { starts, after } = risePlan(body)
+  const shared = body.some((block) => block.type === 'chart') && body.some((block) => block.type === 'table')
+  const render = (block: Block) => (
+    <BodyBlock
+      key={block.id}
+      block={block}
+      start={starts[body.indexOf(block)]}
+      spoken={spoken}
+      front={front}
+      size={card.size}
+      shared={shared}
+      onAsk={onAsk}
+    />
+  )
+
+  // On a card wide enough, the figure stands beside the headline rather than
+  // under it: a line of height saved, and the number read with its name.
+  const wide = card.size === 'wide' || card.size === 'feature'
+  const head = body.filter((block) => block.slot === 'head')
+  const figure = body.filter((block) => block.slot === 'figure')
+  const lead = wide && head.some((block) => block.type === 'headline') && figure.some((block) => block.type === 'stat')
+  const rest = lead ? body.filter((block) => block.slot !== 'head' && block.slot !== 'figure') : body
 
   return (
     <>
@@ -89,17 +113,13 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
         <Media image={media.image} sources={card.sources} front={front} onShape={onShape} onError={onMediaError} />
       ) : null}
       <div className="card-body">
-        {body.map((block, index) => (
-          <BodyBlock
-            key={block.id}
-            block={block}
-            start={starts[index]}
-            spoken={spoken}
-            front={front}
-            size={card.size}
-            onAsk={onAsk}
-          />
-        ))}
+        {lead ? (
+          <div className="card-lead">
+            <div className="card-lead-head">{head.map(render)}</div>
+            {figure.map(render)}
+          </div>
+        ) : null}
+        {rest.map(render)}
         <Sources sources={card.sources} style={rise(after)} />
       </div>
     </>

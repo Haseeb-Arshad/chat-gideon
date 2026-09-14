@@ -22,9 +22,11 @@ import {
   type MemoryKind,
 } from './memory'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
-import { buildCard, cardDeps } from './card-builder'
+import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-builder'
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
+import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
 import { fromLegacy } from '../cards/legacy'
+import type { Material } from '../cards/materials'
 import type { CardPatch } from '../cards/patch'
 import type { CardV2 } from '../cards/schema'
 
@@ -340,15 +342,43 @@ async function runResearch(
       : result.via === 'answer'
         ? 'One quick search'
         : `${result.searches} search${result.searches === 1 ? '' : 'es'}`
+
+  const cards = cardDeps(context.env)
+  const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
+  const drawn = cardFromMaterials(question, result.materials, Date.now())
+  if (!drawn) {
+    return { ok: true, content: result.brief, summary: how, links: result.sources, card: written }
+  }
+
+  // Drawn from the desk's data, the card is ready as soon as the brief is; the
+  // model's card, a few seconds behind, adds its sentence to it as a patch.
+  const card = withPortrait(drawn, result.materials, cards)
   return {
     ok: true,
-    content: result.brief,
+    content: `${result.brief}\n\nOn the user's screen now: ${describeCard(drawn)}. Refer to it rather than reading it out.`,
     summary: how,
     links: result.sources,
-    card: buildCard(question, result, cardDeps(context.env), context.signal).then((card) =>
-      card ? fromLegacy(card) : null,
-    ),
+    card,
+    cardPatches: (async function* () {
+      const [shown, other] = await Promise.all([card, written])
+      yield mergeCards(shown, other)
+    })(),
   }
+}
+
+/** How long a card drawn from data waits for its subject's portrait before going without. */
+const PORTRAIT_WAIT_MS = 3_000
+
+/**
+ * The card with its subject's portrait, when it is about one subject with a
+ * Wikipedia article. The title comes from the subject's own record, so the
+ * picture is of the right person rather than of whoever a guessed title finds.
+ */
+async function withPortrait(card: CardV2, materials: Material[], deps: CardDeps): Promise<CardV2> {
+  const subject = portraitSubject(card, materials)
+  if (!subject) return card
+  const image = await wikipediaImage(subject, deps, AbortSignal.timeout(PORTRAIT_WAIT_MS)).catch(() => null)
+  return image ? { ...card, blocks: [{ id: 'media', slot: 'media', type: 'media', image }, ...card.blocks] } : card
 }
 
 /**

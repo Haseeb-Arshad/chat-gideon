@@ -377,7 +377,8 @@ export function recordFrom(entity: Entity, labels: Labels, fetchedAt: string): R
   const structure = type === 'place' && isStructure(entity)
   for (const rule of FIELDS[type]) {
     const value = rule.read(entity, labels).trim()
-    if (!value) continue
+    // Lisbon is in the municipality of Lisbon; saying so says nothing.
+    if (!value || value.toLowerCase() === subject.toLowerCase()) continue
     const label = structure && rule.key === 'established' ? 'Construction began' : rule.label
     fields.push({ key: rule.key, label, value })
   }

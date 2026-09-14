@@ -173,6 +173,30 @@ describe('a person', () => {
   })
 })
 
+describe('a city', () => {
+  it('does not say it is located in a place of its own name', () => {
+    const lisbon = recordFrom(
+      {
+        id: 'Q597',
+        labels: { en: { value: 'Lisbon' } },
+        claims: {
+          P625: [claim({ snaktype: 'value', datavalue: { value: { latitude: 38.7, longitude: -9.1 } } })],
+          P17: [claim(item('Q45'))],
+          // The city of Lisbon is in the municipality of Lisbon.
+          P131: [claim(item('Q2000'))],
+          P1082: [claim(amount('+545796'), 'normal', { P585: [time('+2021-01-01T00:00:00Z', 9)] })],
+        },
+      },
+      new Map([
+        ['Q45', 'Portugal'],
+        ['Q2000', 'Lisbon'],
+      ]),
+      '2026-09-14T00:00:00.000Z',
+    )!
+    expect(lisbon.fields.map(({ label }) => label)).toEqual(['Country', 'Population'])
+  })
+})
+
 describe('a structure', () => {
   it('began construction rather than being established, and opened', () => {
     const tower = recordFrom(
