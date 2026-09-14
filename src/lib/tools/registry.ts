@@ -18,6 +18,7 @@ import {
   type MemoryStore,
   rank,
   remember,
+  tokenise,
   touch,
   type MemoryKind,
 } from './memory'
@@ -25,6 +26,7 @@ import { defaultDeps, research, type EnvReader, type ResearchSource } from './re
 import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-builder'
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
+import { SKILLS, describeSkill } from './skills'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
 import type { CardPatch } from '../cards/patch'
@@ -70,15 +72,13 @@ export interface ToolOutcome {
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     name: 'get_time',
-    description:
-      "The current date and time in the user's timezone. Use this before answering anything about today, now, or how long until something.",
+    description: describeSkill(SKILLS.get_time),
     parameters: { type: 'object', properties: {}, required: [] },
     readOnly: true,
   },
   {
     name: 'remember',
-    description:
-      'Store one durable fact about the user so it survives into later sessions: a preference, a name, an ongoing plan. Store only things worth knowing next week. Never store passing chat or anything the user has asked you not to keep.',
+    description: describeSkill(SKILLS.remember),
     parameters: {
       type: 'object',
       properties: {
@@ -91,14 +91,18 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           enum: ['fact', 'preference', 'plan', 'person'],
           description: 'What sort of thing this is.',
         },
+        replaces: {
+          type: 'string',
+          description:
+            'Only when the user says a fact about them has changed: a few words naming the old one, such as "where the user lives". What matches it is removed as the new fact is kept.',
+        },
       },
       required: ['text'],
     },
   },
   {
     name: 'recall',
-    description:
-      'Search what you already know about the user. Use it when the answer depends on something they told you before.',
+    description: describeSkill(SKILLS.recall),
     parameters: {
       type: 'object',
       properties: {
@@ -109,8 +113,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'forget',
-    description:
-      'Delete stored memories matching a description. Use this whenever the user asks you to forget something.',
+    description: describeSkill(SKILLS.forget),
     parameters: {
       type: 'object',
       properties: {
@@ -121,8 +124,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'research',
-    description:
-      'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources. Use it for anything current or anything you would otherwise be guessing at: news, prices, scores, weather, releases, people, places, products, what something is or how it works today. Also use it whenever the user asks about a particular person, place, organisation, work or event, even a famous one you already know, because what it finds is shown on screen as a card. Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so.',
+    description: describeSkill(SKILLS.research),
     parameters: {
       type: 'object',
       properties: {
@@ -138,8 +140,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'show_images',
-    description:
-      "Put pictures on the user's screen: photos of a thing, a place, a person, an animal, food, a design or a style. Use it whenever the user asks to see, or be shown, pictures, photos or images of something, or asks what something looks like. Never answer a request for pictures with a link to an image search. The pictures appear on screen by themselves, so say one short, natural line about them and never describe them one by one.",
+    description: describeSkill(SKILLS.show_images),
     parameters: {
       type: 'object',
       properties: {
@@ -155,8 +156,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'set_timer',
-    description:
-      'Set a timer that alerts the user when it finishes. Use it for anything like remind me in ten minutes.',
+    description: describeSkill(SKILLS.set_timer),
     parameters: {
       type: 'object',
       properties: {
@@ -169,8 +169,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
   {
     name: 'offer_link',
-    description:
-      'Put a link in front of the user as something they can choose to open. It is never opened for them, so say aloud what it is and let them decide.',
+    description: describeSkill(SKILLS.offer_link),
     parameters: {
       type: 'object',
       properties: {
@@ -230,6 +229,33 @@ function describeTime(timezone: string): ToolOutcome {
   return { ok: true, content: formatted }
 }
 
+/** At most this many memories give way to a fact that has changed. */
+const MAX_REPLACED = 2
+
+/**
+ * The memories a changed fact takes the place of: the closest matches to what
+ * it replaces, and only those at least half as close as the best. An old fact
+ * has to share a word with the new one as well, so what goes is always about
+ * the same thing as what comes in, however loosely the model named it. "The
+ * user" is in nearly every memory, so a match on it alone replaces nothing.
+ */
+function outdatedBy(memories: Memory[], replaces: string, fact: string): Set<string> {
+  const named = new Set(tokenise(replaces).filter((term) => term !== 'user'))
+  const about = new Set(tokenise(fact).filter((term) => term !== 'user'))
+  if (!named.size || !about.size) return new Set()
+  const hits = rank(memories, replaces).filter((hit) => {
+    const terms = tokenise(hit.memory.text)
+    return terms.some((term) => named.has(term)) && terms.some((term) => about.has(term))
+  })
+  const best = hits[0]?.score ?? 0
+  return new Set(
+    hits
+      .filter((hit) => hit.score >= best / 2)
+      .slice(0, MAX_REPLACED)
+      .map((hit) => hit.memory.id),
+  )
+}
+
 /**
  * Memory tools, each as one serialised read-modify-write.
  *
@@ -245,14 +271,23 @@ async function runMemoryTool(
     const value = text(args, 'text')
     if (!value) return { ok: false, content: 'Nothing was given to remember.' }
     const kind = (text(args, 'kind') || 'fact') as MemoryKind
+    // A fact that has changed is one act to the person saying it ("I live in
+    // Leeds now"), and the old one must not stay behind to be recalled later.
+    const replaces = text(args, 'replaces')
 
     return store.mutate<ToolOutcome>((memories) => {
-      const { memories: next, result } = remember(memories, kind, value)
+      const outdated = replaces ? outdatedBy(memories, replaces, value) : new Set<string>()
+      const { memories: next, result } = remember(
+        memories.filter((memory) => !outdated.has(memory.id)),
+        kind,
+        value,
+      )
+      const replaced = outdated.size ? `Replaced ${outdated.size} older memor${outdated.size === 1 ? 'y' : 'ies'}. ` : ''
       return {
         memories: next,
         result: {
           ok: true,
-          content: result.status === 'merged' ? 'Updated what I already knew.' : 'Stored.',
+          content: `${replaced}${result.status === 'merged' ? 'Updated what I already knew.' : 'Stored.'}`,
           summary: `Remembered: ${result.memory.text}`,
         } satisfies ToolOutcome,
       }

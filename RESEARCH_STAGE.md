@@ -226,6 +226,56 @@ second one" and "what does the card say" can be answered. Asking for the same
 thing twice (the same kind of card with the same title) replaces the earlier
 card instead of leaving two of it on the shelf.
 
+## Choosing the right tool
+
+Every tool the speaking model is offered has a manifest (`tools/skills.ts`):
+its one job, what to use it for, what never to use it for and which tool is for
+that instead, and how to speak about what it returns. Its description is
+generated from the manifest, so every description has the same shape and none
+can leave out what the tool is not for.
+
+`npm run benchmark:routing` sends 127 sentences (`tools/routing-corpus.ts`)
+through the real speaking model with every tool answered by nothing, reads the
+tools it called straight off its stream, and stops the turn there. It prints a
+confusion matrix and gates on overall accuracy of at least 95%, every tool's
+precision at least 92% and recall at least 90%, and no tool that leaves
+something behind (remember, forget, a timer, a link) called when no one asked.
+The corpus covers plain requests for each tool, both sides of each pair that
+could be confused, figures of speech built to tempt a tool, commands about the
+cards on screen, and two requests in one sentence. No sentence in it appears in
+a manifest or in the prompt.
+
+Measured on 14 September 2026 with `gpt-4.1-mini`, at the temperature it speaks
+at. With the descriptions written by hand, 109 of 121 were right (90.1%), and
+the misses were worth more than the number:
+
+- Asked who Ada Lovelace was, where Machu Picchu is or how big a blue whale is,
+  the model answered from memory. Research was called for 24 of the 31
+  questions that wanted it.
+- Told "I'm allergic to peanuts", it said it would keep that in mind, and kept
+  nothing.
+- "Picture this: a beach, no phones" fetched pictures.
+
+Generated descriptions alone changed nothing (107 of 121): the prompt said to
+use a tool "only when the answer genuinely depends on it", which the card rule
+contradicts. Four changes fixed it:
+
+- That rule now allows a tool whose screen is part of the answer, and forbids
+  saying a tool's work was done without calling it.
+- The screen follows the conversation by itself, so no tool moves a card.
+- Five routing rules come last in the prompt, after the voice.
+- `remember` takes `replaces`, so a fact that has changed ("I live in Leeds
+  now") takes the old one's place in one call. Only an old fact that shares a
+  word with both the new fact and what it replaces gives way.
+
+Two runs in a row then gave 125 of 127 (98.4%), with every gate passed and no
+unasked side effect. Research was called for 30 of 31. Still missed in both:
+"compare Python and Rust" was answered from memory, and "picture this" fetched
+pictures, which leaves nothing behind. The eight cases of `benchmark:research`
+still pass. Time to first token did not move: 1165 ms at the median before and
+1133 ms after, over ten requests each, although the prompt and tool
+descriptions grew from 11,690 to 16,503 characters. A run costs about ten cents.
+
 ## Resources
 
 Everything GIDEON did and read used to be listed under the conversation, and it

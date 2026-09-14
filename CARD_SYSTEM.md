@@ -398,6 +398,20 @@ description or the tool list ships only when:
 
 The same corpus runs against the fallback chat model, reported and not gated.
 
+**As built (14 September 2026), for the eight tools there are today.** The
+corpus has 127 cases rather than 240, since the new skills are not built, and
+each new skill adds its own. The gates held on two runs in a row at
+98.4%, from 90.1% with the hand-written descriptions. The descriptions
+were not what moved it. What did:
+
+- A prompt rule that contradicted the card rule was removed.
+- A rule now forbids claiming a tool's work without calling it.
+- The routing rules come last in the prompt.
+- `remember` gained `replaces`, for a fact that has changed.
+
+The figures are in RESEARCH_STAGE.md. Screen commands need no tool, and the
+prompt now says so: "bring the first one back" had reached for `offer_link`.
+
 Tools also cost time. The list grows from 8 to at most 14, and every description
 is read before the first token, so `npm run benchmark:models` measures time to
 first token before and after each addition. A regression past 60 ms at the
