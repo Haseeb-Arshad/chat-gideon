@@ -361,7 +361,7 @@ npm run benchmark:routing
 
 Sends 127 sentences through the real speaking model with every tool stubbed,
 and fails unless at least 95% reach the right tool (or none), every tool keeps
-precision above 92% and recall above 90%, and nothing that leaves a trace (a
+precision of at least 92% and recall of at least 90%, and nothing that leaves a trace (a
 memory, a timer, a link) fires unasked. Set `ROUTING_ONLY` to a group
 (`plain`, `boundary`, `speech`, `screen`, `double`) or part of a sentence
 for a focused rerun. About ten cents a run; results in
