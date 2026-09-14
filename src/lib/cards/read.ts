@@ -28,6 +28,9 @@ import {
   type CardSize,
   type CardSource,
   type CardV2,
+  type ChartBlock,
+  type ChartForm,
+  type ChartSeries,
   type ChipsBlock,
   type ListItem,
   type NoteBlock,
@@ -168,6 +171,71 @@ function readTable(input: Input, sources: number): TableBlock | null {
   } as TableBlock
 }
 
+/** How many series each form can carry, and how many x positions. */
+const CHART_LIMITS: Record<ChartForm, { series: number; x: number; exactSeries?: number }> = {
+  line: { series: 5, x: 400 },
+  area: { series: 1, x: 400 },
+  column: { series: 3, x: 24 },
+  bar: { series: 1, x: 15 },
+  range: { series: 2, x: 31, exactSeries: 2 },
+}
+
+/**
+ * A chart, whole or not at all. Every series must have exactly one value per x
+ * position, and anything that is not a finite number is a gap: a series with a
+ * value missing drawn as though it had one would put its points over the wrong
+ * labels.
+ */
+function readChart(input: Input): ChartBlock | null {
+  const form = input.form as ChartForm
+  const limits = CHART_LIMITS[form]
+  if (!limits || !Object.hasOwn(CHART_LIMITS, form)) return null
+
+  const x = list(input.x, limits.x + 1).map((label) => (typeof label === 'number' ? String(label) : text(label, 40)))
+  if (x.length < 2 || x.length > limits.x || x.some((label) => !label)) return null
+
+  const series: ChartSeries[] = []
+  for (const item of list(input.series, 8)) {
+    if (!isObject(item) || !Array.isArray(item.values) || item.values.length !== x.length) continue
+    const key = text(item.key, 40) || `s${series.length}`
+    if (series.some((existing) => existing.key === key)) continue
+    const values = item.values.map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : null))
+    if (values.every((value) => value === null)) continue
+    series.push({ key, label: text(item.label, 60) || key, values })
+  }
+  if (!series.length) return null
+  if (limits.exactSeries && series.length !== limits.exactSeries) return null
+  // A ninth line is never given a new colour; past the limit, series are left off.
+  series.splice(limits.series)
+
+  const marks = list(input.marks, 6).flatMap((item) => {
+    if (!isObject(item) || !Number.isInteger(item.at)) return []
+    const at = item.at as number
+    const label = text(item.label, 40)
+    const key = text(item.series, 40)
+    if (at < 0 || at >= x.length || !label || (key && !series.some((existing) => existing.key === key))) return []
+    return [{ at, label, ...(key ? { series: key } : {}) }]
+  })
+
+  const title = text(input.title, 120)
+  const unit = text(input.unit, 16)
+  const xLabel = text(input.xLabel, 40)
+  const summary = text(input.summary, 300)
+  const asOf = text(input.asOf, 40)
+  return {
+    type: 'chart',
+    form,
+    title,
+    x,
+    series,
+    ...(unit ? { unit } : {}),
+    ...(xLabel ? { xLabel } : {}),
+    ...(marks.length ? { marks } : {}),
+    ...(summary ? { summary } : {}),
+    ...(asOf ? { asOf } : {}),
+  } as ChartBlock
+}
+
 /** One block's own fields, or null when it has nothing it could draw. */
 function readBody(type: BlockType, input: Input, sources: number): BlockBody | null {
   switch (type) {
@@ -252,6 +320,8 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
       const quote = text(input.text, 400)
       return quote ? { type, text: quote, who: text(input.who, 80) } : null
     }
+    case 'chart':
+      return readChart(input)
     case 'prose': {
       const paragraphs = list(input.paragraphs, 6)
         .map((paragraph) => text(paragraph, 1_200))

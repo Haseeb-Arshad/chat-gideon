@@ -41,6 +41,7 @@ export function risesIn(block: Block): number {
     case 'steps':
     case 'chips':
     case 'quote':
+    case 'chart':
       return 1
   }
 }

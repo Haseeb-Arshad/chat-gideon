@@ -121,3 +121,52 @@ describe('timeline, list, steps, chips, quote, note', () => {
     expect(blocks[3]).toMatchObject({ tone: 'info' })
   })
 })
+
+describe('chart', () => {
+  const years = ['2019', '2020', '2021', '2022']
+
+  it('keeps a chart whose series have one value per position, with gaps as nulls', () => {
+    const [chart] = blocksOf({
+      id: 'c',
+      type: 'chart',
+      form: 'line',
+      title: 'Passengers',
+      unit: 'millions',
+      x: years,
+      series: [
+        { key: 'ferry', label: 'Ferry', values: [4.4, 'n/a', 2.6, 3.5] },
+        { key: 'short', label: 'Short', values: [1, 2] },
+        { key: 'empty', label: 'Empty', values: [null, null, null, null] },
+      ],
+      marks: [
+        { at: 1, label: 'Closed' },
+        { at: 9, label: 'Out of range' },
+        { at: 2, series: 'missing', label: 'No series' },
+      ],
+    })
+    expect(chart).toMatchObject({ type: 'chart', form: 'line', unit: 'millions', x: years })
+    const series = chart.type === 'chart' ? chart.series : []
+    expect(series).toEqual([{ key: 'ferry', label: 'Ferry', values: [4.4, null, 2.6, 3.5] }])
+    expect(chart.type === 'chart' && chart.marks).toEqual([{ at: 1, label: 'Closed' }])
+  })
+
+  it('refuses a form it does not know, too many positions, or a range without both ends', () => {
+    expect(blocksOf({ id: 'c', type: 'chart', form: 'pie', x: years, series: [{ values: [1, 2, 3, 4] }] })).toEqual([])
+    const tooMany = Array.from({ length: 16 }, (_, index) => `r${index}`)
+    expect(
+      blocksOf({ id: 'c', type: 'chart', form: 'bar', x: tooMany, series: [{ values: tooMany.map(() => 1) }] }),
+    ).toEqual([])
+    expect(blocksOf({ id: 'c', type: 'chart', form: 'range', x: years, series: [{ values: [1, 2, 3, 4] }] })).toEqual([])
+  })
+
+  it('never gives a line more series than it has colours for', () => {
+    const [chart] = blocksOf({
+      id: 'c',
+      type: 'chart',
+      form: 'line',
+      x: years,
+      series: Array.from({ length: 8 }, (_, index) => ({ key: `s${index}`, values: [1, 2, 3, index] })),
+    })
+    expect(chart.type === 'chart' && chart.series).toHaveLength(5)
+  })
+})

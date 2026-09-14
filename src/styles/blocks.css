@@ -500,11 +500,279 @@ div.card-figure strong {
   text-transform: uppercase;
 }
 
+/* -- Charts ------------------------------------------------------------------ */
+
+.card-chart {
+  min-width: 0;
+  margin: 12px 0 0;
+}
+
+.card-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.card-chart-title {
+  color: rgba(236, 240, 247, 0.92);
+  font-size: 0.86rem;
+}
+
+.card-chart-title small {
+  margin-left: 6px;
+  color: #a9b1bd;
+  font-size: 0.76rem;
+}
+
+.card-chart-asof {
+  color: #a9b1bd;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Identity is never colour alone: a key beside every name, and the names in ink. */
+.card-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  color: rgba(226, 232, 241, 0.86);
+  font-size: 0.76rem;
+}
+
+.card-chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-chart-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.card-chart-legend i[data-key='box'] {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.card-chart-well {
+  overflow: hidden;
+  padding: 4px 0 0;
+}
+
+.card-chart-svg {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  font-family: var(--font-mono);
+  touch-action: pan-y;
+}
+
+.card-chart-svg:focus-visible {
+  outline: 2px solid rgba(191, 233, 255, 0.9);
+  outline-offset: -2px;
+}
+
+.chart-grid line {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+
+.chart-grid line[data-zero='true'],
+.chart-baseline {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+
+.chart-grid text,
+.chart-x {
+  fill: #a9b1bd;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: chart-draw 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(260ms + var(--i, 0) * 80ms);
+}
+
+.chart-area {
+  opacity: 0.1;
+  stroke: none;
+}
+
+.chart-cross {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+}
+
+.chart-band {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.chart-bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: chart-grow 500ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(260ms + var(--i, 0) * 80ms + var(--k, 0) * 40ms);
+}
+
+.chart-bar-across {
+  transform-origin: 0 50%;
+  animation-name: chart-grow-across;
+}
+
+.chart-value,
+.chart-end-label,
+.chart-mark-label,
+.chart-category {
+  fill: rgba(236, 240, 247, 0.9);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-category {
+  fill: rgba(226, 232, 241, 0.82);
+  font-family: var(--font-text);
+  font-size: 12px;
+}
+
+.chart-value-low {
+  fill: #a9b1bd;
+}
+
+.chart-mark {
+  fill: none;
+  stroke: rgba(191, 233, 255, 0.75);
+  stroke-width: 1.5;
+}
+
+.card-chart-readout {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  min-width: 132px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(14, 18, 28, 0.82);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 10px 24px -10px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.card-chart-readout-x {
+  color: #a9b1bd;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+}
+
+.card-chart-readout-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.card-chart-readout-row i {
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.card-chart-readout-row b {
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-chart-readout-row small {
+  color: rgba(214, 222, 234, 0.72);
+  font-size: 0.72rem;
+}
+
+.card-chart-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.card-chart-summary {
+  margin: 0;
+  color: rgba(214, 222, 234, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.card-chart-view {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 232, 241, 0.78);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+
+.card-chart-view:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes chart-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes chart-grow-across {
+  from {
+    transform: scaleX(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .card-table tbody tr,
   .timeline-event,
   .card-list li,
-  .card-steps li {
+  .card-steps li,
+  .chart-line,
+  .chart-bar {
     animation: none;
   }
 }

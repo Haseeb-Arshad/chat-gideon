@@ -1,5 +1,6 @@
-import { blockOf, type Block, type CardV2, type MediaBlock } from '../../lib/cards/schema'
+import { blockOf, type Block, type CardSize, type CardV2, type MediaBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
+import { Chart } from './blocks/Chart'
 import { Gallery } from './blocks/Gallery'
 import { Media, type MediaShape } from './blocks/Media'
 import { List, Steps, Timeline } from './blocks/Sequences'
@@ -41,10 +42,11 @@ interface BodyBlockProps {
   start: number
   spoken: string
   front: boolean
+  size: CardSize
   onAsk?: (text: string) => void
 }
 
-function BodyBlock({ block, start, spoken, front, onAsk }: BodyBlockProps) {
+function BodyBlock({ block, start, spoken, front, size, onAsk }: BodyBlockProps) {
   switch (block.type) {
     case 'headline':
       return <Headline block={block} start={start} />
@@ -68,6 +70,8 @@ function BodyBlock({ block, start, spoken, front, onAsk }: BodyBlockProps) {
       return <Chips block={block} start={start} front={front} onAsk={onAsk} />
     case 'quote':
       return <Quote block={block} start={start} />
+    case 'chart':
+      return <Chart block={block} start={start} size={size} front={front} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.
@@ -86,7 +90,15 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
       ) : null}
       <div className="card-body">
         {body.map((block, index) => (
-          <BodyBlock key={block.id} block={block} start={starts[index]} spoken={spoken} front={front} onAsk={onAsk} />
+          <BodyBlock
+            key={block.id}
+            block={block}
+            start={starts[index]}
+            spoken={spoken}
+            front={front}
+            size={card.size}
+            onAsk={onAsk}
+          />
         ))}
         <Sources sources={card.sources} style={rise(after)} />
       </div>

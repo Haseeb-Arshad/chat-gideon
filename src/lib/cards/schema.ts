@@ -202,6 +202,41 @@ export interface QuoteBlock extends BlockBase {
   who: string
 }
 
+/**
+ * `line`: how values moved, up to five series. `area`: one series, filled to
+ * zero. `column`: values side by side, up to three series. `bar`: one series
+ * ranked, the largest at the top. `range`: a low and a high at each point, such
+ * as a day's temperatures.
+ */
+export type ChartForm = 'line' | 'area' | 'column' | 'bar' | 'range'
+
+export interface ChartSeries {
+  key: string
+  label: string
+  /** One per x position. Null where there is no value: a gap, never a zero. */
+  values: Array<number | null>
+}
+
+export interface ChartBlock extends BlockBase {
+  type: 'chart'
+  form: ChartForm
+  /** What is measured: "Passengers a year". */
+  title: string
+  /** Said once, beside the title and in readouts: "millions", "°C". */
+  unit?: string
+  /** What the x positions are: "Year", "Hour", "Route". */
+  xLabel?: string
+  /** The x positions as they are shown, in order. */
+  x: string[]
+  series: ChartSeries[]
+  /** Points worth naming on the chart: the peak, the low, an event. */
+  marks?: Array<{ at: number; series?: string; label: string }>
+  /** What the chart shows, in words. Worked out from the values when it is missing. */
+  summary?: string
+  /** When the newest value was true. */
+  asOf?: string
+}
+
 export interface ProseBlock extends BlockBase {
   type: 'prose'
   paragraphs: string[]
@@ -236,6 +271,7 @@ export type Block =
   | StepsBlock
   | ChipsBlock
   | QuoteBlock
+  | ChartBlock
 
 export type BlockType = Block['type']
 
@@ -253,6 +289,7 @@ export const BLOCK_TYPES: readonly BlockType[] = [
   'steps',
   'chips',
   'quote',
+  'chart',
 ]
 
 export interface CardV2 {
