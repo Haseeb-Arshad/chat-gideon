@@ -23,6 +23,10 @@
  * is what lets the same file run under Node and inside a Cloudflare Worker.
  */
 
+import type { Material } from '../cards/materials'
+import { entityFacts, MAX_TITLES } from './desk/wikidata'
+import { countryData, INDICATOR_KEYS, MAX_COUNTRIES } from './desk/world-bank'
+
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const EXA_URL = 'https://api.exa.ai'
 
@@ -132,6 +136,11 @@ export interface ResearchResult {
   /** The brief for the speaking model: prose, with its sources named. */
   brief: string
   sources: ResearchSource[]
+  /**
+   * What the desk's data sources returned, exactly as they returned it: the
+   * series and records a card copies its numbers and dates from.
+   */
+  materials: Material[]
   via: ResearchPath
   model: string
   searches: number
@@ -369,6 +378,44 @@ const RESEARCH_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'country_data',
+      description: `Exact yearly World Bank figures for up to ${MAX_COUNTRIES} countries, or the world: population and its growth, share aged 65 and over, share in towns and cities, life expectancy, births per woman, GDP, GDP per person, GDP growth, inflation, unemployment, exports, military and health spending as shares of GDP, CO2 per person, internet use, access to electricity and the renewable share of energy. Returns every year since 1960 that has a figure, summarised, and draws the series on the user's screen as a chart. The latest figure is usually a year or two old.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          countries: {
+            type: 'array',
+            items: { type: 'string' },
+            description: `Three-letter ISO 3166-1 codes, such as JPN or KOR, or WLD for the world. At most ${MAX_COUNTRIES}.`,
+          },
+          indicator: { type: 'string', enum: INDICATOR_KEYS },
+          since: { type: 'integer', description: 'The first year to include. Leave it out for everything from 1960.' },
+        },
+        required: ['countries', 'indicator'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'entity_facts',
+      description: `The structured Wikidata record of up to ${MAX_TITLES} particular people, countries, places, organisations or works: dates and places of birth and death, occupations, awards with their years, capital, population, area, founding date, founders, headquarters, chief executive, author, publication date. Its facts are shown on the user's screen as the card.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          titles: {
+            type: 'array',
+            items: { type: 'string' },
+            description: `The exact titles of their English Wikipedia articles, such as "Marie Curie" or "Lisbon". At most ${MAX_TITLES}.`,
+          },
+        },
+        required: ['titles'],
+      },
+    },
+  },
 ]
 
 function researcherPrompt(now: number, timezone: string) {
@@ -388,6 +435,8 @@ function researcherPrompt(now: number, timezone: string) {
   return `You are the research desk for a spoken assistant. Today is ${today}. Your job is to find out the answer to a question about the world, accurately, and hand back a brief that another model will read aloud.
 
 Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result's /abs/ page gives you the abstract and its /pdf/ link gives you the paper. Never read an arxiv.org/html/ link. Stop as soon as you are sure; every round is silence for a person who is waiting.
+
+Data. Two tools return exact figures and records, and what they return is drawn on the user's screen. Use country_data whenever the question is about one of its measures for a country or the world, above all over time or between countries, and search as well for anything newer than its latest year. Use entity_facts whenever the question is about a particular named person, country, place, organisation or work, or compares a few of them. Call either in the same round as your first searches, never in a round of its own. Their numbers and dates are exact: use them as given, and prefer them to a passage that disagrees unless the passage is newer.
 
 One round of searching is usually the whole job. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
 
@@ -455,8 +504,15 @@ const WRITE_NOW =
 interface AgentBrief {
   brief: string
   sources: ResearchSource[]
+  materials: Material[]
   searches: number
   model: string
+}
+
+/** Strings from a model's array argument, or a single string it gave instead of an array. */
+function strings(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 async function runAgent(
@@ -472,6 +528,8 @@ async function runAgent(
     { role: 'user', content: question },
   ]
   const seen = new Map<string, ResearchSource>()
+  // By id, so a subject looked up twice in a run is one material, the latest.
+  const materials = new Map<string, Material>()
   let searches = 0
   let modelUsed = deps.model
   let writing = false
@@ -511,7 +569,13 @@ async function runAgent(
     if (!calls.length || last) {
       const looked = searches > 0 || seen.size > 0
       if (content && looked && !TOOL_MARKUP.test(content)) {
-        return { brief: content, sources: citedSources(content, seen), searches, model: modelUsed }
+        return {
+          brief: content,
+          sources: citedSources(content, seen),
+          materials: [...materials.values()],
+          searches,
+          model: modelUsed,
+        }
       }
       // Two things are not a brief: an answer given before any lookup, which is
       // the model's memory and exactly what this desk exists to replace, and a
@@ -549,6 +613,30 @@ async function runAgent(
             for (const source of toSources([page])) seen.set(source.url, source)
             return `${page.title ?? hostname(url)}\n${page.text}`
           }
+          if (call.function.name === 'country_data' || call.function.name === 'entity_facts') {
+            const lookup =
+              call.function.name === 'country_data'
+                ? await countryData(
+                    {
+                      countries: strings(args.countries ?? args.country),
+                      indicator: typeof args.indicator === 'string' ? args.indicator : '',
+                      since: typeof args.since === 'number' ? args.since : undefined,
+                    },
+                    deps,
+                    signal,
+                  )
+                : await entityFacts({ titles: strings(args.titles ?? args.title) }, deps, signal)
+            if (!lookup.ok) return lookup.text
+            const cite = new Map<string, string>()
+            for (const material of lookup.materials) {
+              materials.set(material.id, material)
+              const title = material.kind === 'series' ? `${material.source.title}: ${material.name}` : `${material.source.title}: ${material.subject}`
+              cite.set(material.source.url, title)
+              seen.set(material.source.url, { title, url: material.source.url })
+            }
+            const sources = [...cite].map(([url, title]) => `${title} ${url}`).join('\n')
+            return `${lookup.text}\nCite as:\n${sources}`
+          }
           return `There is no tool called ${call.function.name}.`
         } catch (error) {
           if (signal.aborted) throw error
@@ -577,6 +665,7 @@ function failed(signal: AbortSignal): Outcome {
     ok: false,
     brief: signal.aborted ? 'Cancelled.' : UNAVAILABLE,
     sources: [],
+    materials: [],
     via: 'none',
     model: '',
     searches: 0,
@@ -593,6 +682,7 @@ async function directAnswer(deps: ResearchDeps, question: string, signal: AbortS
       ok: true,
       brief: cited ? `${answer}\nSources: ${cited}` : answer,
       sources,
+      materials: [],
       via: 'answer',
       model: 'exa',
       searches: 1,
@@ -889,7 +979,7 @@ export async function research(
 
   const trimmed = question.trim()
   if (!trimmed) {
-    return { ok: false, brief: 'No question was given.', sources: [], via: 'none', model: '', searches: 0, ms: 0 }
+    return { ok: false, brief: 'No question was given.', sources: [], materials: [], via: 'none', model: '', searches: 0, ms: 0 }
   }
   if (!deps.exaKey) {
     return {
@@ -897,6 +987,7 @@ export async function research(
       brief:
         'Research is not configured on this server, so you have no live information. Say so plainly and answer only from what you already know, making clear it may be out of date.',
       sources: [],
+      materials: [],
       via: 'none',
       model: '',
       searches: 0,

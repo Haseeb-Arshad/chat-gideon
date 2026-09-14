@@ -16,6 +16,7 @@ function researched(brief: string, extra: Partial<ResearchResult> = {}): Researc
     ok: true,
     brief,
     sources: [{ title: 'Albert Einstein | Britannica', url: 'https://www.britannica.com/biography/Albert-Einstein' }],
+    materials: [],
     via: 'agent',
     model: 'test',
     searches: 1,

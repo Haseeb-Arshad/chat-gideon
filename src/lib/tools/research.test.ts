@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { forgetWikidata } from './desk/wikidata'
+import { forgetWorldBank } from './desk/world-bank'
 import {
   DEFAULT_TIMING,
   ResearchCache,
@@ -29,6 +31,8 @@ interface Scripted {
   search?: (body: Json) => Json
   contents?: (body: Json) => Json
   answer?: (body: Json) => Json | { status: number }
+  /** The desk's data sources, the World Bank and Wikidata, answered by address. */
+  data?: (url: string) => unknown
 }
 
 function json(value: unknown, status = 200) {
@@ -58,6 +62,9 @@ function scripted(script: Scripted) {
     if (url.endsWith('/answer')) {
       const value = script.answer?.(body) ?? { status: 500 }
       return isStatus(value) ? json({ error: 'down' }, value.status) : json(value)
+    }
+    if (script.data && (url.includes('api.worldbank.org') || url.includes('wikidata.org'))) {
+      return json(script.data(url))
     }
     return json({ error: `unexpected ${url}` }, 404)
   }) as unknown as typeof globalThis.fetch
@@ -274,6 +281,88 @@ describe('research', () => {
   })
 })
 
+describe('figures and records', () => {
+  const population = [
+    { page: 1, pages: 1, per_page: 1000, total: 3 },
+    [
+      { country: { id: 'JP', value: 'Japan' }, countryiso3code: 'JPN', date: '2025', value: 123366734 },
+      { country: { id: 'JP', value: 'Japan' }, countryiso3code: 'JPN', date: '2010', value: 128070000 },
+      { country: { id: 'JP', value: 'Japan' }, countryiso3code: 'JPN', date: '1960', value: 93216000 },
+    ],
+  ]
+  const japan = {
+    id: 'Q17',
+    labels: { en: { value: 'Japan' } },
+    descriptions: { en: { value: 'island country in East Asia' } },
+    sitelinks: { enwiki: { title: 'Japan' } },
+    claims: {
+      P31: [{ rank: 'normal', mainsnak: { snaktype: 'value', datavalue: { value: { id: 'Q6256' } } } }],
+      P36: [{ rank: 'preferred', mainsnak: { snaktype: 'value', datavalue: { value: { id: 'Q1490' } } } }],
+    },
+  }
+  const data = (url: string) => {
+    if (url.includes('api.worldbank.org')) return population
+    if (url.includes('props=labels&')) return { entities: { Q1490: { id: 'Q1490', labels: { en: { value: 'Tokyo' } } } } }
+    return { entities: { Q17: japan } }
+  }
+
+  beforeEach(() => {
+    forgetWorldBank()
+    forgetWikidata()
+  })
+
+  it('looks figures and records up beside its searches, and hands back exactly what they returned', async () => {
+    const { fetch, calls } = scripted({
+      model: [
+        toolCallTurn([
+          { name: 'search', args: { query: 'Japan population decline' } },
+          { name: 'country_data', args: { countries: ['JPN'], indicator: 'population' } },
+          // A single title where an array was asked for is still a title.
+          { name: 'entity_facts', args: { titles: 'Japan' } },
+        ]),
+        textTurn(
+          "Japan's population peaked at 128,070,000 in 2010 and was 123,366,734 in 2025.\nSources: World Bank: Population https://data.worldbank.org/indicator/SP.POP.TOTL?locations=JP",
+        ),
+      ],
+      search: searchFixture,
+      data,
+    })
+
+    const result = await research('how has the population of Japan changed', { signal: new AbortController().signal }, deps(fetch), null)
+
+    expect(result.ok).toBe(true)
+    expect(result.materials.map((material) => material.id).sort()).toEqual(['wikidata:Q17', 'worldbank:population:JPN'])
+    // A lookup is not a search.
+    expect(result.searches).toBe(1)
+    // The brief cited the World Bank's page, so it reaches the ledger like any source.
+    expect(result.sources.map((source) => source.url)).toEqual(['https://data.worldbank.org/indicator/SP.POP.TOTL?locations=JP'])
+
+    const writing = calls.filter((call) => call.url.includes('openrouter'))[1]
+    const tools = (writing.body.messages as Array<{ role: string; content: string }>).filter((message) => message.role === 'tool')
+    expect(tools[1].content).toContain('Japan, 1960 to 2025: 1960 93,216,000 · 2010 128,070,000 · 2025 123,366,734')
+    expect(tools[1].content).toContain('Cite as:\nWorld Bank: Population https://data.worldbank.org/indicator/SP.POP.TOTL?locations=JP')
+    expect(tools[2].content).toContain('Capital: Tokyo')
+  })
+
+  it('tells the research model what it cannot look up, and keeps going', async () => {
+    const { fetch } = scripted({
+      model: [
+        toolCallTurn([
+          { name: 'search', args: { query: 'happiness in Japan' } },
+          { name: 'country_data', args: { countries: ['JPN'], indicator: 'happiness' } },
+        ]),
+        textTurn('Japan ranked 55th.\nSources: Result for happiness in Japan https://example.org/happiness%20in%20Japan'),
+      ],
+      search: searchFixture,
+      data,
+    })
+
+    const result = await research('how happy is Japan', { signal: new AbortController().signal }, deps(fetch), null)
+    expect(result.ok).toBe(true)
+    expect(result.materials).toEqual([])
+  })
+})
+
 describe('hedging a slow run', () => {
   const quick = { ...DEFAULT_TIMING, hedgeAfterMs: 10, budgetMs: 5_000, orphanGraceMs: 5 }
 
@@ -435,7 +524,7 @@ describe('ResearchCache', () => {
   function result(brief: string, ok = true): ResearchResult {
     // A real brief always came from somewhere, so it always names a source.
     const sources = [{ title: 'A page', url: 'https://example.org/a' }]
-    return { ok, brief, sources, via: 'agent', model: 'm', searches: 1, ms: 1 }
+    return { ok, brief, sources, materials: [], via: 'agent', model: 'm', searches: 1, ms: 1 }
   }
   const settled = (value: ResearchResult) => new SharedRun(() => Promise.resolve(value), 5)
 
@@ -532,7 +621,7 @@ describe('the address a page is read from', () => {
 
 describe('an answer that found nothing', () => {
   const of = (brief: string, sources = [{ title: 'A page', url: 'https://example.org/a' }]) =>
-    foundNothing({ ok: true, brief, sources, via: 'agent', model: 'm', searches: 2, ms: 1 })
+    foundNothing({ ok: true, brief, sources, materials: [], via: 'agent', model: 'm', searches: 2, ms: 1 })
 
   it('knows a shrug from an answer', () => {
     expect(of('No specific AI research papers from August 2026 could be found.')).toBe(true)

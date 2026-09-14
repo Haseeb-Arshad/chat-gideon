@@ -72,6 +72,7 @@ describe.skipIf(!live)('live cards', () => {
         ok: true,
         brief,
         sources: [{ title: 'Source', url: brief.match(/https:\/\/\S+/)?.[0] ?? 'https://example.org' }],
+        materials: [],
         via: 'agent',
         model: 'fixed',
         searches: 1,
