@@ -936,6 +936,26 @@ newspaper cards borrow the same decade: a broadsheet set in glass.
 - Hairline column rules, headlines in GT Alpina, datelines in Plex Mono, decks
   in GT Alpina Light Italic.
 
+**As built (14 September 2026).** Four things changed on the way, each to keep
+the page honest or full:
+
+- No model writes a headline or a deck. A headline is the publisher's own
+  title, with the publisher's name or a section's taken off its end, and a deck
+  is the story's own passage saying what happened, at most thirty words. A
+  model's ten-word headline is a rewrite no source said.
+- Stories come from a desk tool of their own, `top_stories` (Exa's news
+  category, the last 36 hours or 7 days), rather than from `search`, so the desk
+  can ask for the news in one call and the card is drawn from what it returns.
+- The lead is the story the most outlets are carrying; tellings of the same
+  event are grouped by the words their headlines share. Every story's dateline
+  names its outlet and links to it, so there is no row of source markers.
+- A front page is the height of the stage at any size. The lead's picture takes
+  the height its words leave, and the column holds as many whole stories as fit
+  (the desk fetches up to six); a story that would be cut off wraps out of sight
+  and out of the tab order. Datelines count hours for a day, then say
+  "Yesterday", a weekday, or the date; the edition is morning, afternoon,
+  evening or late.
+
 ### Feature
 
 For "tell me everything about", "explain", "the full story". `research` gains a

@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { forgetNews, topStories } from './news'
 import { countryData } from './world-bank'
 import { entityFacts } from './wikidata'
 
@@ -6,15 +8,26 @@ import { entityFacts } from './wikidata'
  * The desk's data sources against the live services, run on purpose with
  * `npx vitest run src/lib/tools/desk/desk.live.test.ts --mode live`.
  *
- * Skipped in the ordinary suite because it needs the network. Neither service
- * needs a key or costs anything. It answers what fixtures cannot: whether the
- * responses still have the shape the parsers expect, and how long a lookup
- * takes beside a research run.
+ * Skipped in the ordinary suite because it needs the network. The World Bank
+ * and Wikidata need no key and cost nothing; the news is one Exa search, and
+ * needs EXA_API_KEY. It answers what fixtures cannot: whether the responses
+ * still have the shape the parsers expect, and how long a lookup takes beside
+ * a research run.
  */
 
 const live = import.meta.env.MODE === 'live'
 const deps = { fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init), now: Date.now }
 const signal = () => new AbortController().signal
+
+/** A key from the environment, or from .env when the tests were started without it. */
+function key(name: string): string {
+  if (process.env[name]) return process.env[name]
+  if (!existsSync('.env')) return ''
+  const line = readFileSync('.env', 'utf8')
+    .split(/\r?\n/)
+    .find((each) => each.startsWith(`${name}=`))
+  return line ? line.slice(name.length + 1).trim() : ''
+}
 
 function report(row: Record<string, unknown>) {
   process.stdout.write(`LIVE ${JSON.stringify(row)}\n`)
@@ -42,6 +55,28 @@ describe.skipIf(!live)('live desk data', () => {
       report({ source: 'wikidata', title, ms: Date.now() - startedAt, type: record?.type, fields: record?.fields, events: record?.events.map((event) => `${event.date} ${event.label}`) })
       expect(record?.subject, title).toBeTruthy()
       expect(record!.fields.length, title).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it("reads the day's news, and a topic's", { timeout: 60_000 }, async () => {
+    const exaKey = key('EXA_API_KEY')
+    expect(exaKey, 'EXA_API_KEY').toBeTruthy()
+    forgetNews()
+    for (const topic of ['', 'technology']) {
+      const startedAt = Date.now()
+      const result = await topStories({ topic }, { ...deps, exaKey }, signal())
+      const stories = result.ok ? result.materials[0].items : []
+      report({
+        source: 'exa news',
+        topic,
+        ms: Date.now() - startedAt,
+        stories: stories.map((story) => ({ headline: story.headline, host: story.host, published: story.published, outlets: story.outlets, image: Boolean(story.image), deck: story.deck })),
+      })
+      expect(stories.length, topic || 'headlines').toBeGreaterThanOrEqual(3)
+      for (const story of stories) {
+        expect(story.url).toMatch(/^https:\/\//)
+        expect(story.deck.split(/\s+/).length).toBeLessThanOrEqual(30)
+      }
     }
   })
 })

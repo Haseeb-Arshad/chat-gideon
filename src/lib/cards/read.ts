@@ -35,6 +35,7 @@ import {
   type ListItem,
   type NoteBlock,
   type StatChange,
+  type StoryItem,
   type TableBlock,
   type TableCell,
   type TableColumn,
@@ -322,6 +323,29 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
     }
     case 'chart':
       return readChart(input)
+    case 'stories': {
+      const items: StoryItem[] = []
+      for (const item of list(input.items, 8)) {
+        if (!isObject(item) || !isWebUrl(item.url)) continue
+        const headline = text(item.headline, 200)
+        const id = text(item.id, 64) || `s${items.length}`
+        if (!headline || items.some((story) => story.id === id)) continue
+        const published = text(item.published, 40)
+        const outlets = typeof item.outlets === 'number' && Number.isInteger(item.outlets) ? Math.min(Math.max(item.outlets, 1), 99) : 1
+        items.push({
+          id,
+          headline,
+          deck: text(item.deck, 400),
+          url: item.url,
+          host: text(item.host, 80) || hostOf(item.url),
+          // A date nothing can read is no date, rather than "Invalid Date" on a dateline.
+          published: Number.isFinite(Date.parse(published)) ? published : '',
+          ...(isImageUrl(item.image) ? { image: item.image } : {}),
+          outlets,
+        })
+      }
+      return items.length ? { type, since: input.since === 'week' ? 'week' : 'day', items } : null
+    }
     case 'prose': {
       const paragraphs = list(input.paragraphs, 6)
         .map((paragraph) => text(paragraph, 1_200))

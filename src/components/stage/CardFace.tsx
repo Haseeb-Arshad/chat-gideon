@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
-import { hear, saidEvents, saidItems, saidPoints, saidRows, type Heard } from '../../lib/cards/mentions'
-import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type MediaBlock } from '../../lib/cards/schema'
+import { hear, saidEvents, saidItems, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
+import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type MediaBlock, type StoriesBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
 import { Gallery } from './blocks/Gallery'
 import { Media, type MediaShape } from './blocks/Media'
 import { List, Steps, Timeline } from './blocks/Sequences'
 import { Sources } from './blocks/Sources'
+import { FrontPage, StoryList } from './blocks/Stories'
 import { Table } from './blocks/Table'
 import { Facts, Headline, Prose, Stat } from './blocks/TextBlocks'
 import { rise, risePlan, useFirst } from './stagger'
@@ -14,11 +15,12 @@ import { rise, risePlan, useFirst } from './stagger'
 /**
  * A card's face: its blocks, laid out by its recipe.
  *
- * Two layouts exist so far. The classic one is the card as it has always
+ * Three layouts exist so far. The classic one is the card as it has always
  * looked, a picture down the side (or across the top) beside a column of
  * words, and every recipe without a layout of its own uses it, block by block
  * in the order the card lists them. The gallery lays its pictures out in a
- * grid under its heading.
+ * grid under its heading, and the front page sets the news out as a paper
+ * does.
  */
 
 export interface CardFaceProps {
@@ -36,7 +38,9 @@ export interface CardFaceProps {
 }
 
 export function CardFace(props: CardFaceProps) {
-  return props.card.recipe === 'gallery' ? <GalleryLayout {...props} /> : <ClassicLayout {...props} />
+  if (props.card.recipe === 'gallery') return <GalleryLayout {...props} />
+  const stories = props.card.recipe === 'front-page' ? blockOf(props.card, 'stories') : undefined
+  return stories ? <FrontPageLayout {...props} stories={stories} /> : <ClassicLayout {...props} />
 }
 
 interface BodyBlockProps {
@@ -79,6 +83,8 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, 
       return <Quote block={block} start={start} />
     case 'chart':
       return <Chart block={block} start={start} size={size} front={front} shared={shared} said={saidPoints(block, heard)} />
+    case 'stories':
+      return <StoryList block={block} start={start} front={front} said={saidStories(block, heard)} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.
@@ -149,4 +155,9 @@ function GalleryLayout({ card, front }: CardFaceProps) {
       </Gallery>
     </div>
   )
+}
+
+function FrontPageLayout({ card, spoken, front, stories }: CardFaceProps & { stories: StoriesBlock }) {
+  const heard = useMemo(() => hear(spoken), [spoken])
+  return <FrontPage title={blockOf(card, 'headline')?.title ?? card.title} block={stories} front={front} said={saidStories(stories, heard)} />
 }

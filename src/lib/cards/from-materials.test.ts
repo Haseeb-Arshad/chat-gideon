@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { fromLegacy } from './legacy'
 import { changeBetween, cardFromMaterials, describeCard, formatStat, mergeCards, portraitSubject } from './from-materials'
-import type { RecordMaterial, SeriesMaterial } from './materials'
+import type { RecordMaterial, SeriesMaterial, StoriesMaterial, Story } from './materials'
 import { applyPatch } from './patch'
 import { readCard } from './read'
-import { orderBySlot, type Block, type CardV2 } from './schema'
+import { orderBySlot, type Block, type CardV2, type StoriesBlock } from './schema'
 
 /**
  * Cards drawn from materials. The promise is that everything on them is copied
@@ -273,5 +273,58 @@ describe('describing what is on screen', () => {
   it('says what kind of thing it is, in a few words', () => {
     expect(describeCard(cardFromMaterials('q', [japan, korea], NOW)!)).toBe('a chart of population for Japan and South Korea, 1960 to 2025')
     expect(describeCard(cardFromMaterials('q', [curie], NOW)!)).toBe('a card on Marie Curie with its key facts and a timeline')
+  })
+})
+
+describe("the day's stories", () => {
+  const story = (headline: string, host: string, published: string, extra: Partial<Story> = {}): Story => ({
+    headline,
+    deck: `${headline}, as the story opens.`,
+    url: `https://${host}/story`,
+    host,
+    published,
+    outlets: 1,
+    ...extra,
+  })
+  const news: StoriesMaterial = {
+    id: 'news:headlines:day',
+    kind: 'stories',
+    topic: '',
+    since: 'day',
+    items: [
+      story('Night ferries return to the harbour', 'harbour.example', '2026-09-14T06:00:00.000Z', { image: 'https://harbour.example/lead.jpg', outlets: 4 }),
+      story('Library opens its reading room around the clock', 'library.example', '2026-09-14T09:30:00.000Z', { outlets: 2 }),
+      story('Orchestra announces a free season in the park', 'orchestra.example', '2026-09-13'),
+    ],
+    source: { title: 'News', url: 'https://harbour.example/story', fetchedAt },
+  }
+
+  it('become a front page, complete as it is drawn, with each story its own source', () => {
+    const card = cardFromMaterials("what's in the news", [news], NOW)!
+    expect(card).toMatchObject({ recipe: 'front-page', size: 'feature', title: 'Top stories', partial: false, asOf: '2026-09-14T09:30:00.000Z' })
+    expect(card.blocks.map((each) => `${each.type}:${each.slot}`)).toEqual(['headline:head', 'stories:body'])
+    const stories = card.blocks[1] as StoriesBlock
+    expect(stories.since).toBe('day')
+    expect(stories.items.map((each) => each.id)).toEqual(['s0', 's1', 's2'])
+    // Copied, not retold: the publisher's headline, opening, picture and date.
+    expect(stories.items[0]).toEqual({ id: 's0', ...news.items[0] })
+    expect(card.sources.map((source) => source.host)).toEqual(['harbour.example', 'library.example', 'orchestra.example'])
+    expect(readCard(JSON.parse(JSON.stringify(card)))).toEqual(card)
+  })
+
+  it('is named for its topic, and comes before figures fetched beside it', () => {
+    expect(cardFromMaterials('q', [japan, { ...news, topic: 'harbour life' }], NOW)).toMatchObject({ recipe: 'front-page', title: 'Harbour life' })
+  })
+
+  it('is no front page with fewer than three stories', () => {
+    expect(cardFromMaterials('q', [{ ...news, items: news.items.slice(0, 2) }], NOW)).toBeNull()
+    expect(cardFromMaterials('q', [{ ...news, items: news.items.slice(0, 2) }, curie], NOW)?.recipe).toBe('profile')
+  })
+
+  it('takes nothing from a written card, and is described by its lead', () => {
+    const card = cardFromMaterials('q', [news], NOW)!
+    const written: CardV2 = { ...card, recipe: 'news', partial: false, blocks: [{ id: 'p', slot: 'body', type: 'prose', paragraphs: ['A summary.'] }] }
+    expect(mergeCards(card, written)).toEqual({ blocks: [], drop: [], partial: false })
+    expect(describeCard(card)).toBe('a front page of 3 stories, led by "Night ferries return to the harbour"')
   })
 })

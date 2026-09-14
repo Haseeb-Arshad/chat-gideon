@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { forgetNews } from './desk/news'
 import { forgetWikidata } from './desk/wikidata'
 import { forgetWorldBank } from './desk/world-bank'
 import {
@@ -393,6 +394,60 @@ describe('figures and records', () => {
     const result = await research('how happy is Japan', { signal: new AbortController().signal }, deps(fetch), null)
     expect(result.ok).toBe(true)
     expect(result.materials).toEqual([])
+  })
+})
+
+describe('the news', () => {
+  const telling = (title: string, host: string) => ({
+    title,
+    url: `https://www.${host}/story`,
+    publishedDate: '2027-01-15T06:00:00.000Z',
+    image: `https://www.${host}/lead.jpg`,
+    highlights: [`${title} was confirmed on Friday, and officials said more details would follow within days.`],
+  })
+  const news = (body: Json): Json =>
+    body.category === 'news'
+      ? {
+          results: [
+            telling('Night ferries return to the harbour', 'harbour.example'),
+            telling('Library opens its reading room around the clock', 'library.example'),
+            telling('Orchestra announces a free season in the park', 'orchestra.example'),
+          ],
+        }
+      : searchFixture(body)
+
+  beforeEach(() => forgetNews())
+
+  it("hands back the day's stories for a front page, and cites each by its own page", async () => {
+    const { fetch, calls } = scripted({
+      model: [
+        toolCallTurn([{ name: 'top_stories', args: { since: 'fortnight' } }]),
+        textTurn(
+          'Night ferries are returning to the harbour, and the library is opening around the clock.\nSources: Night ferries return to the harbour (harbour.example) https://www.harbour.example/story',
+        ),
+      ],
+      search: news,
+    })
+
+    const result = await research("what's in the news today", { signal: new AbortController().signal }, deps(fetch), null)
+
+    expect(result.ok).toBe(true)
+    // A period it does not know is a day.
+    expect(result.materials).toMatchObject([{ id: 'news:headlines:day', kind: 'stories', topic: '', since: 'day' }])
+    expect(result.materials[0].kind === 'stories' && result.materials[0].items.map((story) => story.host)).toEqual([
+      'harbour.example',
+      'library.example',
+      'orchestra.example',
+    ])
+    // Looking up the news is not a search.
+    expect(result.searches).toBe(0)
+    expect(result.sources.map((source) => source.url)).toEqual(['https://www.harbour.example/story'])
+
+    expect(calls.find((call) => call.body.category === 'news')?.body).toMatchObject({ query: 'top news stories today', type: 'fast' })
+    const writing = calls.filter((call) => call.url.includes('openrouter'))[1]
+    const tools = (writing.body.messages as Array<{ role: string; content: string }>).filter((message) => message.role === 'tool')
+    expect(tools[0].content).toContain('1. Night ferries return to the harbour (harbour.example, 2027-01-15)')
+    expect(tools[0].content).toContain('Cite as:\nNight ferries return to the harbour (harbour.example) https://www.harbour.example/story\n')
   })
 })
 

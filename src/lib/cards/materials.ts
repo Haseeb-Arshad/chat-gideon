@@ -66,7 +66,34 @@ export interface RecordMaterial {
   source: SourceRef
 }
 
-export type Material = SeriesMaterial | RecordMaterial
+export interface Story {
+  /** The publisher's own headline, with the publisher's name taken off it. */
+  headline: string
+  /** What happened, in a passage of the publisher's own words, without its dateline. */
+  deck: string
+  url: string
+  host: string
+  /** As the source reported it: an ISO timestamp, which may carry only a date. */
+  published: string
+  /** The story's own lead picture, https only. */
+  image?: string
+  /** How many outlets carried the same story: what makes a lead a lead. */
+  outlets: number
+}
+
+/** The day's stories, or a topic's, most widely reported first. */
+export interface StoriesMaterial {
+  id: string
+  kind: 'stories'
+  /** What the stories are about, or empty for the day's headlines. */
+  topic: string
+  /** How far back they go. */
+  since: 'day' | 'week'
+  items: Story[]
+  source: SourceRef
+}
+
+export type Material = SeriesMaterial | RecordMaterial | StoriesMaterial
 
 export function isSeries(material: Material): material is SeriesMaterial {
   return material.kind === 'series'
@@ -74,4 +101,8 @@ export function isSeries(material: Material): material is SeriesMaterial {
 
 export function isRecord(material: Material): material is RecordMaterial {
   return material.kind === 'record'
+}
+
+export function isStories(material: Material): material is StoriesMaterial {
+  return material.kind === 'stories'
 }

@@ -13,7 +13,7 @@
  */
 
 import { formatNumber, withUnit } from './chart-math'
-import { isRecord, isSeries, type Material, type RecordMaterial, type SeriesMaterial } from './materials'
+import { isRecord, isSeries, isStories, type Material, type RecordMaterial, type SeriesMaterial, type StoriesMaterial } from './materials'
 import type { CardPatch } from './patch'
 import type {
   Block,
@@ -23,6 +23,8 @@ import type {
   ChartBlock,
   FactsBlock,
   StatBlock,
+  StoriesBlock,
+  StoryItem,
   TableBlock,
   TimelineBlock,
 } from './schema'
@@ -326,15 +328,53 @@ function compareCard(question: string, group: RecordMaterial[]): CardV2 | null {
   }
 }
 
+// -- A front page ---------------------------------------------------------------------
+
+/** A lead and two more; fewer is a list, not a front page. */
+const MIN_STORIES = 3
+
+/**
+ * The day's stories as a front page. Every word on it is a publisher's: the
+ * headlines, the openings and the pictures. Nothing is left for a model to
+ * add, so the card is complete as it is drawn.
+ */
+function frontPageCard(question: string, material: StoriesMaterial): CardV2 {
+  const title = material.topic ? capitalise(material.topic) : 'Top stories'
+  const items: StoryItem[] = material.items.map((story, index) => ({ id: `s${index}`, ...story }))
+  const newest = items
+    .map((story) => Date.parse(story.published))
+    .filter((at) => Number.isFinite(at))
+    .sort((a, b) => b - a)[0]
+  return {
+    schema: 2,
+    recipe: 'front-page',
+    size: 'feature',
+    query: question,
+    title,
+    blocks: [
+      { id: 'headline', slot: 'head', type: 'headline', title },
+      { id: 'stories', slot: 'body', type: 'stories', since: material.since, items } satisfies StoriesBlock,
+    ],
+    // Each story is its own source, credited on its dateline.
+    sources: items.slice(0, 6).map((story) => ({ title: story.headline, url: story.url, host: story.host })),
+    asOf: newest === undefined ? null : new Date(newest).toISOString(),
+    partial: false,
+  }
+}
+
 // -- Choosing -------------------------------------------------------------------------
 
 /**
  * The card the materials make, or null when they make none worth showing.
  *
- * Figures come first: a question that fetched a series was asked about the
- * numbers. Then records, compared when there are several of the same kind.
+ * The news comes first: a question that fetched the day's stories asked for
+ * them. Then figures, since a question that fetched a series was asked about
+ * the numbers. Then records, compared when there are several of the same kind.
  */
 export function cardFromMaterials(question: string, materials: Material[], now: number): CardV2 | null {
+  const stories = materials.filter(isStories).find((each) => each.items.length >= MIN_STORIES)
+  if (stories) return frontPageCard(question, stories)
+
   const series = materials.filter(isSeries)
   const records = materials.filter(isRecord)
 
@@ -368,6 +408,8 @@ export function portraitSubject(card: CardV2, materials: Material[]): string | n
 
 /** What is on screen, in a few words, for the speaking model. */
 export function describeCard(card: CardV2): string {
+  const stories = card.blocks.find((block): block is StoriesBlock => block.type === 'stories')
+  if (stories?.items.length) return `a front page of ${stories.items.length} stories, led by "${stories.items[0].headline}"`
   const chart = card.blocks.find((block): block is ChartBlock => block.type === 'chart')
   if (chart) {
     const subjects = joinNames(chart.series.map((series) => series.label))
@@ -391,7 +433,8 @@ function normalised(text: string): string {
  * are copied from the source.
  */
 export function mergeCards(card: CardV2, written: CardV2 | null): CardPatch {
-  if (!written) return { blocks: [], drop: [], partial: false }
+  // A card drawn complete, such as a front page, takes nothing from a model's.
+  if (!written || !card.partial) return { blocks: [], drop: [], partial: false }
   const blocks: Block[] = []
 
   const summary = written.blocks.find((block) => block.type === 'prose')

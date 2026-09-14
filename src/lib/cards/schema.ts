@@ -202,6 +202,29 @@ export interface QuoteBlock extends BlockBase {
   who: string
 }
 
+export interface StoryItem {
+  id: string
+  /** The publisher's own headline. */
+  headline: string
+  /** What happened, in the story's own words. */
+  deck: string
+  url: string
+  host: string
+  /** An ISO timestamp from the source, which may carry only a date. Shown relative to now. */
+  published: string
+  image?: string
+  /** How many outlets carried it. */
+  outlets: number
+}
+
+/** A front page's stories, the lead first: the one the most outlets carried. */
+export interface StoriesBlock extends BlockBase {
+  type: 'stories'
+  /** How far back they go, for the date under the masthead. */
+  since: 'day' | 'week'
+  items: StoryItem[]
+}
+
 /**
  * `line`: how values moved, up to five series. `area`: one series, filled to
  * zero. `column`: values side by side, up to three series. `bar`: one series
@@ -272,6 +295,7 @@ export type Block =
   | ChipsBlock
   | QuoteBlock
   | ChartBlock
+  | StoriesBlock
 
 export type BlockType = Block['type']
 
@@ -290,6 +314,7 @@ export const BLOCK_TYPES: readonly BlockType[] = [
   'chips',
   'quote',
   'chart',
+  'stories',
 ]
 
 export interface CardV2 {
@@ -347,7 +372,11 @@ export function blockOf<T extends BlockType>(card: CardV2, type: T): Extract<Blo
   return blocks?.find((block): block is Extract<Block, { type: T }> => block.type === type)
 }
 
-/** The picture a card is known by on the shelf: its lead picture, or its first photograph. */
+/** The picture a card is known by on the shelf: its lead picture, its first photograph, or its first story's. */
 export function cardThumbnail(card: CardV2): string | undefined {
-  return blockOf(card, 'media')?.image.url ?? blockOf(card, 'gallery')?.pictures[0]?.thumb
+  return (
+    blockOf(card, 'media')?.image.url ??
+    blockOf(card, 'gallery')?.pictures[0]?.thumb ??
+    blockOf(card, 'stories')?.items.find((story) => story.image)?.image
+  )
 }

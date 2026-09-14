@@ -101,6 +101,31 @@ describe('the first cards, as blocks', () => {
     ])
     expect(cardThumbnail(card)).toBe(picture.thumb)
   })
+
+  it("is known on the shelf by its first story's picture when it is a front page", () => {
+    const story = (id: string, image?: string) => ({
+      id,
+      headline: id,
+      deck: '',
+      url: `https://${id}.example`,
+      host: `${id}.example`,
+      published: '',
+      outlets: 1,
+      ...(image ? { image } : {}),
+    })
+    const page: CardV2 = {
+      schema: 2,
+      recipe: 'front-page',
+      size: 'feature',
+      query: 'q',
+      title: 'Top stories',
+      blocks: [{ id: 'stories', slot: 'body', type: 'stories', since: 'day', items: [story('a'), story('b', 'https://b.example/lead.jpg')] }],
+      sources: [],
+      asOf: null,
+      partial: false,
+    }
+    expect(cardThumbnail(page)).toBe('https://b.example/lead.jpg')
+  })
 })
 
 describe('reading a card off the wire', () => {

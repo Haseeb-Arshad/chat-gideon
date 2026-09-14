@@ -7,7 +7,7 @@
  */
 
 import { cardFromMaterials } from '../lib/cards/from-materials'
-import type { Material } from '../lib/cards/materials'
+import type { Material, StoriesMaterial } from '../lib/cards/materials'
 import type { Block, CardPicture, CardV2 } from '../lib/cards/schema'
 import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO } from './materials'
 
@@ -54,7 +54,74 @@ function drawn(id: string, name: string, question: string, materials: Material[]
   return { id, name, spoken, card: { ...card, blocks } }
 }
 
+const HOUR = 3_600_000
+
+/**
+ * A front page of invented stories, so the lab never shows a real event as if
+ * it were today's news. Their times are counted back from when the lab opens,
+ * so the datelines read as they would on the day; the last knows only its date.
+ */
+const SAMPLE_NEWS: StoriesMaterial = {
+  id: 'news:headlines:day',
+  kind: 'stories',
+  topic: '',
+  since: 'day',
+  items: [
+    {
+      headline: 'Night ferries return to the harbour after a decade away',
+      deck: 'The harbour ferries will run until midnight from next month, restoring a service cut ten years ago as passenger numbers climb back to where they were.',
+      url: 'https://harbour.example/night-ferries',
+      host: 'harbour.example',
+      published: new Date(Date.now() - 2 * HOUR).toISOString(),
+      image: svg(1600, 900, '#2a4a6a', '#0e1822', 'Sample'),
+      outlets: 5,
+    },
+    {
+      headline: 'City library opens its reading room around the clock',
+      deck: 'The main reading room will stay open through the night for a trial year, after students asked for somewhere quiet to work outside office hours.',
+      url: 'https://library.example/reading-room',
+      host: 'library.example',
+      published: new Date(Date.now() - 5 * HOUR).toISOString(),
+      outlets: 3,
+    },
+    {
+      headline: 'Orchestra announces a free open-air season in the park',
+      deck: 'Twelve evening concerts will be played on the lawn by the lake, and the first programme, of film music, was chosen by a public vote.',
+      url: 'https://orchestra.example/open-air',
+      host: 'orchestra.example',
+      published: new Date(Date.now() - 27 * HOUR).toISOString(),
+      outlets: 2,
+    },
+    {
+      headline: "Botanic garden's giant water lily flowers for the first time",
+      deck: 'Grown from seed in the glasshouse six years ago, the lily opened its first flower overnight, and will turn from white to pink by the morning.',
+      url: 'https://garden.example/water-lily',
+      host: 'garden.example',
+      published: new Date(Date.now() - 50 * HOUR).toISOString().slice(0, 10),
+      outlets: 1,
+    },
+    {
+      headline: 'Cycle lane along the river opens a year early',
+      deck: 'The six-kilometre lane links the old town to the university, and was finished ahead of time after a dry spring let crews work through the weekends.',
+      url: 'https://transport.example/river-lane',
+      host: 'transport.example',
+      published: new Date(Date.now() - 30 * HOUR).toISOString(),
+      outlets: 1,
+    },
+    {
+      headline: 'Bakers revive a medieval loaf for the harvest fair',
+      deck: 'Working from a recipe found in the town archive, three bakeries will sell the rye and honey loaf at the fair, which opens on Saturday morning.',
+      url: 'https://fair.example/medieval-loaf',
+      host: 'fair.example',
+      published: new Date(Date.now() - 9 * HOUR).toISOString(),
+      outlets: 1,
+    },
+  ],
+  source: { title: 'News', url: 'https://harbour.example/night-ferries', fetchedAt: '2026-09-14T09:00:00.000Z' },
+}
+
 export const FIXTURES: Fixture[] = [
+  drawn('lab:front-page', 'front page (sample stories)', "What's in the news today?", [SAMPLE_NEWS], 'Night ferries are coming back to the harbour after ten years.'),
   drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN], 'It peaked at about 128 million in 2010.'),
   drawn('lab:data-compare', 'three countries on one chart', 'Compare the populations of Japan, South Korea and China', [
     POPULATION_JPN,

@@ -54,6 +54,8 @@ function blockDigest(block: Block): string {
       return block.text
     case 'quote':
       return `"${block.text}"${block.who ? ` (${block.who})` : ''}`
+    case 'stories':
+      return `Stories, the most reported first: ${joined(block.items.map((story) => `${story.headline} (${story.host})`))}`
     case 'gallery':
       return `${block.pictures.length} pictures`
     case 'media':

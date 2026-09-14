@@ -24,8 +24,9 @@
  */
 
 import type { Material } from '../cards/materials'
+import { topStories } from './desk/news'
 import { entityFacts, MAX_TITLES } from './desk/wikidata'
-import { countryData, INDICATOR_KEYS, MAX_COUNTRIES } from './desk/world-bank'
+import { countryData, INDICATOR_KEYS, MAX_COUNTRIES, type DeskLookup } from './desk/world-bank'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const EXA_URL = 'https://api.exa.ai'
@@ -401,6 +402,25 @@ const RESEARCH_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'top_stories',
+      description:
+        "Today's most widely reported news stories, or a topic's, each with the publisher's headline, a passage saying what happened, its date and its link, grouped so the same event from several outlets is one story. They are laid out on the user's screen as a front page.",
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: {
+            type: 'string',
+            description: 'What the news should be about, in a few words, such as "technology" or "the US Open". Leave it out for the day\'s headlines.',
+          },
+          since: { type: 'string', enum: ['day', 'week'], description: 'How far back to look. day unless the user asked about the week.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'entity_facts',
       description: `The structured Wikidata record of up to ${MAX_TITLES} particular people, countries, places, organisations or works: dates and places of birth and death, occupations, awards with their years, capital, population, area, founding date, founders, headquarters, chief executive, author, publication date. Its facts are shown on the user's screen as the card.`,
       parameters: {
@@ -436,7 +456,7 @@ function researcherPrompt(now: number, timezone: string) {
 
 Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result's /abs/ page gives you the abstract and its /pdf/ link gives you the paper. Never read an arxiv.org/html/ link. Stop as soon as you are sure; every round is silence for a person who is waiting.
 
-Data. Two tools return exact figures and records, and what they return is drawn on the user's screen. Use country_data whenever the question is about one of its measures for a country or the world, above all over time or between countries, and search as well for anything newer than its latest year. Use entity_facts whenever the question is about a particular named person, country, place, organisation or work, or compares a few of them. Call either in the same round as your first searches, never in a round of its own. Their numbers and dates are exact: use them as given, and prefer them to a passage that disagrees unless the passage is newer.
+Data. Three tools return exact figures, records and stories, and what they return is drawn on the user's screen. Use country_data whenever the question is about one of its measures for a country or the world, above all over time or between countries, and search as well for anything newer than its latest year. Use entity_facts whenever the question is about a particular named person, country, place, organisation or work, or compares a few of them. Use top_stories when the user asks for the news, the headlines, or what is happening today, in general or in a topic; brief the top two or three stories from it, and search only if a story needs checking. Call any of them in the same round as your first searches, never in a round of its own. Their numbers and dates are exact: use them as given, and prefer them to a passage that disagrees unless the passage is newer.
 
 One round of searching is usually the whole job. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
 
@@ -507,6 +527,16 @@ interface AgentBrief {
   materials: Material[]
   searches: number
   model: string
+}
+
+/** The desk's data sources, whose answers are materials a card is drawn from. */
+const DATA_TOOLS = new Set(['country_data', 'entity_facts', 'top_stories'])
+
+/** The pages a material should be cited by: its source, or every story's own page. */
+function citations(material: Material): Array<[url: string, title: string]> {
+  if (material.kind === 'stories') return material.items.map((story) => [story.url, `${story.headline} (${story.host})`])
+  if (material.kind === 'series') return [[material.source.url, `${material.source.title}: ${material.name}`]]
+  return [[material.source.url, `${material.source.title}: ${material.subject}`]]
 }
 
 /** Strings from a model's array argument, or a single string it gave instead of an array. */
@@ -617,8 +647,8 @@ async function runAgent(
             for (const source of toSources([page])) seen.set(source.url, source)
             return `${page.title ?? hostname(url)}\n${page.text}`
           }
-          if (call.function.name === 'country_data' || call.function.name === 'entity_facts') {
-            const lookup =
+          if (DATA_TOOLS.has(call.function.name)) {
+            const lookup: DeskLookup<Material> =
               call.function.name === 'country_data'
                 ? await countryData(
                     {
@@ -629,14 +659,21 @@ async function runAgent(
                     deps,
                     signal,
                   )
-                : await entityFacts({ titles: strings(args.titles ?? args.title) }, deps, signal)
+                : call.function.name === 'entity_facts'
+                  ? await entityFacts({ titles: strings(args.titles ?? args.title) }, deps, signal)
+                  : await topStories(
+                      { topic: typeof args.topic === 'string' ? args.topic : '', since: args.since === 'week' ? 'week' : 'day' },
+                      deps,
+                      signal,
+                    )
             if (!lookup.ok) return lookup.text
             const cite = new Map<string, string>()
             for (const material of lookup.materials) {
               materials.set(material.id, material)
-              const title = material.kind === 'series' ? `${material.source.title}: ${material.name}` : `${material.source.title}: ${material.subject}`
-              cite.set(material.source.url, title)
-              seen.set(material.source.url, { title, url: material.source.url })
+              for (const [url, title] of citations(material)) {
+                cite.set(url, title)
+                seen.set(url, { title, url })
+              }
             }
             const sources = [...cite].map(([url, title]) => `${title} ${url}`).join('\n')
             return `${lookup.text}\nCite as:\n${sources}`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { hear, saidEvents, saidItems, saidPoints, saidRows, significantWords } from './mentions'
-import type { ChartBlock, ListBlock, TableBlock, TimelineBlock } from './schema'
+import { hear, saidEvents, saidItems, saidPoints, saidRows, saidStories, significantWords } from './mentions'
+import type { ChartBlock, ListBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
 
 /**
  * What a sentence mentions on a card. The rule that matters most is the one
@@ -116,5 +116,30 @@ describe('list items', () => {
       ],
     }
     expect(saidItems(list, hear('The bakery on the square opens at seven.'))).toEqual(new Set(['b']))
+  })
+})
+
+describe('stories', () => {
+  const item = (id: string, headline: string) => ({ id, headline, deck: '', url: `https://${id}.example`, host: `${id}.example`, published: '', outlets: 1 })
+  const page: StoriesBlock = {
+    id: 'st',
+    slot: 'body',
+    type: 'stories',
+    since: 'day',
+    items: [
+      item('a', 'Night ferries return to the harbour after a decade'),
+      item('b', 'Harbour officials approve a new lighthouse'),
+      item('c', 'Library opens its reading room around the clock'),
+    ],
+  }
+
+  it('lights a story briefed in other words, by the words only its headline has', () => {
+    expect(saidStories(page, hear('The night ferries are coming back after ten years.'))).toEqual(new Set(['a']))
+    expect(saidStories(page, hear('And the library will keep its reading room open all night.'))).toEqual(new Set(['c']))
+  })
+
+  it('lights nothing for a word two headlines share, or for one word of several', () => {
+    expect(saidStories(page, hear('Busy day at the harbour.'))).toEqual(new Set())
+    expect(saidStories(page, hear('A new lighthouse.'))).toEqual(new Set())
   })
 })

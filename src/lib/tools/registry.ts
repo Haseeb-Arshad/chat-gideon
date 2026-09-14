@@ -344,18 +344,25 @@ async function runResearch(
         : `${result.searches} search${result.searches === 1 ? '' : 'es'}`
 
   const cards = cardDeps(context.env)
-  const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
   const drawn = cardFromMaterials(question, result.materials, Date.now())
   if (!drawn) {
+    const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
     return { ok: true, content: result.brief, summary: how, links: result.sources, card: written }
   }
+  const content = `${result.brief}\n\nOn the user's screen now: ${describeCard(drawn)}. Refer to it rather than reading it out.`
+
+  // A card drawn complete, such as a front page, has nothing a model's card could add.
+  if (!drawn.partial) {
+    return { ok: true, content, summary: how, links: result.sources, card: Promise.resolve(drawn) }
+  }
+  const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
 
   // Drawn from the desk's data, the card is ready as soon as the brief is; the
   // model's card, a few seconds behind, adds its sentence to it as a patch.
   const card = withPortrait(drawn, result.materials, cards)
   return {
     ok: true,
-    content: `${result.brief}\n\nOn the user's screen now: ${describeCard(drawn)}. Refer to it rather than reading it out.`,
+    content,
     summary: how,
     links: result.sources,
     card,

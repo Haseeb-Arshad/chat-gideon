@@ -61,6 +61,27 @@ describe('digestOf', () => {
     )
   })
 
+  it('gives a front page its headlines and their outlets, the most reported first', () => {
+    const story = (headline: string, host: string) => ({ headline, deck: 'Opening.', url: `https://${host}/s`, host, published: '', outlets: 1 })
+    const card = cardFromMaterials(
+      'q',
+      [
+        {
+          id: 'news:headlines:day',
+          kind: 'stories',
+          topic: '',
+          since: 'day',
+          items: [story('Ferries return', 'harbour.example'), story('Library opens all night', 'library.example'), story('Free concerts', 'orchestra.example')],
+          source: { title: 'News', url: 'https://harbour.example/s', fetchedAt: '' },
+        },
+      ],
+      NOW,
+    )!
+    expect(digestOf(card)).toBe(
+      'Stories, the most reported first: Ferries return (harbour.example); Library opens all night (library.example); Free concerts (orchestra.example)',
+    )
+  })
+
   it('stops at a boundary before the limit', () => {
     const long: CardV2 = {
       schema: 2,

@@ -13,7 +13,7 @@
  */
 
 import { numbersIn } from './ground'
-import type { ChartBlock, ListBlock, TableBlock, TimelineBlock } from './schema'
+import type { ChartBlock, ListBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
 
 /** More elements than this answering to the same evidence is no answer at all. */
 const AMBIGUOUS = 3
@@ -105,4 +105,22 @@ export function saidPoints(block: ChartBlock, heard: Heard): Set<number> {
 /** List items whose name was said. */
 export function saidItems(block: ListBlock, heard: Heard): Set<string> {
   return unambiguous(block.items.filter((item) => named(item.title, heard)).map((item) => item.id))
+}
+
+/**
+ * Stories being briefed. A brief is in GIDEON's own words, not the headline's,
+ * so a story is known by the words of its headline that no other story on the
+ * page shares: two of them said, or its only one. "Officials" in two headlines
+ * points at neither.
+ */
+export function saidStories(block: StoriesBlock, heard: Heard): Set<string> {
+  const words = block.items.map((story) => new Set(significantWords(story.headline)))
+  const matches = block.items
+    .filter((_, index) => {
+      const own = [...words[index]].filter((word) => !words.some((other, at) => at !== index && other.has(word)))
+      const hits = own.filter((word) => heard.words.has(word)).length
+      return hits >= 2 || (hits === 1 && own.length === 1)
+    })
+    .map((story) => story.id)
+  return unambiguous(matches)
 }

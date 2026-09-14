@@ -170,3 +170,44 @@ describe('chart', () => {
     expect(chart.type === 'chart' && chart.series).toHaveLength(5)
   })
 })
+
+describe('stories', () => {
+  const story = (extra: Record<string, unknown>) => ({
+    id: 's',
+    headline: 'Night ferries return to the harbour',
+    deck: 'The ferries will run until midnight.',
+    url: 'https://harbour.example/ferries',
+    host: 'harbour.example',
+    published: '2026-09-14T06:00:00.000Z',
+    outlets: 4,
+    ...extra,
+  })
+
+  it('keeps stories with a headline and a web link, and a picture only over https', () => {
+    const [block] = blocksOf({
+      id: 'st',
+      type: 'stories',
+      since: 'week',
+      items: [
+        story({ id: 'a', image: 'https://harbour.example/lead.jpg' }),
+        story({ id: 'b', image: 'http://harbour.example/lead.jpg', host: '', outlets: 400 }),
+        story({ id: 'c', url: 'javascript:alert(1)' }),
+        story({ id: 'd', headline: ' ' }),
+        story({ id: 'a' }),
+      ],
+    })
+    expect(block).toMatchObject({ type: 'stories', since: 'week' })
+    const items = block.type === 'stories' ? block.items : []
+    expect(items.map((each) => each.id)).toEqual(['a', 'b'])
+    expect(items[0].image).toBe('https://harbour.example/lead.jpg')
+    // No picture in the clear; the host is worked out from the link; a count is kept sensible.
+    expect(items[1]).not.toHaveProperty('image')
+    expect(items[1]).toMatchObject({ host: 'harbour.example', outlets: 99 })
+  })
+
+  it('keeps no date it cannot read, settles an unknown period on a day, and is nothing with no stories', () => {
+    const [block] = blocksOf({ id: 'st', type: 'stories', since: 'month', items: [story({ published: 'yesterday-ish', outlets: 'many' })] })
+    expect(block).toMatchObject({ since: 'day', items: [{ published: '', outlets: 1 }] })
+    expect(blocksOf({ id: 'st', type: 'stories', items: [story({ url: 'ftp://harbour.example' })] })).toEqual([])
+  })
+})

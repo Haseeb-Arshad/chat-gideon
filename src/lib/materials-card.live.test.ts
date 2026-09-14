@@ -8,8 +8,9 @@ import type { ServerFrame } from './protocol'
  * sources, run on purpose with
  * `npx vitest run src/lib/materials-card.live.test.ts --mode live`.
  *
- * Skipped in the ordinary suite: it spends OpenRouter credit (three turns cost
- * a few cents) and needs OPENROUTER_API_KEY and EXA_API_KEY. It answers what no
+ * Skipped in the ordinary suite: it spends OpenRouter credit (four turns cost
+ * a few cents) and needs OPENROUTER_API_KEY and EXA_API_KEY. Set LIVE_ONLY to
+ * part of a question to ask only the questions that contain it. It answers what no
  * mock can: does the research model reach for the data tools when a question
  * calls for them, what card does that draw, and how long after the tool call
  * does it arrive?
@@ -35,6 +36,7 @@ const QUESTIONS: Array<{ question: string; recipe: string; source: string }> = [
   { question: "How has Japan's population changed since 1960?", recipe: 'trend', source: 'api.worldbank.org' },
   { question: 'Who was Marie Curie?', recipe: 'profile', source: 'wikidata.org' },
   { question: 'Compare GDP per person in Germany and France over time', recipe: 'compare', source: 'api.worldbank.org' },
+  { question: "What's in the news today?", recipe: 'front-page', source: 'api.exa.ai' },
 ]
 
 describe.skipIf(!live)('live cards from figures and records', () => {
@@ -44,7 +46,8 @@ describe.skipIf(!live)('live cards from figures and records', () => {
     const real = globalThis.fetch
     const results: Array<{ question: string; ok: boolean }> = []
 
-    for (const { question, recipe, source } of QUESTIONS) {
+    const only = process.env.LIVE_ONLY?.toLowerCase()
+    for (const { question, recipe, source } of QUESTIONS.filter((each) => !only || each.question.toLowerCase().includes(only))) {
       const hosts = new Set<string>()
       globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
         try {
@@ -88,6 +91,7 @@ describe.skipIf(!live)('live cards from figures and records', () => {
         size: drawn?.size,
         title: drawn?.title,
         blocks: drawn?.blocks.map((block) => block.type),
+        stories: drawn?.blocks.flatMap((block) => (block.type === 'stories' ? block.items.map((story) => `${story.headline} (${story.host}, ${story.outlets})`) : [])),
         patch: patch?.t === 'card_patch' ? patch.blocks.map((block) => block.type) : null,
         spoken: spoken.slice(0, 280),
       })
