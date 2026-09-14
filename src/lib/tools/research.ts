@@ -520,6 +520,12 @@ async function runAgent(
   options: ResearchOptions,
   deps: ResearchDeps,
   signal: AbortSignal,
+  /**
+   * Where the run's materials are kept, by id, so a subject looked up twice is
+   * one material. Owned by the caller, so what was fetched survives a run that
+   * does not finish.
+   */
+  materials: Map<string, Material> = new Map(),
 ): Promise<AgentBrief> {
   if (!deps.openrouterHeaders) throw new Error('openrouter not configured')
 
@@ -528,8 +534,6 @@ async function runAgent(
     { role: 'user', content: question },
   ]
   const seen = new Map<string, ResearchSource>()
-  // By id, so a subject looked up twice in a run is one material, the latest.
-  const materials = new Map<string, Material>()
   let searches = 0
   let modelUsed = deps.model
   let writing = false
@@ -732,17 +736,30 @@ async function hedgedRun(
     timer = setTimeout(resolve, hedgeAfterMs)
   })
 
+  // What the research model's data lookups returned, kept even if its run
+  // loses: the figures came from the source, whoever writes the brief.
+  const collected = new Map<string, Material>()
   const agent = runAgent(
     question,
     options,
     deps,
     AbortSignal.any([signal, agentStop.signal, AbortSignal.timeout(budgetMs)]),
+    collected,
   ).then(
     (brief): Outcome => ({ ok: true, via: 'agent', ...brief }),
     () => null,
   )
   // Only a usable hedge competes; a failed one leaves the research model to finish.
   const hedgeWin = hedgeDue.then(() => hedge).then((outcome) => (outcome.ok ? outcome : never))
+  /**
+   * A direct answer that wins still comes with whatever the research model had
+   * already looked up. Measured on 14 September 2026, one comparison of two
+   * countries' GDP ran past the hedge at 16 seconds, and the World Bank series
+   * it had fetched in its first three went with it, leaving a card of words
+   * where a chart was ready.
+   */
+  const withCollected = (outcome: Outcome): Outcome =>
+    outcome.ok && collected.size ? { ...outcome, materials: [...collected.values()] } : outcome
 
   try {
     const first = await Promise.race([agent, hedgeWin])
@@ -752,12 +769,12 @@ async function hedgedRun(
     }
     if (first?.via === 'answer') {
       agentStop.abort()
-      return finish(first)
+      return finish(withCollected(first))
     }
     // The research model failed or ran out of time. Whatever the direct
     // answer produces is now the answer, and it may already be on its way.
     if (signal.aborted) return finish(failed(signal))
-    return finish(await hedge)
+    return finish(withCollected(await hedge))
   } finally {
     clearTimeout(timer)
   }

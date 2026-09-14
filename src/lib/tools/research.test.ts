@@ -344,6 +344,39 @@ describe('figures and records', () => {
     expect(tools[2].content).toContain('Capital: Tokyo')
   })
 
+  it('keeps the figures it already fetched when a direct answer wins the race', async () => {
+    let rounds = 0
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('openrouter.ai')) {
+        rounds += 1
+        // The first round looks the figures up; the second is too slow to finish.
+        if (rounds === 1) {
+          return Promise.resolve(json(toolCallTurn([{ name: 'country_data', args: { countries: ['JPN'], indicator: 'population' } }])))
+        }
+        return new Promise<Response>((_, reject) =>
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+        )
+      }
+      if (url.endsWith('/answer')) {
+        // The quick answer takes long enough for the figures to be in by the time it wins.
+        return sleep(30).then(() => json({ answer: 'About 123 million.', citations: [{ title: 'Almanac', url: 'https://almanac.test/japan' }] }))
+      }
+      if (url.includes('api.worldbank.org')) return Promise.resolve(json(population))
+      return Promise.resolve(json({ results: [] }))
+    }) as unknown as typeof globalThis.fetch
+
+    const result = await research(
+      'what is the population of Japan',
+      { signal: new AbortController().signal },
+      deps(fetch, { timing: { ...DEFAULT_TIMING, hedgeAfterMs: 10, budgetMs: 5_000, orphanGraceMs: 5 } }),
+      null,
+    )
+    expect(result.via).toBe('answer')
+    expect(result.brief).toContain('About 123 million.')
+    expect(result.materials.map((material) => material.id)).toEqual(['worldbank:population:JPN'])
+  })
+
   it('tells the research model what it cannot look up, and keeps going', async () => {
     const { fetch } = scripted({
       model: [
