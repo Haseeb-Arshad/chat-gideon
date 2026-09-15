@@ -5,6 +5,7 @@ import {
   describeWeather,
   forecastDay,
   forgetWeather,
+  nameKey,
   openMeteo,
   readForecast,
   runWeather,
@@ -105,6 +106,17 @@ describe('choosing a place', () => {
     expect(choosePlace('Portland, Maine', [oregon, maine])).toEqual({ place: maine })
     expect(choosePlace('Portland, Peru', [oregon, maine])).toBeNull()
     expect(choosePlace('Atlantis', [])).toBeNull()
+  })
+
+  it('compares only the places called what was asked, when there are any', () => {
+    // A place search matches other names a place goes by: the live one found this Santana for "Porto".
+    const porto = place('Porto', { population: 249_600 })
+    const santana = place('Santana', { region: 'Amapá', country: 'Brazil', population: 285_000 })
+    expect(choosePlace('Porto', [santana, porto])).toEqual({ place: porto })
+    expect(choosePlace('são paulo', [place('Sao Paulo', { country: 'Brazil' })])).toEqual({ place: place('Sao Paulo', { country: 'Brazil' }) })
+    expect(nameKey('The Hague')).toBe(nameKey('hague'))
+    const lone = place('Santana', { country: 'Brazil' })
+    expect(choosePlace('Porto', [lone])).toEqual({ place: lone })
   })
 })
 

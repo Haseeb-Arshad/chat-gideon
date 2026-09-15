@@ -13,7 +13,7 @@
  */
 
 import { numbersIn } from './ground'
-import type { ChartBlock, ForecastBlock, ListBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
+import type { ChartBlock, ForecastBlock, ListBlock, MapBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
 
 /** More elements than this answering to the same evidence is no answer at all. */
 const AMBIGUOUS = 3
@@ -123,6 +123,11 @@ export function saidStories(block: StoriesBlock, heard: Heard): Set<string> {
     })
     .map((story) => story.id)
   return unambiguous(matches)
+}
+
+/** The pins on a map whose place was named. */
+export function saidPins(block: MapBlock, heard: Heard): Set<string> {
+  return unambiguous(block.pins.filter((pin) => named(pin.label, heard)).map((pin) => pin.id))
 }
 
 /** The days of a forecast that were named: "tomorrow", "on Friday". */

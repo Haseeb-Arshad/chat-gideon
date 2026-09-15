@@ -16,6 +16,9 @@ export interface Env {
   OPENROUTER_SITE_URL?: string
 
   EXA_API_KEY?: string
+  /** Maps. The public token reaches the browser on every map card; the server token never leaves the Worker. */
+  MAPBOX_PUBLIC_TOKEN?: string
+  MAPBOX_SERVER_TOKEN?: string
   GIDEON_RESEARCH_EFFORT?: string
   GIDEON_ALLOWED_ORIGINS?: string
   GIDEON_RATE_LIMIT?: string

@@ -38,6 +38,8 @@ Set production secrets with Wrangler. Do not put them in `wrangler.jsonc`:
 ```powershell
 npx wrangler secret put OPENROUTER_API_KEY
 npx wrangler secret put EXA_API_KEY
+npx wrangler secret put MAPBOX_PUBLIC_TOKEN
+npx wrangler secret put MAPBOX_SERVER_TOKEN
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 ```

@@ -85,7 +85,6 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('what are the newest AI models out this month', 'research'),
   plain("what's the tallest building in the world", 'research'),
   plain('how many people live in Tokyo', 'research'),
-  plain('where is Machu Picchu', 'research'),
   plain('can you check whether the M25 is closed today', 'research'),
 
   // -- show_images ------------------------------------------------------------------
@@ -101,6 +100,16 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('show me some mid-century modern living rooms', 'show_images'),
   plain('photos of snow leopards', 'show_images'),
   plain('what does the inside of the Sagrada Familia look like', 'show_images'),
+
+  // -- show_map ---------------------------------------------------------------------
+  plain('where is Machu Picchu', 'show_map'),
+  plain('where exactly is Lake Titicaca', 'show_map'),
+  plain('where is the Louvre', 'show_map'),
+  plain('can you show me where Bhutan is on a map', 'show_map'),
+  plain('how far is Manchester from Liverpool', 'show_map'),
+  plain('how long does it take to drive from Paris to Lyon', 'show_map'),
+  plain('directions to the Natural History Museum', 'show_map'),
+  plain('how long would it take me to cycle to Greenwich', 'show_map'),
 
   // -- weather ----------------------------------------------------------------------
   plain('is it going to rain in Manchester tomorrow', 'weather'),
@@ -183,6 +192,10 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   boundary('what time does the sun set in Edinburgh today', 'weather', 'sunset at a place, which the forecast gives'),
   boundary('I forgot my umbrella again', null, 'forgot, not forget'),
 
+  boundary('how long is the flight from London to Tokyo', 'research', 'a flight, which no road answers'),
+  boundary('how many people live in Porto', 'research', 'a fact about a place, not where it is'),
+  boundary('show me Porto on a map', 'show_map', 'asked for a map, not pictures'),
+  boundary('how far away is the Moon', 'research', 'not a place on a map'),
   boundary("what's Lisbon like in spring", 'research', 'what a place is like in a season'),
   boundary('what was the weather like in Rome last week', 'research', 'a day that has passed'),
   boundary('how hot does Dubai get in summer', 'research', 'the climate, not a forecast'),
@@ -232,6 +245,7 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   double('set a timer for ten minutes and remember that I like my tea strong', ['set_timer', 'remember']),
   double('show me pictures of Kyoto and tell me how many people live there', ['show_images', 'research']),
   double("what's the weather in Paris, and show me photos of the Louvre", ['weather', 'show_images']),
+  double('how far is Bath from Bristol, and will it rain there tomorrow', ['show_map', 'weather']),
   double('forget my old address and remember that I live in Leeds now', ['forget', 'remember']),
   double("look up when the Tate Modern closes and give me a link to its website", ['research', 'offer_link']),
   double('remind me in 15 minutes to call mum, and who won the snooker last night', ['set_timer', 'research']),

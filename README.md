@@ -302,6 +302,8 @@ recogniser survives only as a fallback for a browser without it.
 | `OPENROUTER_STT_FALLBACK_MODEL` | `deepgram/nova-3` | Used if the primary fails |
 | `GIDEON_MEMORY_PATH` | `.gideon/memory.json` | Where facts persist; `none` for no disk |
 | `EXA_API_KEY` | unset | Enables live `research` |
+| `MAPBOX_PUBLIC_TOKEN` | unset | Enables `show_map`. Sent to the browser on every map card, so restrict it by URL |
+| `MAPBOX_SERVER_TOKEN` | unset | Optional secret for the server's own Mapbox requests; the public token is used when it is refused |
 | `OPENROUTER_RESEARCH_MODEL` | `openai/gpt-5.6-luna` | The research desk |
 | `OPENROUTER_RESEARCH_FALLBACK_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Used if the desk's model fails |
 | `OPENROUTER_RESEARCH_EFFORT` | `none` | The desk's reasoning; measured below |
@@ -388,6 +390,11 @@ Asked about the weather without a place, the Cloudflare deployment uses the
 city Cloudflare places the connection in. Its coordinates, rounded to about a
 kilometre, go to Open-Meteo for that one forecast and are not stored.
 
+Asked where a place is, or the way somewhere, GIDEON sends the place names to
+Mapbox, with that same rounded position to rank nearby matches first, and a
+route with no starting point starts from it. The browser then loads the map
+from Mapbox, which counts the load against the token. Nothing is stored.
+
 ---
 
 ## Verify
@@ -417,8 +424,8 @@ npx wrangler login
 npm run deploy:cloudflare
 ```
 
-Put `OPENROUTER_API_KEY`, `EXA_API_KEY`, and
-`SUPABASE_SERVICE_ROLE_KEY` in Wrangler secrets. Apply
+Put `OPENROUTER_API_KEY`, `EXA_API_KEY`, `MAPBOX_PUBLIC_TOKEN`,
+`MAPBOX_SERVER_TOKEN` and `SUPABASE_SERVICE_ROLE_KEY` in Wrangler secrets. Apply
 [`001_gideon_memories.sql`](backend/worker/supabase/migrations/001_gideon_memories.sql)
 in Supabase before enabling the database mirror. Cloudflare and Supabase free
 tiers cover small personal demos within their quotas; OpenRouter model,

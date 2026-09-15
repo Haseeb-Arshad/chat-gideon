@@ -38,6 +38,8 @@ export interface Place {
   timezone: string
   population: number
   capital: boolean
+  /** GeoNames' code for what it is: PPLC a capital, PPL a town or city, ADM1 a region, PCLI a country. */
+  featureCode?: string
 }
 
 export type TemperatureUnit = WeatherMaterial['units']['temperature']
@@ -83,6 +85,7 @@ function readPlace(value: unknown): Place[] {
       timezone: typeof value.timezone === 'string' ? value.timezone : 'UTC',
       population: typeof value.population === 'number' ? value.population : 0,
       capital: value.feature_code === 'PPLC',
+      ...(typeof value.feature_code === 'string' ? { featureCode: value.feature_code } : {}),
     },
   ]
 }
@@ -175,6 +178,17 @@ export function openMeteo(deps: WeatherDeps): WeatherProvider {
 /** How many times more people the likeliest place needs than the next before a name surely means it. */
 const CLEAR_LEAD = 5
 
+/** A name as names are compared: without case, accents, a leading "the", or anything but letters and digits. */
+export function nameKey(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^the\s+/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
 /**
  * The place a name means, the places it could mean when that is not clear, or
  * nothing when it means none. "Lisbon" is the capital of Portugal, not one of the
@@ -184,9 +198,14 @@ const CLEAR_LEAD = 5
  */
 export function choosePlace(query: string, places: Place[]): { place: Place } | { options: Place[] } | null {
   const qualifier = query.split(',').slice(1).join(',').trim().toLowerCase()
+  // A place search also matches other names a place goes by: "Porto" finds a Santana in Brazil. Those called
+  // exactly what was asked are the candidates, when there are any.
+  const asked = nameKey(query.split(',')[0])
+  const called = places.filter((place) => nameKey(place.name) === asked)
+  const pool = called.length ? called : places
   const candidates = qualifier
-    ? places.filter((place) => [place.region, place.country].some((part) => part && part.toLowerCase().startsWith(qualifier)))
-    : places
+    ? pool.filter((place) => [place.region, place.country].some((part) => part && part.toLowerCase().startsWith(qualifier)))
+    : pool
   const [first, second] = candidates
   if (!first) return null
   if (!second) return { place: first }

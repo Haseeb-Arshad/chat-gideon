@@ -7,6 +7,7 @@
  */
 
 import { cardFromMaterials } from '../lib/cards/from-materials'
+import { placeCard, routeCard, type MapPlace } from '../lib/cards/maps'
 import type { Material, StoriesMaterial } from '../lib/cards/materials'
 import type { Block, CardPicture, CardV2 } from '../lib/cards/schema'
 import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO, WEATHER_BERGEN, WEATHER_LISBON } from './materials'
@@ -55,6 +56,50 @@ function drawn(id: string, name: string, question: string, materials: Material[]
 }
 
 const HOUR = 3_600_000
+
+/**
+ * Map cards need Mapbox's public token to draw at all, from
+ * VITE_MAPBOX_PUBLIC_TOKEN in .env; without it the lab leaves them out. The
+ * places are real and their pins where the geocoder put them. The route's line
+ * and figures are samples, drawn by hand along the motorway, and say so.
+ */
+// Read only while developing, so a production build never carries the token in the lab's code.
+const MAPBOX = import.meta.env.DEV ? (import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN?.trim() ?? '') : ''
+const LISBON_PIN: MapPlace = { name: 'Lisbon', detail: 'Portugal', kind: 'capital', at: [-9.1333, 38.7167], timezone: 'Europe/Lisbon' }
+const PORTO_PIN: MapPlace = { name: 'Porto', detail: 'Portugal', kind: 'city', at: [-8.611, 41.1496], timezone: 'Europe/Lisbon' }
+
+function mapFixtures(): Fixture[] {
+  if (!MAPBOX) return []
+  const place = placeCard({ question: 'Where is Lisbon?', place: LISBON_PIN, publicToken: MAPBOX, weatherNow: '24°C, sunny', now: LAB_NOW })
+  const region = placeCard({
+    question: 'Where is Tuscany?',
+    place: { name: 'Tuscany', detail: 'Italy', kind: 'region', at: [11.2558, 43.7711], bounds: [9.6867, 42.3167, 12.3684, 44.4727] },
+    publicToken: MAPBOX,
+    now: LAB_NOW,
+  })
+  const route = routeCard({
+    question: 'How long is it from Lisbon to Porto?',
+    from: LISBON_PIN,
+    to: PORTO_PIN,
+    travel: 'driving',
+    route: {
+      seconds: 10_740,
+      metres: 312_400,
+      line: [[-9.1333, 38.7167], [-9.05, 38.85], [-8.95, 39.2], [-8.7, 39.6], [-8.55, 40.0], [-8.45, 40.4], [-8.55, 40.8], [-8.611, 41.1496]],
+      steps: ['Drive north on Avenida da Liberdade.', 'Take the A1 towards Porto.', 'Keep on the A1 for 290 km.', 'Take exit 20 towards Porto centre.'],
+    },
+    publicToken: MAPBOX,
+  })
+  const sampled = {
+    ...route,
+    blocks: route.blocks.map((block) => (block.type === 'headline' ? { ...block, subtitle: 'Sample route and figures' } : block)),
+  }
+  return [
+    { id: 'lab:map-place', name: 'map, a place (Mapbox)', card: place, spoken: 'Lisbon is on the Atlantic coast of Portugal, where the Tagus meets the sea.' },
+    { id: 'lab:map-region', name: 'map, a region framed by its extent (Mapbox)', card: region },
+    { id: 'lab:map-route', name: 'map, a route (sample figures)', card: sampled, spoken: 'About three hours to Porto by car, mostly on the A1.' },
+  ]
+}
 
 /**
  * A front page of invented stories, so the lab never shows a real event as if
@@ -123,6 +168,7 @@ const SAMPLE_NEWS: StoriesMaterial = {
 export const FIXTURES: Fixture[] = [
   drawn('lab:weather-dry', 'weather, dry (Open-Meteo)', "What's the weather in Lisbon?", [WEATHER_LISBON], 'Sunny and 24 degrees, with a high of 27, and tomorrow is a touch cooler.'),
   drawn('lab:weather-wet', 'weather, wet (Open-Meteo)', 'Will it rain in Bergen this week?', [WEATHER_BERGEN], 'Rain every day this week, and Sunday looks the coldest.'),
+  ...mapFixtures(),
   drawn('lab:front-page', 'front page (sample stories)', "What's in the news today?", [SAMPLE_NEWS], 'Night ferries are coming back to the harbour after ten years.'),
   drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN], 'It peaked at about 128 million in 2010.'),
   drawn('lab:data-compare', 'three countries on one chart', 'Compare the populations of Japan, South Korea and China', [

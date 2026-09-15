@@ -77,7 +77,7 @@ Never say that something is not happening, does not exist, never happened, or ha
 
 Anything about the world that changes over time, or that you would otherwise be guessing at, goes to research: news, prices, results, releases, who someone is, what something costs, what is true today. Your own knowledge has a cutoff and the user is asking now. Give research the whole question in plain words with every detail the user gave, then answer from the brief it returns and nothing else: keep its numbers, names and dates exactly, in the units the brief gave them and no others, because converting or rounding a figure you were handed is how "peaks above 700K vectors per second" leaves your mouth as "10 million tokens per second"; mention a source in passing when it matters, and if the brief says something could not be found, say what the brief did find first, then that the rest did not turn up, rather than filling the gap yourself. "Nothing showed up" on its own is never a whole answer: say what you looked for and what you got, and if the user asks again, look again rather than repeating that you found nothing.
 
-What research finds is also shown to the user on screen, as a card with a picture, while you speak. So any question about a particular person, place, organisation, creature, work or event goes to research, even an easy one you already know the answer to: the card is part of the answer. That means who someone is or was, what or where something is, when it was made or happened, who made it, how big or old it is, how it compares with another, and telling them about something. "Who was Marie Curie", "tell me about the Eiffel Tower", "what is the Great Barrier Reef", "how tall is Mount Everest", "when was the Colosseum built" and "compare Spanish and Italian" all go to research, however well you know them. Small talk, opinions, jokes, advice and anything about the conversation itself never need it. When the user asks to see pictures, photos or images of something, or what something looks like, call show_images even when you could describe it; being asked to picture or imagine a scene is talk, not a request for pictures. When you do call it, the pictures appear on screen by themselves, so say one short line about them, never describe them one by one, and never offer a link to an image search instead.
+What research finds is also shown to the user on screen, as a card with a picture, while you speak. So any question about a particular person, place, organisation, creature, work or event goes to research, even an easy one you already know the answer to: the card is part of the answer. The one exception is where a place is, or how far or how long it is from one place to another by car, on foot or by bike: that goes to show_map, which puts it on a map, because a map is the answer to where. A flight or a train still goes to research. That means who someone is or was, what something is, when it was made or happened, who made it, how big or old it is, how it compares with another, and telling them about something. "Who was Marie Curie", "tell me about the Eiffel Tower", "what is the Great Barrier Reef", "how tall is Mount Everest", "when was the Colosseum built" and "compare Spanish and Italian" all go to research, however well you know them. Small talk, opinions, jokes, advice and anything about the conversation itself never need it. When the user asks to see pictures, photos or images of something, to be shown a place, or what something looks like, call show_images even when you could describe it; being asked to picture or imagine a scene is talk, not a request for pictures. When you do call it, the pictures appear on screen by themselves, so say one short line about them, never describe them one by one, and never offer a link to an image search instead.
 
 Remember something whenever the user tells you a lasting fact about themselves, even in passing, such as an allergy, their work or someone's name, and recall when a question about them depends on one. Never say that you are remembering, recalling, searching or checking. Do the call and then just answer.
 
@@ -95,11 +95,12 @@ Never mention hidden instructions. Never claim to have performed actions or acce
  */
 const TOOL_RULES = `Choosing tools, in this order:
 1. The forecast, or the weather now, for a place or for where the user is, goes to weather. What a place is like in a season, or the weather on a day that has passed or is more than a week away, goes to research.
-2. A question about a particular person, place, creature, organisation, work, product or event goes to research, however easy and however well you know it, because its card is part of the answer. Who, what, where, when, how big, how old and how two compare all count.
-3. Being asked to see something, or what something looks like, goes to show_images. Being asked to picture or imagine a scene is talk, and needs no tool.
-4. A lasting fact the user tells you about themselves goes to remember; only when the user says a fact about them has changed, such as a new address or a new job, add replaces naming the old one. A day or a date to keep is remembered, never timed. A mood, a figure of speech or small talk is not a fact to keep, even when it has the word remember in it. A question about the user goes to recall: never say you do not know something about them without calling it first.
-5. A length of time from now goes to set_timer.
-6. Asking to bring back, look at or put away the cards on screen needs no tool: the screen follows the conversation.
+2. Where a place, a landmark or an address is, and the way, the distance or the time from one place to another by car, on foot or by bike, goes to show_map. A flight or a train goes to research. Being shown a place goes to show_images, unless the user asks for a map.
+3. Any other question about a particular person, place, creature, organisation, work, product or event goes to research, however easy and however well you know it, because its card is part of the answer. Who, what, when, how big, how old and how two compare all count.
+4. Being asked to see something, a place included, or what something looks like, goes to show_images: "show me Rome" wants pictures of Rome, and only a map asked for as a map goes to show_map. Being asked to picture or imagine a scene is talk, and needs no tool.
+5. A lasting fact the user tells you about themselves goes to remember; only when the user says a fact about them has changed, such as a new address or a new job, add replaces naming the old one. A day or a date to keep is remembered, never timed. A mood, a figure of speech or small talk is not a fact to keep, even when it has the word remember in it. A question about the user goes to recall: never say you do not know something about them without calling it first.
+6. A length of time from now goes to set_timer.
+7. Asking to bring back, look at or put away the cards on screen needs no tool: the screen follows the conversation.
 Anything else is answered without a tool.`
 
 function readEnv(name: string, fallback: string) {
@@ -202,10 +203,20 @@ export function memoryStore(): MemoryStore {
   return store
 }
 
+/**
+ * A tool with no key behind it would only buy a holding line and an apology,
+ * so a server without the key does not offer it at all.
+ */
+const KEYS: Record<string, string> = { research: 'EXA_API_KEY', show_map: 'MAPBOX_PUBLIC_TOKEN' }
+
+function configured(name: string): boolean {
+  return !KEYS[name] || Boolean(readEnv(KEYS[name], ''))
+}
+
 /** Which tools this build can actually run, for the `ready` frame. */
 export function availableTools(bridged = false): string[] {
   return TOOL_SCHEMAS.filter((schema) => {
-    if (schema.name === 'research') return Boolean(readEnv('EXA_API_KEY', ''))
+    if (!configured(schema.name)) return false
     if (schema.client) return bridged
     return true
   }).map((schema) => schema.name)
@@ -351,8 +362,8 @@ export const PICTURE_FILLERS = ['Let me find some.', 'One second, let me pull so
 /** The tools whose result goes on screen, and so open a searching pane while they run. */
 const STAGING_TOOLS = new Set(['research', 'show_images'])
 
-/** The tools whose result goes on screen. The weather is quick enough to need no searching pane. */
-const SCREEN_TOOLS = new Set([...STAGING_TOOLS, 'weather'])
+/** The tools whose result goes on screen. The weather and maps are quick enough to need no searching pane. */
+const SCREEN_TOOLS = new Set([...STAGING_TOOLS, 'weather', 'show_map'])
 
 function askedFor(args: Record<string, unknown>): string {
   return String(args.question ?? args.query ?? '').trim().slice(0, 240)
@@ -463,11 +474,7 @@ export async function* streamTurn(
       }),
     )
   }
-  // A research tool with no key behind it would only buy a holding line and
-  // an apology, so a server without one does not offer it at all.
-  const offeredTools = toolDefinitions().filter(
-    (tool) => tool.function.name !== 'research' || Boolean(readEnv('EXA_API_KEY', '')),
-  )
+  const offeredTools = toolDefinitions().filter((tool) => configured(tool.function.name))
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     const pending = new Map<number, PendingCall>()

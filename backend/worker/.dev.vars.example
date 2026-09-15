@@ -10,6 +10,12 @@ OPENROUTER_STT_FALLBACK_MODEL=deepgram/nova-3
 # Optional live research. Leave empty if research is not needed yet.
 EXA_API_KEY=
 
+# Optional maps. Without the public token, show_map is not offered. The public
+# token is sent to browsers; restrict it by URL in the Mapbox account. The server
+# token is optional, and is used for search and directions when it has the scopes.
+MAPBOX_PUBLIC_TOKEN=
+MAPBOX_SERVER_TOKEN=
+
 # Public deployment origin guard. The demo itself has no access-code requirement.
 GIDEON_ALLOWED_ORIGINS=http://localhost:5173
 GIDEON_RATE_LIMIT=auto

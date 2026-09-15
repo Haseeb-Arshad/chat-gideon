@@ -35,6 +35,8 @@ import {
   type ForecastDay,
   type ForecastHour,
   type ListItem,
+  type LngLat,
+  type MapPin,
   type NoteBlock,
   type StatChange,
   type StoryItem,
@@ -379,6 +381,37 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
       })
       return { type, label, value: Math.min(Math.max(input.value as number, min), max), min, max, bands }
     }
+    case 'map': {
+      const center = lngLat(input.center)
+      // Only a public token may reach a browser, and only a picture from Mapbox's own static API.
+      const token = typeof input.token === 'string' && /^pk\.[\w-]+\.[\w-]+\.[\w-]+$/.test(input.token) ? input.token : ''
+      const still =
+        typeof input.still === 'string' && input.still.startsWith('https://api.mapbox.com/styles/v1/') && !/access_token=sk\./.test(input.still) ? input.still : ''
+      if (!center || !token || !still) return null
+      const pins: MapPin[] = []
+      for (const item of list(input.pins, 12)) {
+        if (!isObject(item)) continue
+        const at = lngLat(item.at)
+        const label = text(item.label, 80)
+        const id = text(item.id, 64) || `p${pins.length}`
+        if (at && label && !pins.some((pin) => pin.id === id)) pins.push({ id, label, at })
+      }
+      const line = list(input.line, 600)
+        .map(lngLat)
+        .filter((point): point is LngLat => point !== null)
+      const bounds = readBounds(input.bounds)
+      return {
+        type,
+        view: input.view === 'route' || input.view === 'pins' ? input.view : 'pin',
+        center,
+        zoom: Number.isFinite(input.zoom) ? Math.min(Math.max(input.zoom as number, 0), 20) : 10,
+        pins,
+        ...(line.length >= 2 ? { line } : {}),
+        ...(bounds ? { bounds } : {}),
+        token,
+        still,
+      }
+    }
     case 'prose': {
       const paragraphs = list(input.paragraphs, 6)
         .map((paragraph) => text(paragraph, 1_200))
@@ -400,6 +433,19 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
       return pictures.length ? { type, pictures } : null
     }
   }
+}
+
+/** A longitude and a latitude that are on the Earth. */
+function lngLat(value: unknown): LngLat | null {
+  if (!Array.isArray(value) || value.length !== 2) return null
+  const [longitude, latitude] = value
+  return typeof longitude === 'number' && typeof latitude === 'number' && Math.abs(longitude) <= 180 && Math.abs(latitude) <= 90 ? [longitude, latitude] : null
+}
+
+function readBounds(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4 || !value.every((each) => typeof each === 'number' && Number.isFinite(each))) return null
+  const [west, south, east, north] = value as number[]
+  return Math.abs(west) <= 180 && Math.abs(east) <= 180 && south >= -90 && north <= 90 && south < north ? [west, south, east, north] : null
 }
 
 /** A chance as a whole percentage, or null when there is none to show. */

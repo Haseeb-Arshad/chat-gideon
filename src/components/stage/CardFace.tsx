@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
-import { hear, saidDays, saidEvents, saidItems, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
+import { hear, saidDays, saidEvents, saidItems, saidPins, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
 import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type ForecastBlock, type MediaBlock, type StoriesBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
 import { Forecast, HourStrip, WeatherIcon, WeekDays } from './blocks/Forecast'
 import { Gallery } from './blocks/Gallery'
+import { MapView } from './blocks/MapView'
 import { Media, type MediaShape } from './blocks/Media'
 import { Meter } from './blocks/Meter'
 import { List, Steps, Timeline } from './blocks/Sequences'
@@ -93,6 +94,8 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, 
       return <Forecast block={block} start={start} said={saidDays(block, heard)} />
     case 'meter':
       return <Meter block={block} start={start} />
+    case 'map':
+      return <MapView block={block} start={start} front={front} said={saidPins(block, heard)} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.

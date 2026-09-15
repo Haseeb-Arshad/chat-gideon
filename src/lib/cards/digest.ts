@@ -77,6 +77,8 @@ function blockDigest(block: Block): string {
       const band = block.bands.find((each) => block.value >= each.from && block.value < each.to)
       return `${block.label}: ${formatNumber(block.value, 1)}${band ? ` (${band.label.toLowerCase()})` : ''}`
     }
+    case 'map':
+      return block.pins.length ? `Map of ${joined(block.pins.map((pin) => pin.label), ', ')}` : 'A map'
     case 'gallery':
       return `${block.pictures.length} pictures`
     case 'media':

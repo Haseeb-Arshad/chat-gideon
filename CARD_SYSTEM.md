@@ -865,6 +865,31 @@ Mapbox's free monthly allowances are 50,000 web map loads, 100,000 temporary
 geocoding requests, 100,000 directions requests and 50,000 static images. The
 one-map pool keeps a session to one load.
 
+**As built (15 September 2026): place and route.** Nearby is not built yet.
+What differs from the sketch:
+
+- **Finding the place** uses three sources at once, not the geocoder alone:
+  Open-Meteo's places for how many people live in a town, Mapbox's geocoder for
+  countries, regions and neighbourhoods, and Mapbox's landmark search. Each was
+  wrong for some hard name on its own (Tuscany, Lake District, Machu Picchu,
+  the Louvre); the order that is right for all of them is in RESEARCH_STAGE.md.
+- **No pool.** Only the card in front has a live map, and it is removed when the
+  card steps back; every map card carries a still, which is what shows first
+  and behind. Mapbox GL loads from Mapbox's CDN with a script tag the first time
+  a map is in front, not with `import()`, so it adds nothing to the bundle.
+- **The public token travels on the card**, not in `ready`, because the still's
+  address carries it anyway. The card reader keeps a map only with a `pk.`
+  token and a still from `api.mapbox.com`.
+- **The secret token is optional.** The one supplied was refused for search,
+  geocoding and directions, so the server tries the public token when Mapbox
+  refuses the secret one, and remembers which works.
+- **No fly-in, chips or satellite yet.** A place is shown where it is, a region
+  framed by its own extent, and a route fitted to its line.
+- **Turns only for short routes.** A walk or ride under 30 km lists its first
+  six turns; a drive of hours shows the time, the distance and the map.
+- **"Show me Lisbon" is pictures**, as planned, and needed saying twice in the
+  speaking model's rules before it held.
+
 ## Video
 
 ### Finding a video

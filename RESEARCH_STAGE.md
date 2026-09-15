@@ -289,6 +289,24 @@ answered "I will forget your address" with no call, so forget's recall was 4 of
 cases then passed in three focused reruns (`ROUTING_ONLY=address`); the whole
 corpus was not run again.
 
+With `show_map` added the same day, the corpus has 158 cases: "where is Machu
+Picchu" moved from research to the map, and eight map cases and four boundaries
+were added (a flight, a fact about a place, "show me Porto on a map", the
+distance to the Moon). The first full run gave 152 of 158 (96.2%) and failed
+one gate on maps: "show me Lisbon" went to `show_map` instead of pictures, so
+its precision was 10 of 11. The rules now say that being shown a place wants
+pictures unless a map is asked for, and "show me" cases then passed 12 of 12,
+and "show me Lisbon" 5 of 5 on its own. Two more fixes came from real turns
+through the app rather than the corpus: "Where is Machu Picchu?" went to
+research, because the prompt's paragraph about research said any question
+about a place goes there before it said where goes to the map; the exception
+now sits in that sentence. Saying so briefly then sent "how long is the flight
+from London to Tokyo" to the map, until the sentence said by car, on foot or
+by bike, and a flight still goes to research. Focused reruns after the last
+change: "where" 5 of 5, "how far" 3 of 3, "how long" 4 of 4, the flight 3 of 3,
+"map" 4 of 4 twice, "tell me" 3 of 3. The whole corpus was not run again after
+these fixes, to keep the remaining OpenRouter credit.
+
 ## The weather
 
 A forecast is data with a source, so it has its own tool rather than a trip to
@@ -344,6 +362,63 @@ can place someone in the wrong city (a VPN, a mobile network), so GIDEON is told
 it is a guess and says which place it used. The local development server has no
 such lookup, and asks which place.
 
+## Maps
+
+`show_map` puts a place on a map, or the way between two places with how long
+it takes and how far it is (`tools/maps.ts`, `cards/maps.ts`). The speaking
+model passes names as the user said them; everything else is code.
+
+**Finding the place** is the part that can go wrong, and a wrong pin is worse
+than none. No one source was right for every kind of name, measured on 15
+September against the live services:
+
+| Name | Open-Meteo places | Mapbox geocoder | Mapbox landmarks |
+| --- | --- | --- | --- |
+| Springfield | Missouri and Illinois, with populations | Illinois, Massachusetts, Missouri | a park in London |
+| Tuscany | a hamlet in Alberta | the region in Italy | a holiday rental |
+| Porto | Porto, and a Santana in Brazil it also calls Porto | Porto | shops, a clinic and a restaurant with Porto in the name |
+| Lake District | a corner of San Francisco | the district in England | an airport |
+| Machu Picchu | a research station in Antarctica | the town in Peru | restaurants in Chile, Malta and America, and the mountain in Peru |
+| Louvre | Louvres, a town near Paris | Louvres | a restaurant in Germany, then the museums in Paris and Abu Dhabi |
+
+So the three are asked at once and each is trusted for what it is good at. In
+order: a country or region by exactly that name; a question when several towns
+share it and none has five times the people of the next (the weather's rule,
+now comparing only places called exactly what was asked, which also fixes the
+weather's Porto); a town with a thousand people or more, or one Mapbox puts in
+the same spot; a landmark by exactly that name, when most of those by that name
+are in one country, after leaving out places to eat, shop, sleep or park; any
+other place Mapbox knows by that name; a landmark whose short name holds the
+one asked for. Landmarks are searched by the name alone, because "British
+Museum, London" finds only flats to let near it. All eleven hard names in
+`maps.live.test.ts` get the right pin or, for Springfield, the question.
+
+**Measured** on 15 September 2026, through `runServerTool`: a place took 150
+to 500 ms warm, and 1.7 to 2.5 s from a cold connection with the weather there
+added; a route took 0.8 to 1.7 s. Through the app's HTTP route, with the real
+speaking model and no location: "Where is Machu Picchu?" gave its first word
+and the map together at 7.6 s, "Where is Timbuktu?" at 9.3 s, and a walk from
+King's Cross to the British Museum at 5.5 s ("about 24 minutes and around 2
+kilometres"). The map tool has no holding line: the answer and the card arrive
+at once. For comparison, "Who built Machu Picchu?" through research said its
+holding line at 3.0 s and drew its card at 12.3 s.
+
+**The card** is a still from the Static Images API at once, in the dark style,
+with the live map drawn over it on the front card only. Mapbox GL 3.30.0 comes
+from Mapbox's CDN the first time a map is in front, so a conversation that asks
+where nothing is never downloads it. The live map is Standard at night in
+monochrome, with two-finger or modifier-key panning so a scroll through the
+card is never caught. A drive of hours leaves its first turns off the card; a
+walk or ride under 30 km lists them. The distance as the crow flies is worked
+out in code and says so. A region is framed by its own extent rather than a
+zoom for its kind.
+
+**Tokens.** The public token is on every map card, since the browser needs it;
+the card reader drops a map whose token is not a public one. The secret token
+is for the server's requests. The one supplied was refused (403) for search,
+geocoding and directions, so those fall back to the public token, and the
+working token is remembered so a refusal is paid for once.
+
 ## Resources
 
 Everything GIDEON did and read used to be listed under the conversation, and it
@@ -371,6 +446,7 @@ it is on screen.
 
 `EXA_API_KEY` in `.env` and in the Worker's secrets. Without it, research is not
 offered at all, and pictures come from Openverse alone. The weather needs no key.
+`MAPBOX_PUBLIC_TOKEN` enables maps; without it `show_map` is not offered.
 
 ## Later
 

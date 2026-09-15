@@ -14,7 +14,7 @@
  * sentences it has been shown has only recognised them.
  */
 
-export type ToolName = 'get_time' | 'remember' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'set_timer' | 'offer_link'
+export type ToolName = 'get_time' | 'remember' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'show_map' | 'set_timer' | 'offer_link'
 
 export interface SkillManifest {
   tool: ToolName
@@ -104,12 +104,13 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     job: 'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources.',
     useWhen: [
       'anything current or anything you would otherwise be guessing at: news, prices, scores, releases, what is true today',
-      'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, where it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
+      'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
       'a comparison of particular things, such as two languages, products or cities',
       'whenever the user tells you to search, look something up or check',
     ],
     neverFor: [
       { when: 'the forecast, or the weather now, for a place', use: 'weather' },
+      { when: 'where a place is, or how far or how long it is by road, on foot or by bike from one place to another', use: 'show_map' },
       { when: 'pictures, photos, or what something looks like', use: 'show_images' },
       { when: 'something the user told you about themselves', use: 'recall' },
       { when: 'a question about a card already on screen that what it shows answers', use: null },
@@ -133,7 +134,8 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
       '"show me" a thing or a place',
     ],
     neverFor: [
-      { when: 'facts about the thing, such as who made it, where it is or how big it is', use: 'research' },
+      { when: 'facts about the thing, such as who made it or how big it is', use: 'research' },
+      { when: 'where a place is', use: 'show_map' },
       { when: 'a scene the user asks you to picture or imagine, which is talk, not a request to see', use: null },
       { when: 'bringing back a card that is already on screen', use: null },
     ],
@@ -164,6 +166,28 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     counterExamples: [
       { text: 'what is Lisbon like in April', use: 'research' },
       { text: 'I feel under the weather', use: null },
+    ],
+    sideEffects: false,
+  },
+  show_map: {
+    tool: 'show_map',
+    job: "Put a map on the user's screen: where a place, a landmark or an address is, or the way from one place to another with how long it takes and how far it is by car, on foot or by bike.",
+    useWhen: [
+      'where a place, a landmark or an address is',
+      'how far one place is from another, or how long it takes to get there by car, on foot or by bike',
+      'directions or the way to somewhere, starting from where the user is when they do not say',
+    ],
+    neverFor: [
+      { when: 'anything else about a place, such as its history, its size or how many people live there', use: 'research' },
+      { when: 'a flight or a train: how long it takes, or what it costs', use: 'research' },
+      { when: 'what a place looks like, or being shown a place without a map being asked for, such as "show me Rome"', use: 'show_images' },
+      { when: 'mapping out or planning something that is not a place, such as a week or an essay', use: null },
+    ],
+    voice: 'The map shows the details: say where it is, or how long and how far, in one sentence, and never read out coordinates.',
+    examples: ['where is Timbuktu', 'how far is Oxford from Cambridge', 'how long would it take to walk to Hyde Park'],
+    counterExamples: [
+      { text: 'how many people live in Timbuktu', use: 'research' },
+      { text: 'show me Oxford', use: 'show_images' },
     ],
     sideEffects: false,
   },

@@ -266,6 +266,36 @@ export interface MeterBlock extends BlockBase {
   bands: Array<{ from: number; to: number; label: string }>
 }
 
+/** A point as Mapbox takes it: longitude first. */
+export type LngLat = [longitude: number, latitude: number]
+
+export interface MapPin {
+  id: string
+  label: string
+  at: LngLat
+}
+
+/**
+ * A place, or the way between places, on a map. Live in the card in front,
+ * where it can be moved; a still picture of the same view everywhere else, so
+ * the page never holds more than one map.
+ */
+export interface MapBlock extends BlockBase {
+  type: 'map'
+  view: 'pin' | 'route' | 'pins'
+  center: LngLat
+  zoom: number
+  /** West, south, east and north, when the view is fitted around a route or pins rather than centred. */
+  bounds?: [west: number, south: number, east: number, north: number]
+  pins: MapPin[]
+  /** A route, simplified, from its start to its end. */
+  line?: LngLat[]
+  /** A public Mapbox token. The live map needs one in the browser, and the still's address carries it anyway. */
+  token: string
+  /** A Static Images API picture of the same view. */
+  still: string
+}
+
 /**
  * `line`: how values moved, up to five series. `area`: one series, filled to
  * zero. `column`: values side by side, up to three series. `bar`: one series
@@ -339,6 +369,7 @@ export type Block =
   | StoriesBlock
   | ForecastBlock
   | MeterBlock
+  | MapBlock
 
 export type BlockType = Block['type']
 
@@ -360,6 +391,7 @@ export const BLOCK_TYPES: readonly BlockType[] = [
   'stories',
   'forecast',
   'meter',
+  'map',
 ]
 
 export interface CardV2 {

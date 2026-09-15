@@ -28,6 +28,7 @@ import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
 import { SKILLS, describeSkill } from './skills'
 import { openMeteo, runWeather } from './weather'
+import { runMap } from './maps'
 import type { CoarseLocation } from '../location'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
@@ -178,6 +179,36 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
       },
       required: [],
+    },
+    readOnly: true,
+  },
+  {
+    name: 'show_map',
+    description: describeSkill(SKILLS.show_map),
+    parameters: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          enum: ['place', 'route'],
+          description: "'place' for where somewhere is; 'route' for the way from one place to another, how long it takes or how far it is.",
+        },
+        place: {
+          type: 'string',
+          description: "For 'place': the place as the user said it, with its region or country when they gave one, such as \"Springfield, Illinois\".",
+        },
+        from: {
+          type: 'string',
+          description: "For 'route': where it starts, as the user said it. Leave it out when they did not say, to start from where they are.",
+        },
+        to: { type: 'string', description: "For 'route': where it ends, as the user said it." },
+        travel: {
+          type: 'string',
+          enum: ['driving', 'walking', 'cycling'],
+          description: "For 'route': only when the user said how they are going; by car otherwise.",
+        },
+      },
+      required: ['mode'],
     },
     readOnly: true,
   },
@@ -520,6 +551,21 @@ export async function runServerTool(
         openMeteo({ fetch: (input, init) => globalThis.fetch(input, init), now: Date.now }),
         Date.now(),
       )
+    case 'show_map': {
+      const publicToken = context.env('MAPBOX_PUBLIC_TOKEN')?.trim() ?? ''
+      return runMap(
+        args,
+        { signal: context.signal, timezone: context.timezone, location: context.location ?? null },
+        {
+          fetch: (input, init) => globalThis.fetch(input, init),
+          publicToken,
+          // The secret token stays on the server: only the public one is ever put on a card.
+          serverToken: context.env('MAPBOX_SERVER_TOKEN')?.trim() || publicToken,
+          now: Date.now,
+        },
+        openMeteo({ fetch: (input, init) => globalThis.fetch(input, init), now: Date.now }),
+      )
+    }
     default:
       return { ok: false, content: `There is no tool called ${name}.` }
   }
