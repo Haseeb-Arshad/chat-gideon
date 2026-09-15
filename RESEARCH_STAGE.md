@@ -321,8 +321,10 @@ Measured live on 14 and 15 September 2026: finding the place and its forecast
 took 1.0 to 1.5 seconds from a cold connection and 0.2 to 0.3 seconds warm; one
 cold request took past five seconds, which is why the timeout is eight.
 "Will it rain in Lisbon tomorrow?" reached a first spoken word at 4.8 seconds,
-with the card, where the same question through research had taken 8.6 seconds
-to its brief alone. It said: "No rain is expected in Lisbon tomorrow. It will
+with the card. Through the research desk, which answered the weather before,
+a weather question took 3.5 to 6.4 seconds to its brief alone (measured 10
+September, in the README), before the voice could start, and drew no forecast.
+It said: "No rain is expected in Lisbon tomorrow. It will
 be overcast with temperatures between 19 and 26 degrees Celsius."
 
 Open-Meteo is free for non-commercial use under 10,000 calls a day and needs no
