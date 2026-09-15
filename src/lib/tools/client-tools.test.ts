@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ClientToolRunner, describeDuration, safeUrl, type Timer } from './client-tools'
+import { ClientToolRunner, describeDuration, describePosition, safeUrl, type Timer } from './client-tools'
+import { positionIn } from '../location'
 
 describe('safeUrl', () => {
   it('accepts http and https', () => {
@@ -111,5 +112,30 @@ describe('ClientToolRunner', () => {
     const runner = new ClientToolRunner()
     runner.dispose()
     expect((await runner.run('set_timer', { seconds: 30 })).ok).toBe(false)
+  })
+})
+
+describe('where the user is', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  afterEach(() => {
+    if (original) Object.defineProperty(globalThis, 'navigator', original)
+  })
+  const withGeolocation = (geolocation: unknown) => Object.defineProperty(globalThis, 'navigator', { value: { geolocation }, configurable: true })
+
+  it('says the position to a kilometre, in words the server reads back', async () => {
+    const getCurrentPosition = vi.fn((success: (position: unknown) => void, _failure?: unknown, _options?: PositionOptions) => success({ coords: { latitude: 33.60123, longitude: 73.04789 } }))
+    withGeolocation({ getCurrentPosition })
+    const answer = await new ClientToolRunner().run('get_location', {})
+    expect(answer).toEqual({ ok: true, content: describePosition(33.60123, 73.04789) })
+    expect(positionIn(answer.content)).toEqual({ latitude: 33.6, longitude: 73.05 })
+    // A town's worth of accuracy, and an hour-old fix will do.
+    expect(getCurrentPosition.mock.calls[0][2]).toMatchObject({ enableHighAccuracy: false, maximumAge: 3_600_000 })
+  })
+
+  it('says plainly when the user would not share it, or the browser cannot', async () => {
+    withGeolocation({ getCurrentPosition: (_: unknown, failure: (error: { code: number }) => void) => failure({ code: 1 }) })
+    expect(await new ClientToolRunner().run('get_location', {})).toEqual({ ok: false, content: 'The user did not allow their location to be shared.' })
+    withGeolocation(undefined)
+    expect((await new ClientToolRunner().run('get_location', {})).ok).toBe(false)
   })
 })

@@ -57,6 +57,7 @@ function CardLab() {
         </header>
 
         <div className="lab-cases">
+          <ManyCards stage={dimensions} stripes={stripes} />
           {FIXTURES.map((fixture) => {
             const card = size === 'recipe' ? fixture.card : { ...fixture.card, size }
             return (
@@ -86,6 +87,47 @@ function CardLab() {
     </GlassFilters>
   )
 }
+
+/**
+ * A conversation's worth of cards on one stage, the way they stand together:
+ * the one being talked about large, the rest in a column beside it. Pressing
+ * one brings it forward, as it does in a conversation.
+ */
+function ManyCards({ stage, stripes }: { stage: { width: number; height: number } | null; stripes: boolean }) {
+  const [count, setCount] = useState(3)
+  const picked = MANY.slice(0, count)
+  const [frontId, setFrontId] = useState<string | null>(null)
+  const entries = picked.map((fixture) => ({
+    id: fixture.id,
+    query: fixture.card.query,
+    hint: (fixture.card.recipe === 'gallery' ? 'pictures' : 'web') as 'pictures' | 'web',
+    card: fixture.card,
+    leaving: false,
+  }))
+  return (
+    <section className="lab-case">
+      <h2>
+        several cards <small>press one beside the front to bring it forward</small>
+      </h2>
+      <Choice label="Cards" value={String(count)} options={['1', '2', '3', '4', '5']} onChange={(next) => setCount(Number(next))} />
+      <div className="lab-stage" data-stripes={stripes} style={stage ? { width: stage.width, height: stage.height } : undefined}>
+        <Stage
+          entries={entries}
+          frontId={picked.some((fixture) => fixture.id === frontId) ? frontId : null}
+          tucking={false}
+          spoken=""
+          onFocus={setFrontId}
+          onTuck={() => setFrontId(null)}
+        />
+      </div>
+    </section>
+  )
+}
+
+/** The cards the several-cards case draws from, oldest first: the last is in front until another is pressed. */
+const MANY = ['lab:data-profile', 'lab:map-route', 'lab:front-page', 'lab:gallery', 'lab:weather-map']
+  .map((id) => FIXTURES.find((fixture) => fixture.id === id))
+  .filter((fixture): fixture is (typeof FIXTURES)[number] => Boolean(fixture))
 
 function Choice<T extends string>({
   label,

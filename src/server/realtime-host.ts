@@ -49,6 +49,9 @@ interface ServerLike {
 
 const OPEN = 1
 
+/** Marks an HTTP server that already has the realtime socket on it. */
+const ATTACHED = Symbol.for('gideon.realtime.attached')
+
 function headerValue(request: IncomingLike, name: string): string | null {
   const value = request.headers[name]
   if (Array.isArray(value)) return value[0] ?? null
@@ -77,6 +80,14 @@ export interface AttachOptions {
    * to a different path and is none of our business.
    */
   rejectOther?: boolean
+  /**
+   * Where each connection gets its session from. Defaults to the one imported
+   * here. Development passes a loader that asks Vite for the module again, so a
+   * change to the session or the agent core reaches the next connection: the
+   * import above is taken once, when the server starts, and would otherwise
+   * keep answering with the code that was there then.
+   */
+  loadSession?: () => Promise<typeof createRealtimeSession>
 }
 
 /**
@@ -87,9 +98,21 @@ export interface AttachOptions {
  * import, and doing it here keeps the function synchronous for the caller.
  */
 export function attachRealtime(server: ServerLike, options: AttachOptions = {}) {
+  // Once per HTTP server. Vite restarts itself on the same server when its
+  // config changes, and a second listener would claim every upgrade again: two
+  // handlers on one socket fail it, and the page falls back to HTTP, where no
+  // tool can ask the browser anything. A second attach takes the new options.
+  const attached = server as ServerLike & { [ATTACHED]?: { options: AttachOptions } }
+  if (attached[ATTACHED]) {
+    attached[ATTACHED].options = options
+    return
+  }
+  const current = { options }
+  attached[ATTACHED] = current
   let wss: NodeWebSocketServer | null = null
 
   server.on('upgrade', (request, socket, head) => {
+    const options = current.options
     const path = (request.url || '').split('?')[0]
     if (path !== REALTIME_PATH) {
       if (options.rejectOther) {
@@ -126,24 +149,45 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
 
         wss ??= await createWebSocketServer()
         wss.handleUpgrade(request, socket, head, (client) => {
-          const session = createRealtimeSession(
-            {
-              sendText: (data) => {
-                if (client.readyState === OPEN) client.send(data)
-              },
-              sendBinary: (data) => {
-                if (client.readyState === OPEN) client.send(data)
-              },
-            },
-            { caller, host },
-          )
+          // The socket opens at once; the session may take a moment to load in
+          // development, and whatever the browser says meanwhile waits for it.
+          // A browser gives up on a socket that is slow to open, and falls back.
+          let session: ReturnType<typeof createRealtimeSession> | null = null
+          let closed = false
+          const waiting: string[] = []
+          const create = options.loadSession ? options.loadSession() : Promise.resolve(createRealtimeSession)
+          void create
+            .then((factory) => {
+              session = factory(
+                {
+                  sendText: (data) => {
+                    if (client.readyState === OPEN) client.send(data)
+                  },
+                  sendBinary: (data) => {
+                    if (client.readyState === OPEN) client.send(data)
+                  },
+                },
+                { caller, host },
+              )
+              if (closed) return session.close()
+              for (const message of waiting.splice(0)) session.handleMessage(message)
+            })
+            .catch((error: Error) => {
+              options.onError?.(`realtime session failed to load: ${error.message}`)
+              client.close()
+            })
 
           client.on('message', ((data: Buffer | ArrayBuffer, isBinary: boolean) => {
             if (isBinary) return
-            session.handleMessage(data.toString())
+            if (session) session.handleMessage(data.toString())
+            else waiting.push(data.toString())
           }) as never)
-          client.on('close', (() => session.close()) as never)
-          client.on('error', (() => session.close()) as never)
+          const end = () => {
+            closed = true
+            session?.close()
+          }
+          client.on('close', end as never)
+          client.on('error', end as never)
         })
       } catch (error) {
         options.onError?.(`realtime upgrade failed: ${(error as Error).message}`)

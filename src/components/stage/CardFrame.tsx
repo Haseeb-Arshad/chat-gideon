@@ -1,15 +1,16 @@
 import { X } from 'lucide-react'
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { blockOf } from '../../lib/cards/schema'
 import { useGlass } from '../LiquidGlass'
 import { CardBoundary } from './CardBoundary'
 import { CardFace } from './CardFace'
+import { CompactFace } from './CompactFace'
 import type { MediaShape } from './blocks/Media'
 import { SearchingFace } from './SearchingFace'
 import type { StageEntry } from './Stage'
 import { glanceAt } from './glance'
 
-export type Slot = 'front' | 'peek' | 'behind'
+export type Slot = 'front' | 'side' | 'behind'
 
 /** A glance every sentence at most: a face darting at every word looks nervous, not attentive. */
 const GLANCE_GAP_MS = 900
@@ -17,8 +18,10 @@ const GLANCE_GAP_MS = 900
 interface CardFrameProps {
   entry: StageEntry
   slot: Slot
+  /** Its place in the column beside the card in front, from the top. */
+  sideIndex: number
   spoken: string
-  /** How many more cards are held behind this one, when it is the one peeking. */
+  /** How many more cards wait behind this one, when it is the last in the column. */
   behind: number
   /** On its way to the shelf, so nothing on it can be pressed. */
   quiet: boolean
@@ -36,7 +39,7 @@ interface CardFrameProps {
  * ancestor would cut the glass off from the room behind it, and the blur would
  * be of nothing.
  */
-export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck, onAsk }: CardFrameProps) {
+export function CardFrame({ entry, slot, sideIndex, spoken, behind, quiet, onFocus, onTuck, onAsk }: CardFrameProps) {
   const { card } = entry
   /**
    * The picture that would not load, by its address, so a card whose picture
@@ -58,8 +61,8 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
   const mediaShape = media && shape?.url === media.image.url ? shape.shape : 'tall'
   const idle = entry.leaving || quiet
   const front = slot === 'front' && !idle
-  // Only the card in front is worth refracting: the ones behind it are dimmed
-  // and half off the screen, and each map costs a pane-sized image to build.
+  // Only the card in front is worth refracting: the ones beside it are small,
+  // and each map costs a pane-sized image to build.
   const glass = useGlass({ enabled: front, blur: 14, saturate: 180 })
 
   // What has lit up so far in this reply, so the face glances only at what is new.
@@ -111,6 +114,7 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
       className="glass-card"
       data-slot={slot}
       data-size={card?.size ?? 'standard'}
+      style={{ '--side-i': sideIndex } as CSSProperties}
       data-leaving={entry.leaving}
       onPointerMove={lean}
       onPointerLeave={settle}
@@ -130,7 +134,11 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
           data-media={media ? mediaShape : undefined}
           data-refracting={glass.refracting ? 'true' : undefined}
         >
-          {card ? (
+          {slot !== 'front' ? (
+            <CardBoundary resetKey={card}>
+              <CompactFace entry={entry} />
+            </CardBoundary>
+          ) : card ? (
             <CardBoundary resetKey={card}>
               <CardFace
                 card={card}
@@ -153,12 +161,12 @@ export function CardFrame({ entry, slot, spoken, behind, quiet, onFocus, onTuck,
         </div>
       </div>
 
-      {slot === 'peek' && !idle ? (
+      {slot === 'side' && !idle ? (
         <button
           type="button"
-          className="peek-hit"
+          className="side-hit"
           onClick={() => onFocus(entry.id)}
-          aria-label={`Bring back ${card?.title ?? entry.query}`}
+          aria-label={`Show ${card?.title ?? entry.query}${behind > 0 ? `, and ${behind} more` : ''}`}
         >
           {behind > 0 ? <span>+{behind}</span> : null}
         </button>

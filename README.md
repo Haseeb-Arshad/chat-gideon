@@ -388,7 +388,10 @@ are configured. See [`backend/worker/README.md`](backend/worker/README.md).
 
 Asked about the weather without a place, the Cloudflare deployment uses the
 city Cloudflare places the connection in. Its coordinates, rounded to about a
-kilometre, go to Open-Meteo for that one forecast and are not stored.
+kilometre, go to Open-Meteo for that one forecast and are not stored. When
+Cloudflare names no city, as for many networks, or locally, GIDEON asks the
+browser, which asks you once whether to share where you are. That position,
+rounded the same way, is named by Mapbox and kept only while the page is open.
 
 Asked where a place is, or the way somewhere, GIDEON sends the place names to
 Mapbox, with that same rounded position to rank nearby matches first, and a

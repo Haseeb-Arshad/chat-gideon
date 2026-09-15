@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WeatherMaterial } from '../cards/materials'
+import { readCard } from '../cards/read'
 import {
   choosePlace,
   describeWeather,
@@ -105,6 +106,8 @@ describe('choosing a place', () => {
     const maine = place('Portland', { region: 'Maine', country: 'United States', population: 66_900 })
     expect(choosePlace('Portland, Maine', [oregon, maine])).toEqual({ place: maine })
     expect(choosePlace('Portland, Peru', [oregon, maine])).toBeNull()
+    // A model adds every region it knows; one of them agreeing is enough.
+    expect(choosePlace('Portland, Cumberland County, Maine, United States', [oregon, maine])).toEqual({ place: maine })
     expect(choosePlace('Atlantis', [])).toBeNull()
   })
 
@@ -196,6 +199,15 @@ describe('the tool', () => {
     expect(forecast).toHaveBeenCalledTimes(1)
   })
 
+  it('puts a map of the place on the card when maps are set up, carrying only the public token', async () => {
+    const publicToken = 'pk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.dGVzdHNpZ25hdHVyZQ'
+    const { provider: test } = provider([place('Lisbon', { capital: true })])
+    const card = await (await runWeather({ place: 'Lisbon' }, { ...context, publicToken }, test, NOW)).card
+    const map = card?.blocks.find((block) => block.type === 'map')
+    expect(map).toMatchObject({ view: 'pin', center: [-9.15, 38.72], pins: [{ id: 'place', label: 'Lisbon', at: [-9.15, 38.72] }], token: publicToken })
+    expect(readCard(JSON.parse(JSON.stringify(card)))?.blocks.some((block) => block.type === 'map')).toBe(true)
+  })
+
   it('asks rather than guesses, and refuses a day past the forecast before asking the provider for it', async () => {
     const { provider: test, forecast } = provider([
       place('Springfield', { region: 'Missouri', country: 'United States', population: 169_000 }),
@@ -216,20 +228,24 @@ describe('the tool', () => {
     const outcome = await runWeather({ day: 'today' }, { ...context, location }, test, NOW)
     expect(outcome.ok).toBe(true)
     expect(outcome.content.split('\n')[0]).toBe(
-      "No place was given, so this is for where the user's connection places them, roughly: Lisbon, Portugal. Say which place it is for, in case that is wrong.",
+      "No place was given, so this is for where the user's connection places them, roughly: Lisbon, Portugal. Say which place it is, in case that is wrong.",
     )
     // The place is already known, so nothing is looked up by name.
     expect(find).not.toHaveBeenCalled()
     expect(forecast.mock.calls[0][0]).toMatchObject({ name: 'Lisbon', latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon' })
     expect((await outcome.card)?.title).toBe('Weather, Lisbon')
 
-    expect((await runWeather({}, context, test, NOW)).content).toBe('No place was given, and where the user is is not known. Ask them which place they mean.')
+    expect((await runWeather({}, context, test, NOW)).content).toBe(
+      'No place was given, and where the user is could not be found (they may not have allowed it). Ask them which place they mean, and do not look the weather up any other way.',
+    )
   })
 
   it('says so, in a sentence, when the forecast cannot be reached or the place cannot be found', async () => {
     const down = provider([place('Lisbon', { capital: true })], true)
     expect(await runWeather({ place: 'Lisbon' }, context, down.provider, NOW)).toMatchObject({ ok: false, summary: 'Could not get the weather' })
     const nowhere = provider([])
-    expect((await runWeather({ place: 'Atlantis' }, context, nowhere.provider, NOW)).content).toBe('No place called Atlantis could be found. Ask the user where they mean.')
+    expect((await runWeather({ place: 'Atlantis' }, context, nowhere.provider, NOW)).content).toBe(
+      'No place called Atlantis could be found. If it sounds like a place you know, try again with its proper spelling; otherwise ask the user where they mean. Do not look the weather up any other way.',
+    )
   })
 })

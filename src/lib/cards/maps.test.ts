@@ -12,7 +12,7 @@ import type { LngLat, MapBlock } from './schema'
  * loses anything else.
  */
 
-const PUBLIC = 'pk.eyJ1IjoidGVzdCJ9.dGVzdA.c2ln'
+const PUBLIC = 'pk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.dGVzdHNpZ25hdHVyZQ'
 const lisbon: MapPlace = { name: 'Lisbon', detail: 'Portugal', kind: 'capital', at: [-9.1333, 38.7167], timezone: 'Europe/Lisbon' }
 const porto: MapPlace = { name: 'Porto', detail: 'Portugal', kind: 'city', at: [-8.611, 41.1496], timezone: 'Europe/Lisbon' }
 const mapOf = (card: { blocks: Array<{ type: string }> }) => card.blocks.find((block) => block.type === 'map') as MapBlock
@@ -127,9 +127,9 @@ describe('reading a map block back', () => {
   it('drops a map with a secret token, or a still from anywhere but Mapbox', () => {
     const withMap = (change: Partial<MapBlock>) => ({ ...card, blocks: card.blocks.map((block) => (block.type === 'map' ? { ...block, ...change } : block)) })
     const types = (value: unknown) => readCard(value)?.blocks.map((block) => block.type)
-    expect(types(withMap({ token: 'sk.eyJ1IjoidGVzdCJ9.dGVzdA.c2ln' }))).toEqual(['headline', 'facts'])
+    expect(types(withMap({ token: 'sk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.c2VjcmV0c2lnbmF0dXJl' }))).toEqual(['headline', 'facts'])
     expect(types(withMap({ still: 'https://example.com/map.png' }))).toEqual(['headline', 'facts'])
-    expect(types(withMap({ still: mapOf(card).still.replace(PUBLIC, 'sk.eyJ1IjoidGVzdCJ9.dGVzdA.c2ln') }))).toEqual(['headline', 'facts'])
+    expect(types(withMap({ still: mapOf(card).still.replace(PUBLIC, 'sk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.c2VjcmV0c2lnbmF0dXJl') }))).toEqual(['headline', 'facts'])
   })
 })
 

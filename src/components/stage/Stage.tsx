@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type CSSProperties } from 'react'
 import type { CardV2 } from '../../lib/cards/schema'
 import { CardFrame, type Slot } from './CardFrame'
 import type { SearchHint } from './SearchingFace'
@@ -6,12 +6,17 @@ import type { SearchHint } from './SearchingFace'
 /**
  * What GIDEON found, on panes of glass.
  *
- * The newest card holds the middle of the room. The one before it steps back
- * to the right edge and waits there, half visible, and a tap brings it
- * forward again. Anything older is held out of sight behind that one. When the
- * conversation moves on, all of them slide off to the right together and wait
- * on the shelf at the edge of the screen until their topic comes back.
+ * The card being talked about is large. Every other card of the conversation
+ * stands beside it, whole and small, in a column: the most recent at the top,
+ * and past three, the rest wait behind the last with a count. Pressing one
+ * brings it forward, and the one that was in front shrinks into its place, so
+ * nothing is ever half off the screen. When the conversation moves on, all of
+ * them slide off to the right together and wait on the shelf at the edge of the
+ * screen until their topic comes back.
  */
+
+/** How many cards stand beside the one in front before the rest wait behind the last. */
+export const SIDE_MAX = 3
 
 export interface StageEntry {
   /** The turn and the tool call it came from, so a card finds its pane. */
@@ -43,13 +48,19 @@ interface StageProps {
 export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck, onAsk }: StageProps) {
   // A card on its way out keeps the place it had, rather than jumping to the
   // front as it goes, so the last known slot of every card is remembered.
-  const slots = useRef(new Map<string, Slot>())
+  const slots = useRef(new Map<string, { slot: Slot; index: number }>())
   const live = entries.filter((entry) => !entry.leaving)
   const front = live.find((entry) => entry.id === frontId) ?? live.at(-1)
-  const others = live.filter((entry) => entry !== front)
-  const peek = others.at(-1)
+  // The most recent first, so the card just talked about is nearest the top.
+  const others = live.filter((entry) => entry !== front).reverse()
+  const side = others.slice(0, SIDE_MAX)
+  const waiting = others.length - side.length
   for (const entry of live) {
-    slots.current.set(entry.id, entry === front ? 'front' : entry === peek ? 'peek' : 'behind')
+    const index = side.indexOf(entry)
+    slots.current.set(
+      entry.id,
+      entry === front ? { slot: 'front', index: 0 } : index >= 0 ? { slot: 'side', index } : { slot: 'behind', index: side.length - 1 },
+    )
   }
   for (const id of slots.current.keys()) {
     if (!entries.some((entry) => entry.id === id)) slots.current.delete(id)
@@ -59,8 +70,8 @@ export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck, onAs
     <div
       className="research-stage"
       data-tucking={tucking}
-      // The card in front decides how much room is left for the one peeking beside it.
-      data-front-size={front?.card?.size ?? 'standard'}
+      data-layout={side.length ? 'split' : 'single'}
+      style={{ '--side-n': Math.max(side.length, 1) } as CSSProperties}
       role="region"
       aria-label="What GIDEON found"
     >
@@ -68,9 +79,10 @@ export function Stage({ entries, frontId, tucking, spoken, onFocus, onTuck, onAs
         <CardFrame
           key={entry.id}
           entry={entry}
-          slot={slots.current.get(entry.id) ?? 'front'}
+          slot={slots.current.get(entry.id)?.slot ?? 'front'}
+          sideIndex={slots.current.get(entry.id)?.index ?? 0}
           spoken={entry === front ? spoken : ''}
-          behind={entry === peek ? others.length - 1 : 0}
+          behind={entry === side.at(-1) ? waiting : 0}
           quiet={tucking}
           onFocus={onFocus}
           onTuck={onTuck}

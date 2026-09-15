@@ -52,6 +52,8 @@ const PLACES: Array<[name: string, country: string | null]> = [
   ['Louvre', 'France'],
   ['Times Square', 'United States'],
   ['British Museum, London', 'United Kingdom'],
+  ['Faisal Mosque', 'Pakistan'],
+  ['Hunza Valley', 'Pakistan'],
   ['Springfield', null],
 ]
 

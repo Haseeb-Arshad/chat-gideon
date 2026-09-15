@@ -104,8 +104,9 @@ describe('front page', () => {
 
     cleanup()
     const behind = stage(page, '', false)
-    const first = behind.container.querySelector('.glass-card[data-slot="peek"] .story-headline a') as HTMLAnchorElement
-    expect(first.tabIndex).toBe(-1)
+    // Beside the front card it is drawn small, with no link to follow by mistake.
+    expect(behind.container.querySelector('.glass-card[data-slot="side"] .story-headline a')).toBeNull()
+    expect(behind.container.querySelector('.glass-card[data-slot="side"] .compact-title')?.textContent).toBeTruthy()
   })
 
   it('lets the lead go without its picture when the picture will not load', () => {

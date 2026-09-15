@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WeatherMaterial } from '../cards/materials'
 import type { CardV2, MapBlock } from '../cards/schema'
-import { findPlace, forgetMaps, runMap, type MapsDeps } from './maps'
+import { findPlace, forgetMaps, runMap, withCardMap, type MapsDeps } from './maps'
+import type { RecordMaterial } from '../cards/materials'
 import type { Place, WeatherProvider } from './weather'
 
 /**
@@ -11,8 +12,8 @@ import type { Place, WeatherProvider } from './weather'
  * server and never reaches a card, and a route with no way is said plainly.
  */
 
-const PUBLIC = 'pk.eyJ1IjoidGVzdCJ9.cHVibGlj.c2ln'
-const SECRET = 'sk.eyJ1IjoidGVzdCJ9.c2VjcmV0.c2ln'
+const PUBLIC = 'pk.eyJ1IjoidGVzdCIsImEiOiJwdWJsaWMifQ.cHVibGljc2lnbmF0dXJl'
+const SECRET = 'sk.eyJ1IjoidGVzdCIsImEiOiJzZWNyZXQifQ.c2VjcmV0c2lnbmF0dXJl'
 
 const town = (name: string, extra: Partial<Place> = {}): Place => ({
   name,
@@ -47,8 +48,14 @@ const features = (items: Fixture[]) => ({
   })),
 })
 
-/** What each name finds: Open-Meteo's places, Mapbox's geocoder, and Mapbox's landmarks. */
-const WORLD: Record<string, { places?: Place[]; admin?: Fixture[]; sights?: Fixture[] }> = {
+interface Article {
+  title: string
+  description: string
+  at: [number, number]
+}
+
+/** What each name finds: Open-Meteo's places, Mapbox's geocoder, Mapbox's landmarks, and Wikipedia's article. */
+const WORLD: Record<string, { places?: Place[]; admin?: Fixture[]; sights?: Fixture[]; wiki?: Article }> = {
   lisbon: {
     places: [town('Lisbon', { country: 'Portugal', capital: true, latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon', featureCode: 'PPLC' }), town('Lisbon', { region: 'Maine', population: 9_000 })],
     admin: [{ name: 'Lisbon', feature_type: 'place', place_formatted: 'Portugal', at: [-9.14, 38.71] }],
@@ -80,6 +87,21 @@ const WORLD: Record<string, { places?: Place[]; admin?: Fixture[]; sights?: Fixt
       { name: 'Musee du Louvre - Departement des Antiquites Orientales', feature_type: 'poi', full_address: '75001 Paris, France', country: 'France', poi_category: ['museum'], at: [2.337, 48.861] },
       { name: 'Louvre Museum', feature_type: 'poi', full_address: '1 Av. du Général Lemonnier, 75001 Paris, France', country: 'France', poi_category: ['museum'], at: [2.3376, 48.8606] },
       { name: 'Louvre Abu Dhabi', feature_type: 'poi', full_address: 'Saadiyat Island, Abu Dhabi, United Arab Emirates', country: 'United Arab Emirates', poi_category: ['museum'], at: [54.4, 24.53] },
+    ],
+    wiki: { title: 'Louvre', description: 'Art museum in Paris, France', at: [2.3358, 48.8611] },
+  },
+  // Mapbox has no Faisal Mosque in Islamabad by that name, and several King Faisal Mosques elsewhere.
+  'faisal mosque': {
+    sights: [
+      { name: 'King Faisal Mosque', feature_type: 'poi', full_address: 'King Abdul Aziz St, Sharjah, United Arab Emirates', country: 'United Arab Emirates', poi_category: ['mosque'], at: [55.388, 25.349] },
+      { name: 'King Faisal Mosque', feature_type: 'poi', full_address: '175-177 Commonwealth St, Sydney 2010, Australia', country: 'Australia', poi_category: ['mosque'], at: [151.21, -33.88] },
+    ],
+    wiki: { title: 'Faisal Mosque', description: "World's sixth-largest mosque in Islamabad, Pakistan", at: [73.0372, 33.7297] },
+  },
+  'king faisal mosque': {
+    sights: [
+      { name: 'King Faisal Mosque', feature_type: 'poi', full_address: 'King Abdul Aziz St, Sharjah, United Arab Emirates', country: 'United Arab Emirates', poi_category: ['mosque'], at: [55.388, 25.349] },
+      { name: 'King Faisal Mosque', feature_type: 'poi', full_address: '175-177 Commonwealth St, Sydney 2010, Australia', country: 'Australia', poi_category: ['mosque'], at: [151.21, -33.88] },
     ],
   },
   'british museum': {
@@ -119,6 +141,13 @@ function deps(options: { secretRefused?: boolean; route?: 'found' | 'none' } = {
     fetch: (async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
       seen.urls.push(url.toString())
+      if (url.hostname === 'en.wikipedia.org') {
+        const name = decodeURIComponent(url.pathname.split('/').pop() ?? '').toLowerCase()
+        const found = WORLD[name]?.wiki
+        return found
+          ? Response.json({ type: 'standard', title: found.title, description: found.description, coordinates: { lat: found.at[1], lon: found.at[0] } })
+          : Response.json({ type: 'https://mediawiki.org/wiki/HyperSwitch/errors/not_found' }, { status: 404 })
+      }
       if (options.secretRefused && url.searchParams.get('access_token') === SECRET) return new Response('{"message":"Forbidden"}', { status: 403 })
       const query = (url.searchParams.get('q') ?? '').toLowerCase()
       if (url.pathname.startsWith('/search/geocode/v6/')) return Response.json(features(WORLD[query]?.admin ?? []))
@@ -169,8 +198,24 @@ describe('finding a place', () => {
     expect(await place('Eiffel Tower')).toMatchObject({ place: { name: 'Eiffel Tower', kind: 'landmark' } })
   })
 
-  it('goes where most landmarks holding the name are, by the plainest name there, past a restaurant called exactly it', async () => {
-    expect(await place('Louvre')).toMatchObject({ place: { name: 'Louvre Museum' } })
+  it('goes where the article by the name is about, past a restaurant called exactly it', async () => {
+    expect(await place('Louvre')).toMatchObject({ place: { name: 'Louvre', detail: 'Art museum in Paris, France', kind: 'landmark', at: [2.3358, 48.8611] } })
+  })
+
+  it('takes the famous place over businesses with the name in theirs, and asks when there is nothing famous to go by', async () => {
+    expect(await place('Faisal Mosque')).toMatchObject({ place: { name: 'Faisal Mosque', at: [73.0372, 33.7297] } })
+    expect(await place('King Faisal Mosque')).toHaveProperty('ask')
+    // Where the user is, added to a place that is not there, is searched again without it.
+    const location = { city: 'Rawalpindi', region: 'Punjab', country: 'Pakistan', latitude: 33.6, longitude: 73.05, timezone: 'Asia/Karachi' }
+    expect(await findPlace('Faisal Mosque, Punjab', deps(), weather, { ...context, location })).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    expect(await findPlace('Faisal Mosque, Punjab, Pakistan', deps(), weather, { ...context, location })).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    expect(await findPlace('Faisal Mosque, Sindh', deps(), weather, { ...context, location })).toHaveProperty('none')
+    // Regions run together by a model still count.
+    expect(await findPlace('Faisal Mosque, Pakistan Islamabad Capital Territory', deps(), weather, context)).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    // Every region a model knows, added after the name: one agreeing is enough.
+    expect(await findPlace('Faisal Mosque, Margalla Hills, Islamabad Capital Territory, Pakistan', deps(), weather, context)).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    // The town the model added without a comma is read as one.
+    expect(await place('Faisal Mosque Islamabad')).toMatchObject({ place: { name: 'Faisal Mosque', at: [73.0372, 33.7297] } })
   })
 
   it('searches landmarks by the name alone, and lets what follows a comma only filter them', async () => {
@@ -198,13 +243,14 @@ describe('the tool', () => {
   it('uses the secret token for its own requests, and the public one when Mapbox refuses the secret', async () => {
     const seen: Seen = { urls: [] }
     await runMap({ mode: 'place', place: 'Tuscany' }, context, deps({}, seen), weather)
-    expect(seen.urls.every((url) => new URL(url).searchParams.get('access_token') === SECRET)).toBe(true)
+    const mapbox = (urls: string[]) => urls.filter((url) => new URL(url).hostname === 'api.mapbox.com')
+    expect(mapbox(seen.urls).every((url) => new URL(url).searchParams.get('access_token') === SECRET)).toBe(true)
 
     forgetMaps()
     const refused: Seen = { urls: [] }
     const outcome = await runMap({ mode: 'place', place: 'Tuscany' }, context, deps({ secretRefused: true }, refused), weather)
     expect(outcome.ok).toBe(true)
-    expect(refused.urls.some((url) => new URL(url).searchParams.get('access_token') === PUBLIC)).toBe(true)
+    expect(mapbox(refused.urls).some((url) => new URL(url).searchParams.get('access_token') === PUBLIC)).toBe(true)
   })
 
   it('draws a route, and starts from where the user is, saying so, when no start is given', async () => {
@@ -236,8 +282,58 @@ describe('the tool', () => {
     expect(outcome.card).toBeUndefined()
   })
 
+  it('gives up on a place that takes too long, rather than holding the answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const hanging: MapsDeps = {
+        ...deps(),
+        fetch: ((_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))) as typeof fetch,
+      }
+      const pending = runMap({ mode: 'place', place: 'Lisbon' }, context, hanging, { ...weather, places: () => new Promise<Place[]>(() => undefined) })
+      await vi.advanceTimersByTimeAsync(12_000)
+      expect(await pending).toMatchObject({ ok: false, summary: 'The map took too long' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('says maps are not set up when there is no public token', async () => {
     const outcome = await runMap({ mode: 'place', place: 'Lisbon' }, context, { ...deps(), publicToken: '' }, weather)
     expect(outcome.content).toContain('not set up')
+  })
+})
+
+describe('a research card about a place', () => {
+  const profile = (title: string): CardV2 => ({
+    schema: 2,
+    recipe: 'profile',
+    size: 'standard',
+    query: 'q',
+    title,
+    blocks: [{ id: 'headline', slot: 'head', type: 'headline', title }],
+    sources: [],
+    asOf: null,
+    partial: false,
+  })
+  const mapOf = (card: CardV2) => card.blocks.find((block) => block.type === 'map') as MapBlock | undefined
+
+  it("puts the place on a map from its own record's coordinates", async () => {
+    const record: RecordMaterial = {
+      id: 'wikidata:Q1', kind: 'record', type: 'place', subject: 'Faisal Mosque', description: 'mosque in Islamabad', fields: [], events: [],
+      coordinates: { latitude: 33.7297, longitude: 73.0372 },
+      source: { title: 'Wikidata', url: 'https://www.wikidata.org/wiki/Q1', fetchedAt: '2026-09-15T00:00:00.000Z' },
+    }
+    const card = await withCardMap(profile('Faisal Mosque'), 'tell me about the Faisal Mosque', [record], deps(), weather, context)
+    expect(mapOf(card)).toMatchObject({ view: 'pin', center: [73.0372, 33.7297], token: PUBLIC, pins: [{ label: 'Faisal Mosque' }] })
+  })
+
+  it('asked where, finds the place the way the maps tool does, and adds nothing when unsure or not asked where', async () => {
+    expect(mapOf(await withCardMap(profile('Faisal Mosque'), 'Where is the Faisal Mosque?', [], deps(), weather, context))?.center).toEqual([73.0372, 33.7297])
+    expect(mapOf(await withCardMap(profile('Springfield'), 'where is Springfield', [], deps(), weather, context))).toBeUndefined()
+    // A card named after a place's article gets its map whatever was asked; one named after nothing with coordinates does not.
+    expect(mapOf(await withCardMap(profile('Faisal Mosque'), 'who built the Faisal Mosque', [], deps(), weather, context))?.center).toEqual([73.0372, 33.7297])
+    expect(mapOf(await withCardMap(profile('Ada Lovelace'), 'who was Ada Lovelace', [], deps(), weather, context))).toBeUndefined()
+    expect(mapOf(await withCardMap(profile('Faisal Mosque'), 'Where is the Faisal Mosque?', [], { ...deps(), publicToken: '' }, weather, context))).toBeUndefined()
   })
 })

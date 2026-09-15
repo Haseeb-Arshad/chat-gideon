@@ -70,6 +70,8 @@ export interface SessionOptions {
  * not hold a turn open indefinitely.
  */
 const CLIENT_TOOL_TIMEOUT_MS = 8_000
+/** Finding the user can wait on them reading the browser's question and answering it. */
+const LOCATE_TIMEOUT_MS = 30_000
 
 interface PendingTool {
   resolve: (outcome: ToolOutcome) => void
@@ -165,6 +167,9 @@ export function createRealtimeSession(
    * so the agent loop can tell the model what happened instead of the whole
    * turn collapsing over one unavailable tool.
    */
+  /** Where the user's device placed them, once a tool had to ask. Kept for the socket's life, never stored. */
+  let located: CoarseLocation | null = null
+
   const bridge: ClientToolBridge = {
     call: (callId, name, _args, signal) =>
       new Promise<ToolOutcome>((resolve) => {
@@ -179,7 +184,7 @@ export function createRealtimeSession(
             ok: false,
             content: `The browser did not complete ${name} in time. Tell the user it did not go through.`,
           })
-        }, CLIENT_TOOL_TIMEOUT_MS)
+        }, name === 'get_location' ? LOCATE_TIMEOUT_MS : CLIENT_TOOL_TIMEOUT_MS)
 
         pendingTools.set(callId, { resolve, timer })
 
@@ -215,7 +220,11 @@ export function createRealtimeSession(
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
         screen: readScreen(frame.screen),
-        location: options.location ?? null,
+        // The device's own answer, once a tool has had to ask, is surer than the address lookup.
+        location: located ?? options.location ?? null,
+        onLocation: (location) => {
+          located = location
+        },
       })) {
         if (closed || controller.signal.aborted) return
         send(event)

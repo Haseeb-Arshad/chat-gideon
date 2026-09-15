@@ -19,9 +19,11 @@
 
 import { cardFromMaterials, temperature } from '../cards/from-materials'
 import type { WeatherDay, WeatherMaterial } from '../cards/materials'
+import { stillUrl } from '../cards/maps'
+import type { CardV2, MapBlock } from '../cards/schema'
 import { conditionOf, dayCode, placeName, uvBand } from '../cards/weather'
 import { TimedCache } from './desk/cache'
-import type { CoarseLocation } from '../location'
+import { whereWords, type CoarseLocation } from '../location'
 import type { ToolOutcome } from './registry'
 
 /** Today and the six days after it: the week the card shows. */
@@ -196,16 +198,43 @@ export function nameKey(text: string): string {
  * times Maine's people; "Springfield" could be any of several, and is asked
  * about. A region or country after a comma decides it.
  */
+/**
+ * The regions and countries named after a comma, each as names are compared:
+ * "Lake Saiful Muluk, Kaghan Valley, Khyber Pakhtunkhwa, Pakistan" names three.
+ * A model given a place tends to add every one it knows, so any of them agreeing
+ * is enough, and a place is only ruled out when none does.
+ */
+export function qualifiersOf(query: string): string[] {
+  return query.split(',').slice(1, 5).map(nameKey).filter(Boolean)
+}
+
+/**
+ * How many of the regions and countries after the comma are in these texts: a
+ * place's region, its country, its description. A qualifier can run several
+ * together ("Pakistan Khyber Pakhtunkhwa"), so one that holds a region counts.
+ */
+export function qualifierMatches(qualifiers: string[], ...texts: string[]): number {
+  const keys = texts.flatMap((text) => text.split(',')).map(nameKey).filter((key) => key.length >= 4)
+  const joined = texts.map(nameKey).join('|')
+  return qualifiers.filter((qualifier) => joined.includes(qualifier) || keys.some((key) => key.startsWith(qualifier) || qualifier.includes(key))).length
+}
+
+/** Whether a place answers to what was said after the comma: anything, when nothing was. */
+export function qualifiedBy(qualifiers: string[], ...texts: string[]): boolean {
+  return !qualifiers.length || qualifierMatches(qualifiers, ...texts) > 0
+}
+
 export function choosePlace(query: string, places: Place[]): { place: Place } | { options: Place[] } | null {
-  const qualifier = query.split(',').slice(1).join(',').trim().toLowerCase()
+  const qualifiers = qualifiersOf(query)
   // A place search also matches other names a place goes by: "Porto" finds a Santana in Brazil. Those called
   // exactly what was asked are the candidates, when there are any.
   const asked = nameKey(query.split(',')[0])
   const called = places.filter((place) => nameKey(place.name) === asked)
   const pool = called.length ? called : places
-  const candidates = qualifier
-    ? pool.filter((place) => [place.region, place.country].some((part) => part && part.toLowerCase().startsWith(qualifier)))
-    : pool
+  // The places that agree with the most of what was said: "Maine, United States" is Maine's Portland, though both are in the United States.
+  const scored = pool.map((place) => ({ place, matches: qualifierMatches(qualifiers, place.region, place.country) }))
+  const most = Math.max(0, ...scored.map((each) => each.matches))
+  const candidates = qualifiers.length ? scored.filter((each) => each.matches > 0 && each.matches === most).map((each) => each.place) : pool
   const [first, second] = candidates
   if (!first) return null
   if (!second) return { place: first }
@@ -318,13 +347,31 @@ export interface WeatherContext {
   timezone: string
   /** Roughly where the user is, for a forecast that names no place, when the host knows. */
   location?: CoarseLocation | null
+  /** Mapbox's public token, when maps are set up: the card then shows where the forecast is for. */
+  publicToken?: string
+}
+
+/** How close the weather's map shows its place: the town and what is around it. */
+const WEATHER_MAP_ZOOM = 9.5
+
+/**
+ * The card with a map of the place on it. Most of all when the place was not
+ * named: "the weather here" is only as good as where "here" was taken to be,
+ * and a pin says that faster than a sentence.
+ */
+export function withPlaceMap(card: CardV2, place: Pick<Place, 'name' | 'latitude' | 'longitude'>, publicToken: string): CardV2 {
+  const view = { center: [place.longitude, place.latitude] as [number, number], zoom: WEATHER_MAP_ZOOM, pins: [{ id: 'place', label: place.name, at: [place.longitude, place.latitude] as [number, number] }] }
+  const map: MapBlock = { id: 'map', slot: 'data', type: 'map', view: 'pin', ...view, token: publicToken, still: stillUrl(view, publicToken, [480, 270]) }
+  return { ...card, blocks: [...card.blocks, map] }
 }
 
 export async function runWeather(args: Record<string, unknown>, context: WeatherContext, provider: WeatherProvider, now: number): Promise<ToolOutcome> {
   const where = typeof args.place === 'string' ? args.place.replace(/\s+/g, ' ').trim().slice(0, 80) : ''
   if (!where) {
-    if (!context.location) return { ok: false, content: 'No place was given, and where the user is is not known. Ask them which place they mean.' }
-    return forecastFor(placeFrom(context.location), args, context, provider, now, true)
+    if (!context.location) {
+      return { ok: false, content: 'No place was given, and where the user is could not be found (they may not have allowed it). Ask them which place they mean, and do not look the weather up any other way.' }
+    }
+    return forecastFor(placeFrom(context.location), args, context, provider, now, context.location)
   }
   const name = where.split(',')[0].trim()
 
@@ -336,12 +383,19 @@ export async function runWeather(args: Record<string, unknown>, context: Weather
     return { ok: false, content: 'The forecast could not be reached just now. Say so in one short sentence.', summary: 'Could not get the weather' }
   }
   const chosen = choosePlace(where, found)
-  if (!chosen) return { ok: false, content: `No place called ${where} could be found. Ask the user where they mean.`, summary: 'Place not found' }
+  if (!chosen) {
+    return {
+      ok: false,
+      // Speech gets names wrong ("Raval Bindi"), and research would only find the same guess with less in it.
+      content: `No place called ${where} could be found. If it sounds like a place you know, try again with its proper spelling; otherwise ask the user where they mean. Do not look the weather up any other way.`,
+      summary: 'Place not found',
+    }
+  }
   if ('options' in chosen) {
     const options = chosen.options.map(placeName)
     return { ok: false, content: `${name} could be ${options.join(', or ')}. Ask the user which one they mean.` }
   }
-  return forecastFor(chosen.place, args, context, provider, now, false)
+  return forecastFor(chosen.place, args, context, provider, now, null)
 }
 
 /** Where the user is, as a place to forecast for. */
@@ -349,7 +403,7 @@ function placeFrom(location: CoarseLocation): Place {
   return { name: location.city, region: location.region, country: location.country, latitude: location.latitude, longitude: location.longitude, timezone: location.timezone, population: 0, capital: false }
 }
 
-async function forecastFor(place: Place, args: Record<string, unknown>, context: WeatherContext, provider: WeatherProvider, now: number, nearby: boolean): Promise<ToolOutcome> {
+async function forecastFor(place: Place, args: Record<string, unknown>, context: WeatherContext, provider: WeatherProvider, now: number, nearby: CoarseLocation | null): Promise<ToolOutcome> {
   const day = typeof args.day === 'string' ? forecastDay(args.day, localDate(now, place.timezone)) : null
   if (day && 'refusal' in day) return { ok: false, content: day.refusal }
 
@@ -364,11 +418,10 @@ async function forecastFor(place: Place, args: Record<string, unknown>, context:
     return { ok: false, content: 'The forecast could not be reached just now. Say so in one short sentence.', summary: 'Could not get the weather' }
   }
 
-  const card = cardFromMaterials(`Weather in ${nearby ? placeName(place) : String(args.place).trim()}`, [material], now)
-  // An address lookup can place someone in the wrong city, so the model is told this is a guess to name.
-  const guess = nearby
-    ? `No place was given, so this is for where the user's connection places them, roughly: ${placeName(place)}. Say which place it is for, in case that is wrong.\n`
-    : ''
+  const drawn = cardFromMaterials(`Weather in ${nearby ? placeName(place) : String(args.place).trim()}`, [material], now)
+  const card = drawn && context.publicToken ? withPlaceMap(drawn, place, context.publicToken) : drawn
+  // An address lookup can place someone in the wrong city, so the model is told when this is a guess to name.
+  const guess = nearby ? `No place was given, so this is for ${whereWords(nearby)}.\n` : ''
   return {
     ok: true,
     content: `${guess}${describeWeather(material, day ? day.index : null)}`,

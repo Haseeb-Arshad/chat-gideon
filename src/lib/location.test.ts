@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LOCATION_HEADER, decodeLocation, encodeLocation, locationFromCf, readLocation, withLocation } from './location'
+import { LOCATION_HEADER, decodeLocation, encodeLocation, locationFromCf, positionIn, readLocation, whereWords, withLocation } from './location'
 
 /**
  * Where the user roughly is. What matters: it is coarse, it is whole or
@@ -20,16 +20,35 @@ const cf = {
 
 describe('the location a request comes from', () => {
   it('keeps the city, its country by name, coordinates to a kilometre and the timezone, and nothing else', () => {
-    expect(locationFromCf(cf)).toEqual({ city: 'Lisbon', region: 'Lisbon', country: 'Portugal', latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon' })
+    expect(locationFromCf(cf)).toEqual({ city: 'Lisbon', region: 'Lisbon', country: 'Portugal', latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon', from: 'network' })
   })
 
-  it('is no location without a city or real coordinates, or outside Cloudflare', () => {
-    expect(locationFromCf({ ...cf, city: '' })).toBeNull()
+  it('lets the region stand in for a city Cloudflare did not name, and is no location without either', () => {
+    // As for many networks in Pakistan: a province, and no city.
+    expect(locationFromCf({ ...cf, city: '', region: 'Punjab', country: 'PK', latitude: '33.6', longitude: '73.05' })).toMatchObject({ city: 'Punjab', country: 'Pakistan', latitude: 33.6, longitude: 73.05 })
+    expect(locationFromCf({ ...cf, city: '', region: '' })).toBeNull()
+  })
+
+  it('is no location without real coordinates, or outside Cloudflare', () => {
     expect(locationFromCf({ ...cf, latitude: 'north' })).toBeNull()
     expect(locationFromCf({ ...cf, longitude: '200' })).toBeNull()
     expect(locationFromCf(undefined)).toBeNull()
     // Cloudflare's code for a Tor exit names no country.
     expect(locationFromCf({ ...cf, country: 'T1' })?.country).toBe('')
+  })
+})
+
+describe("the user's own device", () => {
+  it("reads the position back from the browser's answer, to a kilometre, and nothing that is not one", () => {
+    expect(positionIn("The user's device places them at 33.6012, 73.0479.")).toEqual({ latitude: 33.6, longitude: 73.05 })
+    expect(positionIn('The user did not allow their location to be shared.')).toBeNull()
+    expect(positionIn('at 95.00, 10.00')).toBeNull()
+  })
+
+  it('names where a place came from with the doubt it deserves', () => {
+    const base = { city: 'Rawalpindi', region: 'Punjab', country: 'Pakistan', latitude: 33.6, longitude: 73.05, timezone: 'Asia/Karachi' }
+    expect(whereWords({ ...base, from: 'device' })).toBe("where the user's device places them: Rawalpindi, Punjab, Pakistan")
+    expect(whereWords({ ...base, from: 'network' })).toBe("where the user's connection places them, roughly: Rawalpindi, Punjab, Pakistan. Say which place it is, in case that is wrong")
   })
 })
 

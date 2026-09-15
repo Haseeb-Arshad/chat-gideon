@@ -182,6 +182,12 @@ card already is, never against the window.
 - **The peek gives way.** A card wider than `standard` leaves no room for the one
   before it to peek, so that card shows a 14 px sliver with its "+n" count, as it
   already does on a phone.
+
+  **As built (16 September 2026): no peek.** A card half off the edge read as
+  hidden. Every other card of the conversation stands whole beside the one in
+  front, drawn small (its picture, map or sky, name and one line), up to three
+  with a count for the rest; pressing one brings it forward and the front one
+  shrinks into its place. On a phone they are a row of tiles under the card.
 - **Only the front card refracts**, unchanged. Blocks inside a card never refract.
 - **No scrolling inside a card on a wide screen.** Each recipe has a fold budget
   checked in the lab at 1280 × 720, the smallest wide stage (about 811 × 602 px).

@@ -6,6 +6,9 @@
  * actually looking at the screen. Neither belongs on the server, so the agent
  * loop asks for them over the socket and waits for this to answer.
  *
+ * Where the user is, when the server cannot tell, is the browser's to say too,
+ * and only with the user's permission, which the browser asks for itself.
+ *
  * Nothing here navigates, downloads, or writes anything outside the page. A
  * model that has been talked into asking for something alarming gets, at worst,
  * a card the user can ignore — the decision to act on it stays with the person,
@@ -36,6 +39,23 @@ export interface ClientToolResult {
   ok: boolean
   /** Goes back to the model, and is about to be spoken, so it stays prose. */
   content: string
+}
+
+/**
+ * How long the browser gets to find the user once they have allowed it, and how
+ * old a position may be. A forecast does not need a fresh fix: an hour-old one is
+ * the same town.
+ */
+const LOCATE_TIMEOUT_MS = 12_000
+const LOCATE_MAX_AGE_MS = 60 * 60_000
+
+/**
+ * The words a located answer is given in, which the server reads back. Two
+ * decimal places, about a kilometre: as close as a forecast or a town's map
+ * needs, and no closer than the user asked to share.
+ */
+export function describePosition(latitude: number, longitude: number): string {
+  return `The user's device places them at ${latitude.toFixed(2)}, ${longitude.toFixed(2)}.`
 }
 
 /** A day is the longest timer worth holding in a page that may be closed. */
@@ -97,6 +117,8 @@ export class ClientToolRunner {
         return this.setTimer(args)
       case 'offer_link':
         return this.offerLink(args)
+      case 'get_location':
+        return this.locate()
       default:
         return { ok: false, content: `The browser has no tool called ${name}.` }
     }
@@ -146,6 +168,23 @@ export class ClientToolRunner {
       ok: true,
       content: `A link to ${title} is now on screen for the user to open if they want it.`,
     }
+  }
+
+  /** Asks the browser where the device is. The first time, the browser asks the user whether to say. */
+  private locate(): Promise<ClientToolResult> {
+    const geolocation = typeof navigator === 'undefined' ? undefined : navigator.geolocation
+    if (!geolocation) return Promise.resolve({ ok: false, content: 'This browser cannot say where the user is.' })
+    return new Promise((resolve) => {
+      geolocation.getCurrentPosition(
+        (position) => resolve({ ok: true, content: describePosition(position.coords.latitude, position.coords.longitude) }),
+        (error) =>
+          resolve({
+            ok: false,
+            content: error.code === 1 ? 'The user did not allow their location to be shared.' : 'The browser could not tell where the user is.',
+          }),
+        { enableHighAccuracy: false, timeout: LOCATE_TIMEOUT_MS, maximumAge: LOCATE_MAX_AGE_MS },
+      )
+    })
   }
 
   dispose() {

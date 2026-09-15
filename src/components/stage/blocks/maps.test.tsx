@@ -14,7 +14,7 @@ import { Stage } from '../Stage'
 
 afterEach(cleanup)
 
-const PUBLIC = 'pk.eyJ1IjoidGVzdCJ9.dGVzdA.c2ln'
+const PUBLIC = 'pk.eyJ1IjoidGVzdCIsImEiOiJ0ZXN0In0.dGVzdHNpZ25hdHVyZQ'
 const lisbon: MapPlace = { name: 'Lisbon', detail: 'Portugal', kind: 'capital', at: [-9.1333, 38.7167], timezone: 'Europe/Lisbon' }
 const porto: MapPlace = { name: 'Porto', detail: 'Portugal', kind: 'city', at: [-8.611, 41.1496], timezone: 'Europe/Lisbon' }
 

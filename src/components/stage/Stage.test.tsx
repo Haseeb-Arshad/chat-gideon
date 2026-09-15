@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Card } from '../../lib/cards'
 import { fromLegacy } from '../../lib/cards/legacy'
 import type { CardV2 } from '../../lib/cards/schema'
-import { Stage, type StageEntry } from './Stage'
+import { SIDE_MAX, Stage, type StageEntry } from './Stage'
 
 /**
  * The stage drawing cards from their blocks. What is pinned here is what a
@@ -129,7 +129,47 @@ describe('a card drawn from its blocks', () => {
       entry('t2:c1', broken as unknown as CardV2),
     ])
     expect(container.querySelectorAll('.glass-card')).toHaveLength(2)
-    expect(container.querySelectorAll('.card-title')).toHaveLength(1)
+    // The broken card is in front and draws nothing; the one beside it is whole.
+    expect(container.querySelector('.glass-card[data-slot="side"] .compact-title')?.textContent).toBe('Albert Einstein')
+
+    cleanup()
+    const behind = stage([entry('t2:c1', broken as unknown as CardV2), entry('t1:c1', fromLegacy(einstein))])
+    expect(behind.container.querySelectorAll('.card-title')).toHaveLength(1)
     quiet.mockRestore()
+  })
+})
+
+describe('several cards at once', () => {
+  const titled = (id: string, title: string) => entry(id, { ...fromLegacy({ ...einstein, title, subtitle: `About ${title}` }), title })
+
+  it('draws one card alone, and more than one as the card in front with the rest whole beside it, the most recent first', () => {
+    const one = stage([titled('a', 'Ada Lovelace')])
+    expect(one.container.querySelector('.research-stage')?.getAttribute('data-layout')).toBe('single')
+    cleanup()
+
+    const { container } = stage([titled('a', 'Ada Lovelace'), titled('b', 'Alan Turing'), titled('c', 'Grace Hopper')])
+    expect(container.querySelector('.research-stage')?.getAttribute('data-layout')).toBe('split')
+    expect(container.querySelector('.glass-card[data-slot="front"] .card-title')?.textContent).toBe('Grace Hopper')
+    const side = [...container.querySelectorAll<HTMLElement>('.glass-card[data-slot="side"]')].sort(
+      (a, b) => Number(a.style.getPropertyValue('--side-i')) - Number(b.style.getPropertyValue('--side-i')),
+    )
+    expect(side.map((card) => card.querySelector('.compact-title')?.textContent)).toEqual(['Alan Turing', 'Ada Lovelace'])
+    expect(side.map((card) => card.querySelector('.compact-detail')?.textContent)).toEqual(['About Alan Turing', 'About Ada Lovelace'])
+  })
+
+  it('brings a card forward when it is pressed', () => {
+    const focus = vi.fn()
+    const entries = [titled('a', 'Ada Lovelace'), titled('b', 'Alan Turing')]
+    const { getByRole } = render(<Stage entries={entries} frontId="b" tucking={false} spoken="" onFocus={focus} onTuck={() => undefined} />)
+    fireEvent.click(getByRole('button', { name: 'Show Ada Lovelace' }))
+    expect(focus).toHaveBeenCalledWith('a')
+  })
+
+  it(`keeps ${SIDE_MAX} beside the card in front, and counts the rest on the last`, () => {
+    const names = ['Ada Lovelace', 'Alan Turing', 'Grace Hopper', 'Katherine Johnson', 'Tim Berners-Lee', 'Margaret Hamilton']
+    const { container, getByRole } = stage(names.map((name, index) => titled(String(index), name)))
+    expect(container.querySelectorAll('.glass-card[data-slot="side"]')).toHaveLength(SIDE_MAX)
+    expect(container.querySelectorAll('.glass-card[data-slot="behind"]')).toHaveLength(names.length - 1 - SIDE_MAX)
+    expect(getByRole('button', { name: 'Show Grace Hopper, and 2 more' }).textContent).toBe('+2')
   })
 })

@@ -8,6 +8,7 @@
 
 import { cardFromMaterials } from '../lib/cards/from-materials'
 import { placeCard, routeCard, type MapPlace } from '../lib/cards/maps'
+import { withPlaceMap } from '../lib/tools/weather'
 import type { Material, StoriesMaterial } from '../lib/cards/materials'
 import type { Block, CardPicture, CardV2 } from '../lib/cards/schema'
 import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO, WEATHER_BERGEN, WEATHER_LISBON } from './materials'
@@ -67,6 +68,13 @@ const HOUR = 3_600_000
 const MAPBOX = import.meta.env.DEV ? (import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN?.trim() ?? '') : ''
 const LISBON_PIN: MapPlace = { name: 'Lisbon', detail: 'Portugal', kind: 'capital', at: [-9.1333, 38.7167], timezone: 'Europe/Lisbon' }
 const PORTO_PIN: MapPlace = { name: 'Porto', detail: 'Portugal', kind: 'city', at: [-8.611, 41.1496], timezone: 'Europe/Lisbon' }
+
+/** The weather for where the user is, as it is drawn when maps are set up: with the place's map. */
+function weatherWithMap(): Fixture[] {
+  if (!MAPBOX) return []
+  const here = drawn('lab:weather-map', 'weather, with its map (Open-Meteo, Mapbox)', "What's the weather like here?", [WEATHER_LISBON], 'Sunny in Lisbon, 24 degrees.')
+  return [{ ...here, card: withPlaceMap(here.card, WEATHER_LISBON.place, MAPBOX) }]
+}
 
 function mapFixtures(): Fixture[] {
   if (!MAPBOX) return []
@@ -167,6 +175,7 @@ const SAMPLE_NEWS: StoriesMaterial = {
 
 export const FIXTURES: Fixture[] = [
   drawn('lab:weather-dry', 'weather, dry (Open-Meteo)', "What's the weather in Lisbon?", [WEATHER_LISBON], 'Sunny and 24 degrees, with a high of 27, and tomorrow is a touch cooler.'),
+  ...weatherWithMap(),
   drawn('lab:weather-wet', 'weather, wet (Open-Meteo)', 'Will it rain in Bergen this week?', [WEATHER_BERGEN], 'Rain every day this week, and Sunday looks the coldest.'),
   ...mapFixtures(),
   drawn('lab:front-page', 'front page (sample stories)', "What's in the news today?", [SAMPLE_NEWS], 'Night ferries are coming back to the harbour after ten years.'),

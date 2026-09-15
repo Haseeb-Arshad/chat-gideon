@@ -1663,6 +1663,10 @@ button:active:not(:disabled) {
   .presence-shell[data-stage='open'] .glass-card {
     --card-w: min(960px, calc(100cqw - 150px));
   }
+
+  .presence-shell[data-stage='open'] .research-stage {
+    --front-max: 960px;
+  }
 }
 
 /* -- Stepping aside ------------------------------------------------------- */
@@ -2089,7 +2093,6 @@ button:active:not(:disabled) {
  */
 .glass-card {
   --card-w: min(700px, calc(100cqw - 160px));
-  --peek: max(56px, calc(var(--card-w) * 0.15));
   --slot: translateX(0) scale(1);
   position: absolute;
   z-index: 3;
@@ -2098,17 +2101,51 @@ button:active:not(:disabled) {
   display: flex;
   width: var(--card-w);
   transform: translate(-50%, -50%) var(--slot);
-  transition: transform 780ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    transform 780ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 780ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* The one before steps back to the right edge and shows its left side. */
-.glass-card[data-slot='peek'] {
-  --slot: translateX(calc(50cqw - var(--peek) + var(--card-w) * 0.44)) scale(0.88);
+/*
+ * Beside the card in front, every other card of the conversation stands whole
+ * and small, in a column at its right. The pair is centred together: the card
+ * in front moves left by half the column, and the column sits just past its
+ * edge. Widths use the stage's own size, never the window's.
+ */
+.research-stage[data-layout='split'] {
+  --rail: clamp(172px, 25cqw, 252px);
+  --rail-gap: clamp(14px, 1.8cqw, 22px);
+  --tile-gap: 12px;
+  --front-w: min(var(--front-max, 700px), calc(100cqw - var(--rail) - var(--rail-gap)));
+  /* As tall as three can be in the stage, and never taller than a tile needs. */
+  --tile-h: clamp(76px, calc((100cqh - (var(--side-n) - 1) * var(--tile-gap)) / var(--side-n)), 112px);
+}
+
+.research-stage[data-layout='split'] .glass-card[data-slot='front'] {
+  --card-w: var(--front-w);
+}
+
+/* Moved aside only while the cards are out: putting them away slides everything together, from wherever it stands. */
+.research-stage[data-layout='split']:not([data-tucking='true']) .glass-card[data-slot='front'] {
+  --slot: translateX(calc((var(--rail) + var(--rail-gap)) / -2));
+}
+
+.research-stage[data-layout='split'] .glass-card:is([data-slot='side'], [data-slot='behind']) {
+  --card-w: var(--rail);
+}
+
+.research-stage[data-layout='split']:not([data-tucking='true']) .glass-card:is([data-slot='side'], [data-slot='behind']) {
+  --slot: translate(
+    calc(var(--front-w) / 2 + var(--rail-gap) / 2),
+    calc((var(--side-i) - (var(--side-n) - 1) / 2) * (var(--tile-h) + var(--tile-gap)))
+  );
+}
+
+.glass-card[data-slot='side'] {
   z-index: 2;
 }
 
 .glass-card[data-slot='behind'] {
-  --slot: translateX(calc(50cqw + var(--card-w) * 0.42)) scale(0.8);
   z-index: 1;
   pointer-events: none;
 }
@@ -2272,13 +2309,15 @@ button[data-refracting='true']:active {
   pointer-events: none;
 }
 
-.glass-card[data-slot='peek'] .glass-pane {
-  opacity: 0.62;
-  filter: saturate(0.8) brightness(0.86);
+.glass-card:is([data-slot='side'], [data-slot='behind']) .glass-pane {
+  height: var(--tile-h, 96px);
+  border-radius: 20px;
+  opacity: 0.82;
 }
 
-.glass-card[data-slot='peek']:hover .glass-pane {
-  opacity: 0.84;
+.glass-card[data-slot='side']:hover .glass-pane,
+.glass-card[data-slot='side']:focus-within .glass-pane {
+  opacity: 1;
 }
 
 .glass-card[data-slot='behind'] .glass-pane {
@@ -2289,22 +2328,27 @@ button[data-refracting='true']:active {
   animation: glass-out 440ms cubic-bezier(0.4, 0, 1, 1) calc(var(--leave-i, 0) * 80ms) both;
 }
 
-/* A peeking card is one big button; the count says how many wait behind it. */
-.peek-hit {
+/* A card beside the one in front is one big button; the count says how many wait behind it. */
+.side-hit {
   position: absolute;
   z-index: 6;
   inset: 0;
   padding: 0;
   border: 0;
-  border-radius: 30px;
+  border-radius: 20px;
   background: transparent;
   cursor: pointer;
 }
 
-.peek-hit span {
+.side-hit:focus-visible {
+  outline: 2px solid rgba(191, 233, 255, 0.9);
+  outline-offset: 3px;
+}
+
+.side-hit span {
   position: absolute;
-  top: 16px;
-  left: 16px;
+  top: 8px;
+  right: 10px;
   padding: 3px 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
@@ -2720,7 +2764,46 @@ button[data-refracting='true']:active {
 
   .glass-card {
     --card-w: calc(100cqw - 36px);
-    --peek: 14px;
+  }
+
+  .research-stage[data-layout='split'] {
+    --tile-h: 60px;
+    --front-w: calc(100cqw - 24px);
+  }
+
+  .research-stage[data-layout='split']:not([data-tucking='true']) .glass-card[data-slot='front'] {
+    --slot: translateY(calc((var(--tile-h) + 10px) / -2));
+  }
+
+  .research-stage[data-layout='split'] .glass-card[data-slot='front'] .glass-pane {
+    max-height: calc(100cqh - var(--tile-h) - 10px);
+  }
+
+  .research-stage[data-layout='split'] .glass-card:is([data-slot='side'], [data-slot='behind']) {
+    --card-w: calc((100cqw - 24px - (var(--side-n) - 1) * 8px) / var(--side-n));
+  }
+
+  .research-stage[data-layout='split']:not([data-tucking='true']) .glass-card:is([data-slot='side'], [data-slot='behind']) {
+    --slot: translate(calc((var(--side-i) - (var(--side-n) - 1) / 2) * (var(--card-w) + 8px)), calc(50cqh - var(--tile-h) / 2));
+  }
+
+  .compact-face {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .compact-thumb {
+    width: 36px;
+    height: 36px;
+  }
+
+  .compact-kicker,
+  .compact-detail {
+    display: none;
+  }
+
+  .compact-title {
+    font-size: 0.86rem;
   }
 
   .glass-pane {

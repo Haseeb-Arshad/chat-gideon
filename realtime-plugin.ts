@@ -34,6 +34,18 @@ export function realtimePlugin(): Plugin {
 
     host.attachRealtime(httpServer as never, {
       onError: (message) => server.config.logger.error(`[gideon] ${message}`),
+      // Fresh for every connection. The host itself is loaded once, and what it
+      // imported would otherwise stay as it was when the server started. Loading
+      // the module again is not enough on its own here: a tool edited after the
+      // server started kept answering with its old code through new sockets
+      // (seen 16 September 2026, Vite 8), so the server-side modules are marked
+      // stale first. The socket opens at once and waits for this, about two
+      // seconds, once per page load.
+      loadSession: async () => {
+        server.environments.ssr?.moduleGraph.invalidateAll()
+        const session = (await server.ssrLoadModule('/src/lib/realtime-session.ts')) as typeof import('./src/lib/realtime-session')
+        return session.createRealtimeSession
+      },
     })
 
     server.config.logger.info(`  ➜  GIDEON realtime:  ws${host.REALTIME_PATH}`)

@@ -28,7 +28,7 @@ import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
 import { SKILLS, describeSkill } from './skills'
 import { openMeteo, runWeather } from './weather'
-import { runMap } from './maps'
+import { runMap, withCardMap } from './maps'
 import type { CoarseLocation } from '../location'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
@@ -195,13 +195,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
         place: {
           type: 'string',
-          description: "For 'place': the place as the user said it, with its region or country when they gave one, such as \"Springfield, Illinois\".",
+          description: "For 'place': the place's name as the user said it, and after a comma one region or country only when the user gave one, such as \"Springfield, Illinois\". Never add where the user is, or regions you are guessing at. Leave it out for where the user is.",
         },
         from: {
           type: 'string',
           description: "For 'route': where it starts, as the user said it. Leave it out when they did not say, to start from where they are.",
         },
-        to: { type: 'string', description: "For 'route': where it ends, as the user said it." },
+        to: { type: 'string', description: "For 'route': where it ends, as the user said it, with one region or country after a comma only when the user gave one." },
         travel: {
           type: 'string',
           enum: ['driving', 'walking', 'cycling'],
@@ -437,22 +437,36 @@ async function runResearch(
         : `${result.searches} search${result.searches === 1 ? '' : 'es'}`
 
   const cards = cardDeps(context.env)
+  // A card about a place gets the place on a map, when maps are set up.
+  const mapped = (card: CardV2): Promise<CardV2> => {
+    const publicToken = context.env('MAPBOX_PUBLIC_TOKEN')?.trim() ?? ''
+    if (!publicToken) return Promise.resolve(card)
+    const fetcher = (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)
+    return withCardMap(
+      card,
+      question,
+      result.materials,
+      { fetch: fetcher, publicToken, serverToken: context.env('MAPBOX_SERVER_TOKEN')?.trim() || publicToken, now: Date.now },
+      openMeteo({ fetch: fetcher, now: Date.now }),
+      { signal: context.signal, timezone: context.timezone, location: context.location ?? null },
+    ).catch(() => card)
+  }
   const drawn = cardFromMaterials(question, result.materials, Date.now())
   if (!drawn) {
-    const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
+    const written = buildCard(question, result, cards, context.signal).then((card) => (card ? mapped(fromLegacy(card)) : null))
     return { ok: true, content: result.brief, summary: how, links: result.sources, card: written }
   }
   const content = `${result.brief}\n\nOn the user's screen now: ${describeCard(drawn)}. Refer to it rather than reading it out.`
 
   // A card drawn complete, such as a front page, has nothing a model's card could add.
   if (!drawn.partial) {
-    return { ok: true, content, summary: how, links: result.sources, card: Promise.resolve(drawn) }
+    return { ok: true, content, summary: how, links: result.sources, card: mapped(drawn) }
   }
   const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
 
   // Drawn from the desk's data, the card is ready as soon as the brief is; the
   // model's card, a few seconds behind, adds its sentence to it as a patch.
-  const card = withPortrait(drawn, result.materials, cards)
+  const card = withPortrait(drawn, result.materials, cards).then(mapped)
   return {
     ok: true,
     content,
@@ -546,7 +560,7 @@ export async function runServerTool(
     case 'weather':
       return runWeather(
         args,
-        { signal: context.signal, timezone: context.timezone, location: context.location ?? null },
+        { signal: context.signal, timezone: context.timezone, location: context.location ?? null, publicToken: context.env('MAPBOX_PUBLIC_TOKEN')?.trim() || undefined },
         // Read at the call, so a test that replaces fetch is the fetch the provider uses.
         openMeteo({ fetch: (input, init) => globalThis.fetch(input, init), now: Date.now }),
         Date.now(),

@@ -175,19 +175,22 @@ function FrontPageLayout({ card, spoken, front, stories }: CardFaceProps & { sto
 
 /**
  * The weather: the place and its date across the top, now down the side with
- * how it feels and the UV, and beside it the next hours over the week.
+ * how it feels and the UV, and beside it the next hours over the week. With a
+ * map, the place's map fills the foot of now, beside the week, so where the
+ * forecast is for is seen, not only read.
  */
-function WeatherLayout({ card, spoken, forecast }: CardFaceProps & { forecast: ForecastBlock }) {
+function WeatherLayout({ card, spoken, front, forecast }: CardFaceProps & { forecast: ForecastBlock }) {
   const heard = useMemo(() => hear(spoken), [spoken])
   const headline = blockOf(card, 'headline')
   const now = blockOf(card, 'stat')
   const facts = blockOf(card, 'facts')
   const meter = blockOf(card, 'meter')
+  const map = blockOf(card, 'map')
   const head = headline ? risePlan([headline]).after : 0
   const sky = forecast.now ?? forecast.hours[0]
 
   return (
-    <div className="card-weather">
+    <div className="card-weather" data-map={map ? 'true' : undefined}>
       {headline ? (
         <header className="weather-head">
           <Headline block={headline} start={0} />
@@ -205,6 +208,7 @@ function WeatherLayout({ card, spoken, forecast }: CardFaceProps & { forecast: F
         ) : null}
         {facts ? <Facts block={facts} start={head + 1} spoken={spoken} /> : null}
         {meter ? <Meter block={meter} start={head + 2} /> : null}
+        {map ? <MapView block={map} start={head + 3} front={front} said={saidPins(map, heard)} /> : null}
       </section>
       <HourStrip block={forecast} start={head + 1} />
       <WeekDays block={forecast} start={head + 2} said={saidDays(forecast, heard)} />

@@ -86,7 +86,7 @@ describe('mentioned aloud', () => {
       { id: 'a', query: 'q', hint: 'web', card, leaving: false },
       { id: 'b', query: 'q', hint: 'web', card: { ...card, blocks: card.blocks.slice(0, 1) }, leaving: false },
     ])
-    const behind = container.querySelector('.glass-card[data-slot="peek"]')!
+    const behind = container.querySelector('.glass-card[data-slot="side"]')!
     expect(behind.querySelectorAll('[data-said="true"]')).toHaveLength(0)
     expect(behind.querySelectorAll('.chart-said-ring')).toHaveLength(0)
   })

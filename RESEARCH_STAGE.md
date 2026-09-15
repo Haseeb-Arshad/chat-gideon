@@ -70,9 +70,15 @@ Conversation, cards on the shelf           Stage open, wide screen
   at the bottom. The stage takes everything else, top to bottom, so a card can
   be up to 960 px wide. The controls and the conversation glide between the
   column and the middle of the room as the stage opens and closes.
+- **Several cards.** The card being talked about is large, and every other card
+  of the conversation stands whole beside it in a column, the most recent at
+  the top: its picture, map or sky, its name and one line of what it says. Past
+  three, the rest wait behind the last, with a count. Pressing one brings it
+  forward, and the card that was in front shrinks into the column. This replaced
+  a card half off the right edge, which read as hidden rather than waiting.
 - **Narrow screens.** Stacked: the card on top, the last lines of the
   conversation under it, the controls at the bottom, and the eyes docked above
-  the card. The peeking card shows a 14 px sliver.
+  the card. The other cards are a row of small tiles along the foot of the stage.
 - **Shelf.** Up to five tabs at the right edge, newest at the top, each showing
   its picture or initial. Pointing at a tab slides it out far enough to read.
 - **Resources.** One button in the top-right corner, with a count.
@@ -419,6 +425,72 @@ is for the server's requests. The one supplied was refused (403) for search,
 geocoding and directions, so those fall back to the public token, and the
 working token is remembered so a refusal is paid for once.
 
+## Where the user is
+
+Asked from Rawalpindi on 15 September for the weather "in my location", GIDEON
+answered through research with "I need your city or postcode", and the live site,
+asked the same, answered "Where are you right now?" without calling a tool.
+Three things were wrong, each fixed:
+
+- **Where the user was, unknown.** The model was told nothing about where the
+  user is, and the location reader required a city, which Cloudflare leaves out
+  for many networks; whether it had one for that connection cannot be seen from
+  outside. The region now stands in when there is no city, with the doubt said
+  aloud, and when there is neither, the tool asks the browser: the
+  server sends `get_location`, the browser asks the user once whether to share,
+  and the answer, to two decimal places, is named by Mapbox's reverse geocoder
+  ("Rawalpindi, Punjab, Pakistan"). The session remembers it until the socket
+  closes, so the question is not asked again; it is never stored. A guess at an
+  unfinished sentence never asks, and the HTTP fallback, which cannot ask, says
+  so. The model is told where the user is, or that the tools find it: told
+  nothing, it asked the user where they were.
+- **A misheard name.** "Islam Bag, Raval Bindi" found no place, and the model
+  went to research for the weather instead. The tool now says to try the proper
+  spelling or ask, and never to look the weather up another way. Mapbox's own
+  fuzzy search was tried and rejected: it put "Islam Bag, Raval Bindi" in
+  Indonesia.
+- **No map anywhere.** Every map card had been dropped by the browser's card
+  reader, which required a public token shaped `pk.a.b.c`; Mapbox's are
+  `pk.<payload>.<signature>`. The tests used a made-up token that passed. They
+  now use tokens shaped like Mapbox's.
+
+The weather card now carries a map of the place it is for, filling the foot of
+now beside the week, which is also how "here" is shown to be right. A research
+card about a place carries one too: from the place's own record when it has
+coordinates, or from the Wikipedia article the card is named after when that has
+them, which only a place's article does. So "Where is the Faisal Mosque?" shows
+the facts and the mosque on a map, whichever tool the model reached for; it
+reached for research in three of four tries.
+
+Wikipedia is also the fourth source for `show_map`. Mapbox's landmark search has
+no Faisal Mosque in Islamabad by that name, and the step that took a landmark
+whose name only holds the words put it at a King Faisal Mosque in Sharjah. The
+article by that name is about the famous one ("World's sixth-largest mosque in
+Islamabad, Pakistan"), a disambiguation page counts for nothing, and a place
+that only holds the words, spread across countries, is now asked about. Two
+habits of the model are allowed for: the town it knows added without a comma
+("Faisal Mosque Islamabad"), and every region it knows added after one ("Lake
+Saiful Muluk, Kaghan Valley, Khyber Pakhtunkhwa, Pakistan"), where one agreeing
+is enough and the place that agrees with the most wins. Where the user is,
+added to a place that is not there, is searched again without it. A map now
+gives up after 12 seconds rather than hold an answer: one run-together name
+took 15.
+
+Measured on 16 September 2026 in the app, typing, over the socket, with the
+browser's answer stood in for Rawalpindi: the weather at "my location" asked the
+browser once and drew the Rawalpindi card with its map; asking next where Lake
+Saiful Muluk is put its map in front and the weather in the column beside it,
+without asking the browser again. At 1366 × 607 the card in front is 634 px wide
+and the tile beside it 217 px, nothing cut off.
+
+In development, the socket's session is loaded again for every connection, with
+the server's modules marked stale first: a tool edited after the server started
+kept answering with its old code through new sockets. The socket now opens
+before the session has loaded, because a browser gives up on a socket that takes
+more than 1.6 seconds to open and falls back to HTTP for the rest of the tab.
+And the socket is attached once per server: Vite restarting itself added a
+second listener, which failed every upgrade.
+
 ## Resources
 
 Everything GIDEON did and read used to be listed under the conversation, and it
@@ -446,7 +518,12 @@ it is on screen.
 
 `EXA_API_KEY` in `.env` and in the Worker's secrets. Without it, research is not
 offered at all, and pictures come from Openverse alone. The weather needs no key.
-`MAPBOX_PUBLIC_TOKEN` enables maps; without it `show_map` is not offered.
+`MAPBOX_PUBLIC_TOKEN` enables maps; without it `show_map` is not offered, the
+weather card has no map, and a position from the browser is not named.
+
+On 15 September the live site offered neither research nor maps: its Worker has
+no `EXA_API_KEY`, `MAPBOX_PUBLIC_TOKEN` or `MAPBOX_SERVER_TOKEN` secret (its
+`/api/config` lists the tools it offers).
 
 ## Later
 

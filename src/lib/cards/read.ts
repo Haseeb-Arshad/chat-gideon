@@ -384,7 +384,8 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
     case 'map': {
       const center = lngLat(input.center)
       // Only a public token may reach a browser, and only a picture from Mapbox's own static API.
-      const token = typeof input.token === 'string' && /^pk\.[\w-]+\.[\w-]+\.[\w-]+$/.test(input.token) ? input.token : ''
+      // A Mapbox public token is "pk.", then a payload and a signature: pk.eyJ1Ijoi….nIcg…
+      const token = typeof input.token === 'string' && /^pk\.[\w-]+(?:\.[\w-]+)+$/.test(input.token) ? input.token : ''
       const still =
         typeof input.still === 'string' && input.still.startsWith('https://api.mapbox.com/styles/v1/') && !/access_token=sk\./.test(input.still) ? input.still : ''
       if (!center || !token || !still) return null

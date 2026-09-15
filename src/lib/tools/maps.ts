@@ -14,13 +14,14 @@
  * a request needs is refused, and the public one is tried in its place.
  */
 
-import { MAP_SOURCES, STEPS_WITHIN_METRES, coordinates, crowFlies, distance, duration, placeCard, routeCard, thinLine, type MapPlace, type PlaceKind, type Travel } from '../cards/maps'
-import type { LngLat } from '../cards/schema'
+import { MAP_SOURCES, STEPS_WITHIN_METRES, ZOOM, stillUrl, zoomFor, coordinates, crowFlies, distance, duration, placeCard, routeCard, thinLine, type MapPlace, type PlaceKind, type Travel } from '../cards/maps'
+import { blockOf, type CardV2, type LngLat, type MapBlock } from '../cards/schema'
+import type { Material, RecordMaterial } from '../cards/materials'
 import { conditionOf, degrees, placeName } from '../cards/weather'
-import type { CoarseLocation } from '../location'
+import { whereWords, type CoarseLocation } from '../location'
 import type { ToolOutcome } from './registry'
 import { TimedCache } from './desk/cache'
-import { choosePlace, nameKey, unitFor, type Place, type WeatherProvider } from './weather'
+import { choosePlace, nameKey, qualifiedBy, qualifiersOf, unitFor, type Place, type WeatherProvider } from './weather'
 
 const TIMEOUT_MS = 8_000
 /** How long a place card waits for the weather there before going without it. */
@@ -65,6 +66,35 @@ async function mapbox(deps: MapsDeps, url: string, signal: AbortSignal): Promise
   }
   if (last) return last
   throw new Error('no Mapbox token')
+}
+
+// -- Naming a position ------------------------------------------------------------------
+
+/** The kinds of feature a position is named by, the most useful first: a town before its suburb. */
+const NAMING_ORDER = ['place', 'locality', 'neighborhood', 'district', 'region']
+
+/**
+ * The town a position is in, by Mapbox's reverse geocoder: "Rawalpindi, Punjab,
+ * Pakistan" for 33.60, 73.05. Null when there is no token or no answer, and the
+ * position is then only a position.
+ */
+export async function nameAt(latitude: number, longitude: number, deps: MapsDeps, signal: AbortSignal): Promise<{ city: string; region: string; country: string } | null> {
+  if (!deps.publicToken && !deps.serverToken) return null
+  const params = new URLSearchParams({ longitude: String(longitude), latitude: String(latitude), types: NAMING_ORDER.join(','), language: 'en' })
+  const body = (await mapboxJson(deps, `https://api.mapbox.com/search/geocode/v6/reverse?${params}`, signal)) as {
+    features?: Array<{ properties?: { name?: unknown; feature_type?: unknown; context?: Record<string, { name?: unknown }> } }>
+  }
+  const features = (body.features ?? []).map((feature) => feature.properties ?? {})
+  const best = NAMING_ORDER.map((type) => features.find((feature) => feature.feature_type === type)).find(Boolean)
+  if (!best || typeof best.name !== 'string') return null
+  const part = (key: string) => (typeof best.context?.[key]?.name === 'string' ? (best.context[key].name as string) : '')
+  return { city: best.name, region: best.feature_type === 'region' ? '' : part('region'), country: part('country') }
+}
+
+/** The user's own position as a location, named when it can be, for the tools that need to know where "here" is. */
+export async function locateDevice(position: { latitude: number; longitude: number }, timezone: string, deps: MapsDeps, signal: AbortSignal): Promise<CoarseLocation> {
+  const named = await nameAt(position.latitude, position.longitude, deps, signal).catch(() => null)
+  return { city: named?.city || 'their location', region: named?.region ?? '', country: named?.country ?? '', ...position, timezone: timezone || 'UTC', from: 'device' }
 }
 
 // -- Finding a place --------------------------------------------------------------------
@@ -209,6 +239,53 @@ function holds(feature: Feature, name: string, key: string): boolean {
   return feature.categories.length > 0 && wordsIn(feature.name) <= wordsIn(name) + 2 && nameKey(feature.name).includes(key)
 }
 
+/** Wikipedia asks to be told who is asking. */
+const WIKIPEDIA_AGENT = 'GIDEON/1.0 (voice companion; maps)'
+const articles = new TimedCache<Article | null>(24 * 60 * 60_000)
+
+interface Article {
+  title: string
+  /** Wikipedia's own line for it: "World's sixth-largest mosque in Islamabad, Pakistan". */
+  description: string
+  at: LngLat
+}
+
+/**
+ * The Wikipedia article by exactly that name, when it is about one place and
+ * has its coordinates. A notable place almost always has one, and an article is
+ * about the famous one: "Faisal Mosque" is the mosque in Islamabad, where a
+ * search of businesses finds a King Faisal Mosque in Sharjah first. A name
+ * that could be several things is a disambiguation page, and counts for nothing.
+ */
+async function article(name: string, deps: MapsDeps, signal: AbortSignal): Promise<Article | null> {
+  return articles.get(nameKey(name), async () => {
+    const response = await deps.fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}?redirect=true`, {
+      headers: { 'Api-User-Agent': WIKIPEDIA_AGENT, 'User-Agent': WIKIPEDIA_AGENT },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
+    })
+    if (!response.ok) {
+      void response.body?.cancel()
+      return null
+    }
+    const body = (await response.json()) as { type?: unknown; title?: unknown; description?: unknown; coordinates?: { lat?: unknown; lon?: unknown } }
+    const { lat, lon } = body.coordinates ?? {}
+    if (body.type !== 'standard' || typeof body.title !== 'string' || typeof lat !== 'number' || typeof lon !== 'number') return null
+    return { title: body.title, description: typeof body.description === 'string' ? body.description : '', at: [lon, lat] }
+  })
+}
+
+/** What an article's description says the place is, for how close to show it. */
+function kindFromDescription(description: string): PlaceKind {
+  if (/\bcountry\b/i.test(description)) return 'country'
+  if (/\b(region|province|state|valley|district|county|national park|mountain range|island|lake|desert)\b/i.test(description)) return 'region'
+  if (/\b(capital|city|town|village|neighbourhood|neighborhood|suburb)\b/i.test(description)) return 'city'
+  return 'landmark'
+}
+
+function fromArticle(found: Article): MapPlace {
+  return { name: found.title, detail: found.description, kind: kindFromDescription(found.description), at: found.at }
+}
+
 function askAbout(name: string, options: string[]): Found {
   return { ask: `${name} could be ${options.join(', or ')}. Ask the user which one they mean.` }
 }
@@ -222,28 +299,30 @@ export type Found = { place: MapPlace } | { ask: string } | { none: string }
  * countries, regions and neighbourhoods and ranks them by prominence; and
  * Mapbox's landmarks, which are searched by the name alone: asked for "British
  * Museum, London", the landmark search finds only flats to let near it, so a
- * region or country after a comma only filters what the name found. Then, in
- * order:
+ * region or country after a comma only filters what the name found. Wikipedia
+ * is the fourth, for the famous place a name means. Then, in order:
  *
  * 1. A country or a region by exactly that name: Tuscany, Georgia.
  * 2. Several towns by that name, none clearly the one: ask (Springfield).
  * 3. A town by that name with people in it, or one Mapbox puts in the same spot: Lisbon, Porto.
  * 4. A landmark by exactly that name, when those by that name are in one country: the Eiffel Tower.
- * 5. Any other place Mapbox knows by exactly that name: the Lake District, Times Square.
- * 6. A landmark whose name holds it, the same way, or the plainest name among them: the Louvre Museum.
- * 7. Last, the tiny town by that name.
+ * 5. Any other place Mapbox knows by exactly that name, when Wikipedia's article by that name agrees: the Lake District.
+ * 6. The place Wikipedia's article by that name is about: the Louvre, the Faisal Mosque.
+ * 7. A landmark whose name holds it, when most of those are in one country; a question when they are spread out.
+ * 8. Last, the tiny town by that name.
  */
 export async function findPlace(asked: string, deps: MapsDeps, weather: WeatherProvider, context: MapsContext): Promise<Found> {
   const name = asked.split(',')[0].trim()
-  const qualifier = asked.split(',').slice(1).join(',').trim().toLowerCase()
+  const qualifiers = qualifiersOf(asked)
   const key = nameKey(name)
   const near = context.location ? ([context.location.longitude, context.location.latitude] as LngLat) : undefined
-  const [places, admin, found] = await Promise.all([
+  const [places, admin, found, wiki] = await Promise.all([
     weather.places(name, context.signal).catch(() => [] as Place[]),
     geocode(asked, deps, context.signal).catch(() => [] as Feature[]),
     landmarks(name, deps, context.signal, near).catch(() => [] as Feature[]),
+    article(name, deps, context.signal).catch(() => null),
   ])
-  const sights = qualifier ? found.filter((feature) => `${feature.detail}, ${feature.country}`.toLowerCase().includes(qualifier)) : found
+  const sights = found.filter((feature) => qualifiedBy(qualifiers, feature.detail, feature.country))
 
   const chosen = choosePlace(asked, places.filter((place) => PEOPLED.test(place.featureCode ?? 'PPL')))
   const town = chosen && 'place' in chosen && nameKey(chosen.place.name) === key ? chosen.place : null
@@ -260,16 +339,37 @@ export async function findPlace(asked: string, deps: MapsDeps, weather: WeatherP
   const exact = sights.filter((feature) => nameKey(feature.name) === key)
   const landmark = exact.length ? oneLandmark(exact, key) : null
   if (landmark) return { place: fromFeature(landmark) }
-  if (area) return { place: fromFeature(area) }
+  // A region after a comma has to be where the article says the place is.
+  const famous = wiki && qualifiedBy(qualifiers, wiki.description) ? wiki : null
+  // Where the two agree, Mapbox's answer has the extent and the country; where they do not, the article is about the famous one.
+  if (area && (!famous || crowFlies(area.at, famous.at) < SAME_PLACE)) return { place: fromFeature(area) }
+  if (famous) return { place: fromArticle(famous) }
+
+  // "Faisal Mosque Islamabad": the town the model knew it was in, without the comma that says so. Tried
+  // before names that only hold the words, which would take "Eiffel Tower Paris" to a replica in Texas.
+  const words = asked.split(/\s+/)
+  if (!asked.includes(',') && words.length >= 3) {
+    for (const tail of [1, 2]) {
+      if (words.length - tail < 2) break
+      const retried = await findPlace(`${words.slice(0, -tail).join(' ')}, ${words.slice(-tail).join(' ')}`, deps, weather, context)
+      if (!('none' in retried)) return retried
+    }
+  }
 
   const holding = key.length >= 5 ? sights.filter((feature) => holds(feature, name, key)) : []
   if (holding.length) {
-    // Spread across countries, the plainest name is the one people mean: the Louvre Museum, not the Louvre Abu Dhabi.
-    const one = oneLandmark(holding, key) ?? [...holding].sort((a, b) => a.name.length - b.name.length)[0]
-    return { place: fromFeature(one) }
+    const one = oneLandmark(holding, key)
+    if (one) return { place: fromFeature(one) }
+    // Spread across countries, "the plainest name" once put the Faisal Mosque in Sharjah: ask instead.
+    return askAbout(name, holding.slice(0, 3).map((feature) => [feature.name, feature.detail].filter(Boolean).join(', ')))
   }
   if (exact.length) return askAbout(name, exact.slice(0, 3).map((feature) => [feature.name, feature.detail].filter(Boolean).join(', ')))
   if (chosen && 'place' in chosen) return { place: fromPlace(chosen.place) }
+
+  // "Lake Saiful Muluk, Rawalpindi, Pakistan": where the user is, added to a place that is not there. Searched again without it.
+  const here = context.location
+  const theirs = new Set([here?.city, here?.region, here?.country].filter((part): part is string => Boolean(part)).map(nameKey))
+  if (qualifiers.length && qualifiers.every((part) => theirs.has(part))) return findPlace(name, deps, weather, context)
   return { none: `No place called ${asked} could be found. Ask the user where they mean.` }
 }
 
@@ -326,7 +426,31 @@ async function directions(from: LngLat, to: LngLat, travel: Travel, deps: MapsDe
 
 const onScreen = (what: string) => `On the user's screen now: ${what}. Do not read out coordinates or the card.`
 
+/** The longest a map may keep an answer waiting. Each lookup has its own limit; a name tried several ways adds them up. */
+const MAP_DEADLINE_MS = 12_000
+
 export async function runMap(args: Record<string, unknown>, context: MapsContext, deps: MapsDeps, weather: WeatherProvider): Promise<ToolOutcome> {
+  const deadline = new AbortController()
+  const signal = AbortSignal.any([context.signal, deadline.signal])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<ToolOutcome>((resolve) => {
+    timer = setTimeout(() => {
+      deadline.abort()
+      resolve({ ok: false, content: 'Finding that place took too long. Say so in one short sentence, and ask which place they mean.', summary: 'The map took too long' })
+    }, MAP_DEADLINE_MS)
+  })
+  try {
+    return await Promise.race([drawMap(args, { ...context, signal }, deps, weather), late])
+  } catch (error) {
+    // Given up on by the deadline rather than the turn: the deadline's answer stands.
+    if (deadline.signal.aborted && !context.signal.aborted) return late
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function drawMap(args: Record<string, unknown>, context: MapsContext, deps: MapsDeps, weather: WeatherProvider): Promise<ToolOutcome> {
   if (!deps.publicToken) return { ok: false, content: 'Maps are not set up here. Say so in one short sentence.' }
   const text = (key: string) => (typeof args[key] === 'string' ? (args[key] as string).replace(/\s+/g, ' ').trim().slice(0, 120) : '')
   const failed = (error: unknown): ToolOutcome => {
@@ -353,14 +477,14 @@ export async function runMap(args: Record<string, unknown>, context: MapsContext
       ])
       for (const found of [start, end]) {
         if ('ask' in found) return { ok: false, content: found.ask }
-        if ('none' in found) return { ok: false, content: found.none, summary: 'Place not found' }
+        if ('none' in found) return { ok: false, content: found.none, summary: `Place not found: ${found === start ? fromName : to}` }
       }
       const from = (start as { place: MapPlace }).place
       const dest = (end as { place: MapPlace }).place
       const route = await directions(from.at, dest.at, travel, deps, context.signal)
       const straight = distance(crowFlies(from.at, dest.at) * 1000)
       const how = travel === 'driving' ? 'by car' : travel === 'walking' ? 'on foot' : 'by bike'
-      const guessed = !fromName ? `No starting point was given, so this starts from where the user's connection places them, roughly: ${from.name}. Say so, in case that is wrong.\n` : ''
+      const guessed = !fromName && context.location ? `No starting point was given, so this starts from ${whereWords(context.location)}.\n` : ''
       const shortWay = Boolean(route?.steps.length && route.metres <= STEPS_WITHIN_METRES)
       const card = routeCard({ question: `${fromName || from.name} to ${to}`, from, to: dest, travel, route, publicToken: deps.publicToken })
       const content = route
@@ -379,11 +503,16 @@ export async function runMap(args: Record<string, unknown>, context: MapsContext
   }
 
   const asked = text('place')
-  if (!asked) return { ok: false, content: 'No place was given. Ask the user which place they mean.' }
+  if (!asked && !context.location) {
+    return { ok: false, content: 'No place was given, and where the user is could not be found (they may not have allowed it). Ask them which place they mean.' }
+  }
   try {
-    const found = await findPlace(asked, deps, weather, context)
+    const here = context.location
+    const found: Found = asked
+      ? await findPlace(asked, deps, weather, context)
+      : { place: { name: here!.city, detail: [here!.region, here!.country].filter(Boolean).join(', '), kind: 'city', at: [here!.longitude, here!.latitude], timezone: here!.timezone } }
     if ('ask' in found) return { ok: false, content: found.ask }
-    if ('none' in found) return { ok: false, content: found.none, summary: 'Place not found' }
+    if ('none' in found) return { ok: false, content: found.none, summary: `Place not found: ${asked}` }
     const { place } = found
     const wanted = place.kind !== 'country' && place.kind !== 'region' ? await weatherNow(place, weather, context) : undefined
     const card = placeCard({ question: asked, place, publicToken: deps.publicToken, ...(wanted ? { weatherNow: wanted } : {}), now })
@@ -399,9 +528,52 @@ export async function runMap(args: Record<string, unknown>, context: MapsContext
   }
 }
 
-/** For tests: forget which token works and every route. */
+// -- A map for a card about a place ----------------------------------------------------------
+
+/** How long a card about a place waits for its map before going without. */
+const CARD_MAP_WAIT_MS = 3_000
+
+/** A where question, however it is put: "where is", "where's", "whereabouts". */
+const ASKS_WHERE = /\bwhere(?:'s|abouts)?\b/i
+
+function mapBlock(label: string, at: LngLat, zoom: number, publicToken: string, bounds?: [number, number, number, number]): MapBlock {
+  const view = { center: at, zoom, pins: [{ id: 'place', label, at }], ...(bounds ? { bounds } : {}) }
+  return { id: 'map', slot: 'data', type: 'map', view: 'pin', ...view, token: publicToken, still: stillUrl(view, publicToken) }
+}
+
+/**
+ * A research card about a place, with the place on a map. From the place's own
+ * record when it has coordinates, which is certain; then from the Wikipedia
+ * article the card is named after, when it has coordinates, which only a place's
+ * article has, so "Faisal Mosque" gets its map and "Marie Curie" none. Last,
+ * when the question asked where, from the same search the maps tool uses, and
+ * only when that is sure which place it is: a card with no map is better than
+ * one with the wrong town on it. The card goes out as it was if the map is slow.
+ */
+export async function withCardMap(card: CardV2, question: string, materials: Material[], deps: MapsDeps, weather: WeatherProvider, context: MapsContext): Promise<CardV2> {
+  if (!deps.publicToken || blockOf(card, 'map') || blockOf(card, 'forecast') || blockOf(card, 'stories')) return card
+  const record = materials.find((material): material is RecordMaterial => material.kind === 'record' && material.subject === card.title)
+  if (record?.coordinates && (record.type === 'place' || record.type === 'country')) {
+    const at: LngLat = [record.coordinates.longitude, record.coordinates.latitude]
+    return { ...card, blocks: [...card.blocks, mapBlock(card.title, at, record.type === 'country' ? ZOOM.country : ZOOM.landmark - 2, deps.publicToken)] }
+  }
+  const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), CARD_MAP_WAIT_MS))
+  const famous = await Promise.race([article(card.title, deps, context.signal).catch(() => null), late])
+  if (famous) {
+    const kind = kindFromDescription(famous.description)
+    return { ...card, blocks: [...card.blocks, mapBlock(card.title, famous.at, kind === 'landmark' ? ZOOM.landmark - 1 : ZOOM[kind], deps.publicToken)] }
+  }
+  if (!ASKS_WHERE.test(question)) return card
+  const found = await Promise.race([findPlace(card.title, deps, weather, context).catch(() => null), late])
+  if (!found || !('place' in found)) return card
+  const { place } = found
+  return { ...card, blocks: [...card.blocks, mapBlock(card.title, place.at, place.bounds ? zoomFor(place.bounds) : ZOOM[place.kind], deps.publicToken, place.bounds)] }
+}
+
+/** For tests: forget which token works, every route and every article. */
 export function forgetMaps() {
   working.clear()
   routes.clear()
+  articles.clear()
 }
 

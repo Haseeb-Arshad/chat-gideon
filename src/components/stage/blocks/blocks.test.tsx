@@ -104,8 +104,9 @@ describe('questions to ask next', () => {
     const ask = vi.fn()
     const { container } = stage(chips, ask, false)
     const buttons = [...container.querySelectorAll<HTMLButtonElement>('.card-chips button')]
-    // One card in front, one peeking beside it.
-    expect(buttons.map((button) => button.disabled).sort()).toEqual([false, true])
+    // One card in front, and beside it one drawn small, with nothing on it to press but itself.
+    expect(buttons.map((button) => button.disabled)).toEqual([false])
+    expect(container.querySelectorAll('.glass-card[data-slot="side"] button:not(.side-hit)')).toHaveLength(0)
   })
 })
 

@@ -33,7 +33,8 @@ import {
   JsonMemoryStore,
   type MemoryStore,
 } from './tools/memory'
-import type { CoarseLocation } from './location'
+import { nameOf, positionIn, type CoarseLocation } from './location'
+import { locateDevice } from './tools/maps'
 import { runtimeEnv } from './runtime-env'
 import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
 import { Outbox } from './outbox'
@@ -287,6 +288,35 @@ function parseArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/**
+ * Whether a call needs to know where the user is and was not told: the weather
+ * with no place, a map of "here", or a route with no start.
+ */
+function needsWhere(name: string, args: Record<string, unknown>): boolean {
+  const said = (key: string) => typeof args[key] === 'string' && (args[key] as string).trim() !== ''
+  if (name === 'weather') return !said('place')
+  if (name === 'show_map') return args.mode === 'route' ? !said('from') : !said('place')
+  return false
+}
+
+/**
+ * What the speaking model is told about where the user is. Known, it is named
+ * with its doubt. Unknown, the model is told the tools find it, because asked
+ * the weather "here", it otherwise asks the user where they are, which is a
+ * question the browser can answer.
+ */
+function whereLine(location: CoarseLocation | null, bridged: boolean): string {
+  if (location) {
+    const named = nameOf(location)
+    return location.from === 'device'
+      ? `The user's device places them in ${named}. It is for questions about where they are: never add it to the name of another place.`
+      : `The user's connection places them roughly in ${named}; it can be wrong. It is for questions about where they are: never add it to the name of another place.`
+  }
+  return bridged
+    ? 'Where the user is is not known yet. For the weather or a map of where they are, leave the place out and the tool asks their browser: never ask the user where they are first.'
+    : 'Where the user is is not known. Ask them for the place when a question needs it.'
+}
+
 /** Lets the server ask the browser to run a tool only the browser can run. */
 export interface ClientToolBridge {
   call: (
@@ -323,6 +353,8 @@ export interface TurnOptions {
   screen?: ScreenState | null
   /** Roughly where the user is, from the host's address lookup, for a forecast that names no place. */
   location?: CoarseLocation | null
+  /** Told where the user's device placed them, when a tool had to ask, so the session need not ask again. */
+  onLocation?: (location: CoarseLocation) => void
 }
 
 /**
@@ -421,7 +453,10 @@ export async function* streamTurn(
     // Built fresh for this turn, never cached, so it is still right however
     // long the conversation has been open.
     { role: 'system', content: nowLine(options.timezone || 'UTC') },
+    { role: 'system', content: whereLine(options.location ?? null, Boolean(options.bridge)) },
   ]
+  // Where the user is, as this turn learns it: from the host, or from their browser once a tool needed to know.
+  let whereabouts = options.location ?? null
   if (memories.length) {
     history.push({
       role: 'system',
@@ -628,7 +663,9 @@ export async function* streamTurn(
     if (!calls.length) break
     if (signal.aborted) return
 
-    if (options.speculative && calls.some((call) => !READ_ONLY_TOOLS.has(call.name))) {
+    // Asking the browser where the user is may put a question in front of them, which a guess must never do.
+    const locating = !whereabouts && Boolean(options.bridge) && calls.some((call) => needsWhere(call.name, parseArgs(call.args)))
+    if (options.speculative && (locating || calls.some((call) => !READ_ONLY_TOOLS.has(call.name)))) {
       // Nothing has been executed and nothing will be. The guess is reported
       // as unusable so the browser discards it rather than promoting an answer
       // that was about to depend on work that never happened.
@@ -661,6 +698,27 @@ export async function* streamTurn(
         function: { name: call.name, arguments: call.args || '{}' },
       })),
     })
+
+    // Once, before the tools that need it. The browser asks the user the first
+    // time; after that it answers at once, and the session remembers the answer.
+    if (locating && options.bridge) {
+      const callId = `where_${round}`
+      yield { t: 'tool_request', id, call: callId, name: 'get_location', args: {} }
+      const answer = await options.bridge.call(callId, 'get_location', {}, signal)
+      if (signal.aborted) return
+      const position = answer.ok ? positionIn(answer.content) : null
+      if (position) {
+        const publicToken = configValue('MAPBOX_PUBLIC_TOKEN') ?? ''
+        whereabouts = await locateDevice(
+          position,
+          options.timezone || 'UTC',
+          { fetch: (input, init) => globalThis.fetch(input, init), publicToken, serverToken: configValue('MAPBOX_SERVER_TOKEN') || publicToken, now: Date.now },
+          signal,
+        )
+        if (signal.aborted) return
+        options.onLocation?.(whereabouts)
+      }
+    }
 
     for (const [index, call] of calls.entries()) {
       const callId = call.id || `call_${round}_${index}`
@@ -699,7 +757,7 @@ export async function* streamTurn(
           timezone: options.timezone || 'UTC',
           signal,
           env: configValue,
-          location: options.location ?? null,
+          location: whereabouts,
         })
       }
 
