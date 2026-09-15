@@ -327,10 +327,20 @@ be overcast with temperatures between 19 and 26 degrees Celsius."
 
 Open-Meteo is free for non-commercial use under 10,000 calls a day and needs no
 key. If the site becomes commercial, the provider changes to MET Norway or a
-paid plan; the tool's provider interface is the only thing that changes. Where
-the user is, from the Worker's `request.cf`, is not wired yet, so "the weather
-here" is answered by asking which place, unless GIDEON already remembers where
-they live.
+paid plan; the tool's provider interface is the only thing that changes.
+
+A question that names no place ("is it cold outside?") is answered for where the
+user is. Cloudflare looks up the city a connection comes from (`request.cf`):
+
+- **Socket.** The Worker hands the city to the session's Durable Object in a
+  header it sets itself, after removing any header a client sent.
+- **HTTP.** The route reads the city directly.
+
+Only the city and its coordinates to two decimal places, about a kilometre,
+are kept. They are used for that forecast and never stored. An address lookup
+can place someone in the wrong city (a VPN, a mobile network), so GIDEON is told
+it is a guess and says which place it used. The local development server has no
+such lookup, and asks which place.
 
 ## Resources
 

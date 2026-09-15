@@ -21,6 +21,7 @@ import { cardFromMaterials, temperature } from '../cards/from-materials'
 import type { WeatherDay, WeatherMaterial } from '../cards/materials'
 import { conditionOf, dayCode, placeName, uvBand } from '../cards/weather'
 import { TimedCache } from './desk/cache'
+import type { CoarseLocation } from '../location'
 import type { ToolOutcome } from './registry'
 
 /** Today and the six days after it: the week the card shows. */
@@ -296,11 +297,16 @@ export interface WeatherContext {
   signal: AbortSignal
   /** The user's timezone, for the units they read temperatures in. */
   timezone: string
+  /** Roughly where the user is, for a forecast that names no place, when the host knows. */
+  location?: CoarseLocation | null
 }
 
 export async function runWeather(args: Record<string, unknown>, context: WeatherContext, provider: WeatherProvider, now: number): Promise<ToolOutcome> {
   const where = typeof args.place === 'string' ? args.place.replace(/\s+/g, ' ').trim().slice(0, 80) : ''
-  if (!where) return { ok: false, content: 'No place was given. Ask the user which place they mean.' }
+  if (!where) {
+    if (!context.location) return { ok: false, content: 'No place was given, and where the user is is not known. Ask them which place they mean.' }
+    return forecastFor(placeFrom(context.location), args, context, provider, now, true)
+  }
   const name = where.split(',')[0].trim()
 
   let found: Place[]
@@ -316,8 +322,15 @@ export async function runWeather(args: Record<string, unknown>, context: Weather
     const options = chosen.options.map(placeName)
     return { ok: false, content: `${name} could be ${options.join(', or ')}. Ask the user which one they mean.` }
   }
-  const { place } = chosen
+  return forecastFor(chosen.place, args, context, provider, now, false)
+}
 
+/** Where the user is, as a place to forecast for. */
+function placeFrom(location: CoarseLocation): Place {
+  return { name: location.city, region: location.region, country: location.country, latitude: location.latitude, longitude: location.longitude, timezone: location.timezone, population: 0, capital: false }
+}
+
+async function forecastFor(place: Place, args: Record<string, unknown>, context: WeatherContext, provider: WeatherProvider, now: number, nearby: boolean): Promise<ToolOutcome> {
   const day = typeof args.day === 'string' ? forecastDay(args.day, localDate(now, place.timezone)) : null
   if (day && 'refusal' in day) return { ok: false, content: day.refusal }
 
@@ -332,10 +345,14 @@ export async function runWeather(args: Record<string, unknown>, context: Weather
     return { ok: false, content: 'The forecast could not be reached just now. Say so in one short sentence.', summary: 'Could not get the weather' }
   }
 
-  const card = cardFromMaterials(`Weather in ${where}`, [material], now)
+  const card = cardFromMaterials(`Weather in ${nearby ? placeName(place) : String(args.place).trim()}`, [material], now)
+  // An address lookup can place someone in the wrong city, so the model is told this is a guess to name.
+  const guess = nearby
+    ? `No place was given, so this is for where the user's connection places them, roughly: ${placeName(place)}. Say which place it is for, in case that is wrong.\n`
+    : ''
   return {
     ok: true,
-    content: describeWeather(material, day ? day.index : null),
+    content: `${guess}${describeWeather(material, day ? day.index : null)}`,
     summary: `${place.name}: ${temperature(material.current.temperature, unit)}, ${conditionOf(material.current.code, material.current.isDay).text.toLowerCase()}`,
     links: [{ title: `${provider.name}: ${place.name}`, url: material.source.url }],
     card: Promise.resolve(card),

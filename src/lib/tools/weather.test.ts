@@ -196,7 +196,22 @@ describe('the tool', () => {
     expect((await runWeather({ place: 'Lisbon', day: '2026-10-30' }, context, lisbon.provider, NOW)).content).toContain('past the 7-day forecast')
     expect(lisbon.forecast).not.toHaveBeenCalled()
     expect(forecast).not.toHaveBeenCalled()
-    expect((await runWeather({}, context, test, NOW)).content).toBe('No place was given. Ask the user which place they mean.')
+  })
+
+  it('forecasts for where the user is when no place is named, and says it is a guess to name', async () => {
+    const { provider: test, find, forecast } = provider([])
+    const location = { city: 'Lisbon', region: 'Lisbon', country: 'Portugal', latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon' }
+    const outcome = await runWeather({ day: 'today' }, { ...context, location }, test, NOW)
+    expect(outcome.ok).toBe(true)
+    expect(outcome.content.split('\n')[0]).toBe(
+      "No place was given, so this is for where the user's connection places them, roughly: Lisbon, Portugal. Say which place it is for, in case that is wrong.",
+    )
+    // The place is already known, so nothing is looked up by name.
+    expect(find).not.toHaveBeenCalled()
+    expect(forecast.mock.calls[0][0]).toMatchObject({ name: 'Lisbon', latitude: 38.72, longitude: -9.13, timezone: 'Europe/Lisbon' })
+    expect((await outcome.card)?.title).toBe('Weather, Lisbon')
+
+    expect((await runWeather({}, context, test, NOW)).content).toBe('No place was given, and where the user is is not known. Ask them which place they mean.')
   })
 
   it('says so, in a sentence, when the forecast cannot be reached or the place cannot be found', async () => {

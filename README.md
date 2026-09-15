@@ -384,6 +384,10 @@ default, gitignored). The Cloudflare Worker keeps the active session's memory
 in Durable Object storage and mirrors it to Supabase when the Worker bindings
 are configured. See [`backend/worker/README.md`](backend/worker/README.md).
 
+Asked about the weather without a place, the Cloudflare deployment uses the
+city Cloudflare places the connection in. Its coordinates, rounded to about a
+kilometre, go to Open-Meteo for that one forecast and are not stored.
+
 ---
 
 ## Verify

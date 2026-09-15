@@ -7,6 +7,7 @@ import {
   warmUpstream,
 } from '../../../src/lib/agent-core'
 import { gate, originAllowed } from '../../../src/lib/guard'
+import { locationFromCf } from '../../../src/lib/location'
 import {
   MAX_AUDIO_BYTES,
   RequestValidationError,
@@ -91,6 +92,7 @@ function streamChat(
           speculative,
           memoryStore: store,
           screen,
+          location: locationFromCf((request as { cf?: unknown }).cf),
         })) {
           if (request.signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))

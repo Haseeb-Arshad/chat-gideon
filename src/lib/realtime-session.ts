@@ -24,6 +24,7 @@ import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrou
 import { limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
 import { readScreen } from './stage-judge'
+import type { CoarseLocation } from './location'
 import type { MemoryStore } from './tools/memory'
 import {
   REALTIME_PROTOCOL_VERSION,
@@ -57,6 +58,8 @@ export interface SessionOptions {
   host?: string | null
   /** Durable store selected by the host for this browser session. */
   memoryStore?: MemoryStore
+  /** Roughly where the user is, from the host's address lookup when the socket opened. */
+  location?: CoarseLocation | null
 }
 
 /**
@@ -212,6 +215,7 @@ export function createRealtimeSession(
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
         screen: readScreen(frame.screen),
+        location: options.location ?? null,
       })) {
         if (closed || controller.signal.aborted) return
         send(event)

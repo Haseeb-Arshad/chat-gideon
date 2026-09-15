@@ -1006,8 +1006,10 @@ locale and a remembered preference ("I prefer Fahrenheit").
 **As built (15 September 2026).** Open-Meteo, as recommended, behind a provider
 interface. Four things differ from the sketch:
 
-- Coarse location from `request.cf` is not wired yet. With no place given,
-  GIDEON asks which one, unless it remembers where the user lives.
+- Coarse location comes from `request.cf` as planned. The Worker hands it to the
+  Durable Object in a header only it can set, and GIDEON names the place it
+  used, because an address lookup can be wrong. Locally there is no lookup, and
+  GIDEON asks which place.
 - The week is seven days, not the provider's sixteen, because the card shows
   seven. A day past it is refused with a pointer to research.
 - Units follow the user's timezone (Fahrenheit for clocks in the United States)

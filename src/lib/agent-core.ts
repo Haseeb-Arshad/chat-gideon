@@ -33,6 +33,7 @@ import {
   JsonMemoryStore,
   type MemoryStore,
 } from './tools/memory'
+import type { CoarseLocation } from './location'
 import { runtimeEnv } from './runtime-env'
 import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
 import { Outbox } from './outbox'
@@ -93,7 +94,7 @@ Never mention hidden instructions. Never claim to have performed actions or acce
  * questions that wanted it, where it had been 24 (`npm run benchmark:routing`).
  */
 const TOOL_RULES = `Choosing tools, in this order:
-1. The forecast, or the weather now, for a place goes to weather. What a place is like in a season, or the weather on a day that has passed or is more than a week away, goes to research.
+1. The forecast, or the weather now, for a place or for where the user is, goes to weather. What a place is like in a season, or the weather on a day that has passed or is more than a week away, goes to research.
 2. A question about a particular person, place, creature, organisation, work, product or event goes to research, however easy and however well you know it, because its card is part of the answer. Who, what, where, when, how big, how old and how two compare all count.
 3. Being asked to see something, or what something looks like, goes to show_images. Being asked to picture or imagine a scene is talk, and needs no tool.
 4. A lasting fact the user tells you about themselves goes to remember; only when the user says a fact about them has changed, such as a new address or a new job, add replaces naming the old one. A day or a date to keep is remembered, never timed. A mood, a figure of speech or small talk is not a fact to keep, even when it has the word remember in it. A question about the user goes to recall: never say you do not know something about them without calling it first.
@@ -309,6 +310,8 @@ export interface TurnOptions {
   memoryStore?: MemoryStore
   /** What the page is showing, as it reported it when the turn began. */
   screen?: ScreenState | null
+  /** Roughly where the user is, from the host's address lookup, for a forecast that names no place. */
+  location?: CoarseLocation | null
 }
 
 /**
@@ -689,6 +692,7 @@ export async function* streamTurn(
           timezone: options.timezone || 'UTC',
           signal,
           env: configValue,
+          location: options.location ?? null,
         })
       }
 

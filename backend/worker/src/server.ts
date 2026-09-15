@@ -1,4 +1,5 @@
 import handler from '@tanstack/react-start/server-entry'
+import { withLocation } from '../../../src/lib/location'
 import { REALTIME_PATH } from '../../../src/lib/protocol'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { handleApi, isApiPath } from './api'
@@ -28,7 +29,8 @@ export default {
         return new Response('The realtime Durable Object is not configured.', { status: 503 })
       }
       const id = env.GIDEON_SESSION.idFromName(sessionIdFromRequest(request))
-      return env.GIDEON_SESSION.get(id).fetch(request)
+      // The object cannot see Cloudflare's lookup of where the request came from, so it is handed over.
+      return env.GIDEON_SESSION.get(id).fetch(withLocation(request, (request as { cf?: unknown }).cf))
     }
 
     if (isApiPath(url.pathname)) {

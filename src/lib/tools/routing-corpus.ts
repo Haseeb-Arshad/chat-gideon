@@ -116,6 +116,9 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain("what's the UV index in Sydney today", 'weather'),
   plain('should I wear a coat in Chicago tonight', 'weather'),
   plain('weather in Cape Town', 'weather'),
+  // Naming no place is where the user is.
+  plain('is it cold outside right now', 'weather'),
+  plain("what's it like outside today", 'weather'),
 
   // -- memory -----------------------------------------------------------------------
   plain("remember that my sister's name is Aisha", 'remember'),

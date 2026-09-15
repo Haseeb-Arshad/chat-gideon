@@ -28,6 +28,7 @@ import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
 import { SKILLS, describeSkill } from './skills'
 import { openMeteo, runWeather } from './weather'
+import type { CoarseLocation } from '../location'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
 import type { CardPatch } from '../cards/patch'
@@ -164,7 +165,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         place: {
           type: 'string',
           description:
-            'The place as the user said it, with its region or country when they gave one, such as "Portland, Oregon". When they did not say, a place they are known to be in.',
+            'The place as the user said it, with its region or country when they gave one, such as "Portland, Oregon". Leave it out for where the user is.',
         },
         day: {
           type: 'string',
@@ -176,7 +177,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           description: 'Only when the user asked for one, or is known to prefer it.',
         },
       },
-      required: ['place'],
+      required: [],
     },
     readOnly: true,
   },
@@ -490,6 +491,8 @@ export interface ToolContext {
   signal: AbortSignal
   /** Configuration from the host, which may be a Worker rather than a process. */
   env: EnvReader
+  /** Roughly where the user is, when the host knows. */
+  location?: CoarseLocation | null
 }
 
 /** Runs one server-side tool. Client tools never reach this. */
@@ -512,7 +515,7 @@ export async function runServerTool(
     case 'weather':
       return runWeather(
         args,
-        { signal: context.signal, timezone: context.timezone },
+        { signal: context.signal, timezone: context.timezone, location: context.location ?? null },
         // Read at the call, so a test that replaces fetch is the fetch the provider uses.
         openMeteo({ fetch: (input, init) => globalThis.fetch(input, init), now: Date.now }),
         Date.now(),

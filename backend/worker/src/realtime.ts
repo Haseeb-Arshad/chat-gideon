@@ -2,6 +2,7 @@
 
 import { DurableObject } from 'cloudflare:workers'
 import { originAllowed } from '../../../src/lib/guard'
+import { LOCATION_HEADER, decodeLocation, readLocation, type CoarseLocation } from '../../../src/lib/location'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { createRealtimeSession, type RealtimeSession } from '../../../src/lib/realtime-session'
 import { callerFromRequest, sessionIdFromRequest } from './identity'
@@ -16,6 +17,8 @@ interface SessionAttachment {
   sessionId: string
   caller: string
   host: string | null
+  /** Roughly where the socket was opened from, as the Worker found it. */
+  location: CoarseLocation | null
 }
 
 function attachmentOf(socket: WebSocket): SessionAttachment | null {
@@ -32,6 +35,7 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
     sessionId: candidate.sessionId,
     caller: candidate.caller,
     host: typeof candidate.host === 'string' ? candidate.host : null,
+    location: readLocation(candidate.location),
   }
 }
 
@@ -73,6 +77,7 @@ export class GideonSession extends DurableObject<Env> {
         caller: attachment.caller,
         host: attachment.host,
         memoryStore,
+        location: attachment.location,
       },
     )
   }
@@ -98,6 +103,8 @@ export class GideonSession extends DurableObject<Env> {
       sessionId: sessionIdFromRequest(request),
       caller: callerFromRequest(request),
       host: request.headers.get('host'),
+      // Set by the Worker in front of this object, which removes any a client sent.
+      location: decodeLocation(request.headers.get(LOCATION_HEADER)),
     }
     server.serializeAttachment(attachment)
     this.sessions.set(server, this.createSession(server, attachment))
