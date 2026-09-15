@@ -31,7 +31,8 @@ function report(row: Record<string, unknown>) {
 }
 
 const ROUTING: Array<[question: string, researches: boolean]> = [
-  ["what's the weather in London today", true],
+  // A forecast has its own tool now, and is not the research desk's.
+  ["what's the weather in London today", false],
   ['who won the most recent Formula 1 race', true],
   ["what's the price of bitcoin right now", true],
   // Famous enough to answer from memory, and looked up anyway: the card is

@@ -13,7 +13,18 @@
  */
 
 import { formatNumber, withUnit } from './chart-math'
-import { isRecord, isSeries, isStories, type Material, type RecordMaterial, type SeriesMaterial, type StoriesMaterial } from './materials'
+import { UV_BANDS, conditionOf, dayCode, degrees, placeName } from './weather'
+import {
+  isRecord,
+  isSeries,
+  isStories,
+  isWeather,
+  type Material,
+  type RecordMaterial,
+  type SeriesMaterial,
+  type StoriesMaterial,
+  type WeatherMaterial,
+} from './materials'
 import type { CardPatch } from './patch'
 import type {
   Block,
@@ -22,6 +33,9 @@ import type {
   CardV2,
   ChartBlock,
   FactsBlock,
+  ForecastBlock,
+  HeadlineBlock,
+  MeterBlock,
   StatBlock,
   StoriesBlock,
   StoryItem,
@@ -362,6 +376,109 @@ function frontPageCard(question: string, material: StoriesMaterial): CardV2 {
   }
 }
 
+// -- The weather ----------------------------------------------------------------------
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** The weekday of a local date written "2026-09-14", worked out without a timezone to get wrong. */
+function weekdayOf(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]
+}
+
+/** "Monday 14 September, 13:00": the place's own date and time, as its forecast gave it. */
+function localDateline(time: string): string {
+  const [date, clock] = time.split('T')
+  const [, month, day] = date.split('-').map(Number)
+  return `${weekdayOf(date)} ${day} ${MONTHS[month - 1]}${clock ? `, ${clock.slice(0, 5)}` : ''}`
+}
+
+/** "Today", "Tomorrow", or the weekday: how a day in the week ahead is said. */
+function dayName(date: string, index: number): string {
+  return index === 0 ? 'Today' : index === 1 ? 'Tomorrow' : weekdayOf(date)
+}
+
+/** A temperature with its unit, as the card and the voice both say it: "30°C". */
+export function temperature(value: number, unit: WeatherMaterial['units']['temperature']): string {
+  return `${degrees(value)}${unit === '°F' ? 'F' : 'C'}`
+}
+
+/**
+ * The weather for one place: now, the next day by the hour, and the week.
+ * Every figure is the provider's, rounded the way a forecast is read, and every
+ * name for a condition or a UV reading comes from the tables in cards/weather.
+ */
+function weatherCard(question: string, material: WeatherMaterial): CardV2 {
+  const { current, units, place } = material
+  const today = material.days[0]
+  const blocks: Block[] = [
+    {
+      id: 'headline',
+      slot: 'head',
+      type: 'headline',
+      kicker: localDateline(current.time),
+      title: place.name,
+      ...(placeName(place) !== place.name ? { subtitle: placeName(place).slice(place.name.length + 2) } : {}),
+    },
+    { id: 'now', slot: 'figure', type: 'stat', value: temperature(current.temperature, units.temperature), label: conditionOf(current.code, current.isDay).text },
+    {
+      id: 'now-facts',
+      slot: 'facts',
+      type: 'facts',
+      items: [
+        { label: 'Feels like', value: temperature(current.feelsLike, units.temperature) },
+        ...(today ? [{ label: 'High', value: temperature(today.high, units.temperature) }, { label: 'Low', value: temperature(today.low, units.temperature) }] : []),
+        { label: 'Wind', value: `${Math.round(current.wind)} ${units.wind}` },
+        // The sun, where it rises and sets today; humidity otherwise, so the tile keeps its shape.
+        ...(today?.sunrise && today.sunset
+          ? [{ label: 'Sunrise', value: today.sunrise }, { label: 'Sunset', value: today.sunset }]
+          : [{ label: 'Humidity', value: `${Math.round(current.humidity)}%` }]),
+      ],
+    } satisfies FactsBlock,
+    {
+      id: 'forecast',
+      slot: 'data',
+      type: 'forecast',
+      unit: units.temperature,
+      now: { code: current.code, isDay: current.isDay },
+      hours: material.hours.map((hour) => ({ time: hour.time.slice(11, 16), temperature: hour.temperature, rainChance: hour.rainChance, code: hour.code, isDay: hour.isDay })),
+      days: material.days.map((day, index) => ({
+        id: `d${index}`,
+        day: dayName(day.date, index),
+        date: day.date,
+        code: dayCode(day.code, day.rainChance),
+        high: day.high,
+        low: day.low,
+        rainChance: day.rainChance,
+      })),
+    } satisfies ForecastBlock,
+  ]
+  if (today?.uv !== null && today?.uv !== undefined) {
+    blocks.push({
+      id: 'uv',
+      slot: 'aside',
+      type: 'meter',
+      label: 'UV index today',
+      value: Math.round(today.uv * 10) / 10,
+      min: 0,
+      max: UV_BANDS[UV_BANDS.length - 1].to,
+      bands: UV_BANDS.map((band) => ({ ...band })),
+    } satisfies MeterBlock)
+  }
+  return {
+    schema: 2,
+    recipe: 'weather',
+    size: 'feature',
+    query: question,
+    title: `Weather, ${place.name}`,
+    blocks,
+    sources: sourcesOf([material]),
+    asOf: current.time,
+    partial: false,
+  }
+}
+
 // -- Choosing -------------------------------------------------------------------------
 
 /**
@@ -372,6 +489,9 @@ function frontPageCard(question: string, material: StoriesMaterial): CardV2 {
  * the numbers. Then records, compared when there are several of the same kind.
  */
 export function cardFromMaterials(question: string, materials: Material[], now: number): CardV2 | null {
+  const weather = materials.find(isWeather)
+  if (weather) return weatherCard(question, weather)
+
   const stories = materials.filter(isStories).find((each) => each.items.length >= MIN_STORIES)
   if (stories) return frontPageCard(question, stories)
 
@@ -408,6 +528,11 @@ export function portraitSubject(card: CardV2, materials: Material[]): string | n
 
 /** What is on screen, in a few words, for the speaking model. */
 export function describeCard(card: CardV2): string {
+  const forecast = card.blocks.find((block): block is ForecastBlock => block.type === 'forecast')
+  if (forecast) {
+    const place = card.blocks.find((block): block is HeadlineBlock => block.type === 'headline')?.title ?? card.title
+    return `a weather card for ${place}: now, the next ${forecast.hours.length} hours and ${forecast.days.length} days`
+  }
   const stories = card.blocks.find((block): block is StoriesBlock => block.type === 'stories')
   if (stories?.items.length) return `a front page of ${stories.items.length} stories, led by "${stories.items[0].headline}"`
   const chart = card.blocks.find((block): block is ChartBlock => block.type === 'chart')

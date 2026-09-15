@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { choosePlace, forgetWeather, openMeteo, runWeather } from '../weather'
 import { forgetNews, topStories } from './news'
 import { countryData } from './world-bank'
 import { entityFacts } from './wikidata'
@@ -8,9 +9,9 @@ import { entityFacts } from './wikidata'
  * The desk's data sources against the live services, run on purpose with
  * `npx vitest run src/lib/tools/desk/desk.live.test.ts --mode live`.
  *
- * Skipped in the ordinary suite because it needs the network. The World Bank
- * and Wikidata need no key and cost nothing; the news is one Exa search, and
- * needs EXA_API_KEY. It answers what fixtures cannot: whether the responses
+ * Skipped in the ordinary suite because it needs the network. The World Bank,
+ * Wikidata and Open-Meteo need no key and cost nothing; the news is one Exa
+ * search, and needs EXA_API_KEY. It answers what fixtures cannot: whether the responses
  * still have the shape the parsers expect, and how long a lookup takes beside
  * a research run.
  */
@@ -56,6 +57,26 @@ describe.skipIf(!live)('live desk data', () => {
       expect(record?.subject, title).toBeTruthy()
       expect(record!.fields.length, title).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  it('reads the forecast for a place, and asks which Springfield', { timeout: 60_000 }, async () => {
+    forgetWeather()
+    const provider = openMeteo(deps)
+    const lisbon = choosePlace('Lisbon', await provider.places('Lisbon', signal()))
+    expect(lisbon && 'place' in lisbon ? lisbon.place.country : null).toBe('Portugal')
+
+    for (const place of ['Lisbon', 'Bergen, Norway']) {
+      const startedAt = Date.now()
+      const outcome = await runWeather({ place, day: 'tomorrow' }, { signal: signal(), timezone: 'Europe/London' }, provider, Date.now())
+      const card = await outcome.card
+      const forecast = card?.blocks.find((block) => block.type === 'forecast')
+      report({ source: 'open-meteo', place, ms: Date.now() - startedAt, ok: outcome.ok, summary: outcome.summary, brief: outcome.content.split('\n').slice(0, 3) })
+      expect(outcome.ok, place).toBe(true)
+      expect(forecast?.type === 'forecast' ? [forecast.hours.length, forecast.days.length] : null, place).toEqual([24, 7])
+    }
+
+    const springfield = await runWeather({ place: 'Springfield' }, { signal: signal(), timezone: 'Europe/London' }, provider, Date.now())
+    expect(springfield.content).toMatch(/^Springfield could be /)
   })
 
   it("reads the day's news, and a topic's", { timeout: 60_000 }, async () => {

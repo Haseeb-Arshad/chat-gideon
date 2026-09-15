@@ -13,7 +13,7 @@
  */
 
 import { numbersIn } from './ground'
-import type { ChartBlock, ListBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
+import type { ChartBlock, ForecastBlock, ListBlock, StoriesBlock, TableBlock, TimelineBlock } from './schema'
 
 /** More elements than this answering to the same evidence is no answer at all. */
 const AMBIGUOUS = 3
@@ -123,4 +123,9 @@ export function saidStories(block: StoriesBlock, heard: Heard): Set<string> {
     })
     .map((story) => story.id)
   return unambiguous(matches)
+}
+
+/** The days of a forecast that were named: "tomorrow", "on Friday". */
+export function saidDays(block: ForecastBlock, heard: Heard): Set<string> {
+  return unambiguous(block.days.filter((day) => heard.words.has(day.day.toLowerCase())).map((day) => day.id))
 }

@@ -1003,6 +1003,22 @@ rain as separate columns underneath, sharing the hours rather than an axis; the
 week as low-to-high bars; a UV meter on the WHO bands. Units follow the browser's
 locale and a remembered preference ("I prefer Fahrenheit").
 
+**As built (15 September 2026).** Open-Meteo, as recommended, behind a provider
+interface. Four things differ from the sketch:
+
+- Coarse location from `request.cf` is not wired yet. With no place given,
+  GIDEON asks which one, unless it remembers where the user lives.
+- The week is seven days, not the provider's sixteen, because the card shows
+  seven. A day past it is refused with a pointer to research.
+- Units follow the user's timezone (Fahrenheit for clocks in the United States)
+  or what they asked for, rather than the browser's locale, which the server
+  does not see.
+- The forecast carries sunrise and sunset, and a day is only called wet at a
+  20% chance of rain or more.
+
+The routing corpus holds weather against research at 15 of 15 each way.
+Figures are in RESEARCH_STAGE.md.
+
 ### Markets
 
 - **Currencies:** Frankfurter, which serves the European Central Bank's reference

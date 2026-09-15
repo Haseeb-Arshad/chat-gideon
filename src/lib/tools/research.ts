@@ -536,6 +536,7 @@ const DATA_TOOLS = new Set(['country_data', 'entity_facts', 'top_stories'])
 function citations(material: Material): Array<[url: string, title: string]> {
   if (material.kind === 'stories') return material.items.map((story) => [story.url, `${story.headline} (${story.host})`])
   if (material.kind === 'series') return [[material.source.url, `${material.source.title}: ${material.name}`]]
+  if (material.kind === 'weather') return [[material.source.url, `${material.source.title}: ${material.place.name}`]]
   return [[material.source.url, `${material.source.title}: ${material.subject}`]]
 }
 

@@ -81,7 +81,6 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('compare Python and Rust', 'research'),
   plain('how much does a Tesla Model 3 cost', 'research'),
   plain("what's the exchange rate from pounds to euros", 'research'),
-  plain('is it going to rain in Manchester tomorrow', 'research'),
   plain('look up the opening hours of the British Museum', 'research'),
   plain('what are the newest AI models out this month', 'research'),
   plain("what's the tallest building in the world", 'research'),
@@ -102,6 +101,21 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('show me some mid-century modern living rooms', 'show_images'),
   plain('photos of snow leopards', 'show_images'),
   plain('what does the inside of the Sagrada Familia look like', 'show_images'),
+
+  // -- weather ----------------------------------------------------------------------
+  plain('is it going to rain in Manchester tomorrow', 'weather'),
+  plain("what's the weather like in Edinburgh", 'weather'),
+  plain('will it rain in Berlin on Saturday', 'weather'),
+  plain('how cold is it in Oslo right now', 'weather'),
+  plain('do I need an umbrella in London this afternoon', 'weather'),
+  plain("what's the forecast for Madrid this weekend", 'weather'),
+  plain('is it sunny in Nice today', 'weather'),
+  plain('what temperature is it in Toronto', 'weather'),
+  plain('will it snow in Denver on Friday', 'weather'),
+  plain('how windy is it in Wellington', 'weather'),
+  plain("what's the UV index in Sydney today", 'weather'),
+  plain('should I wear a coat in Chicago tonight', 'weather'),
+  plain('weather in Cape Town', 'weather'),
 
   // -- memory -----------------------------------------------------------------------
   plain("remember that my sister's name is Aisha", 'remember'),
@@ -163,12 +177,18 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   boundary('time my eggs for seven minutes', 'set_timer', 'a timer was asked for'),
   boundary('imagine a city made of glass', null, 'imagining, not seeing'),
   boundary('show me a city made of glass', 'show_images', 'asked to be shown'),
-  boundary('what time does the sun set in Edinburgh today', 'research', 'a fact about a place today'),
+  boundary('what time does the sun set in Edinburgh today', 'weather', 'sunset at a place, which the forecast gives'),
   boundary('I forgot my umbrella again', null, 'forgot, not forget'),
+
+  boundary("what's Lisbon like in spring", 'research', 'what a place is like in a season'),
+  boundary('what was the weather like in Rome last week', 'research', 'a day that has passed'),
+  boundary('how hot does Dubai get in summer', 'research', 'the climate, not a forecast'),
+  boundary("what's the weather going to be like in Paris next month", 'research', 'past the week a forecast covers', ['weather']),
 
   // -- figures of speech and small talk ---------------------------------------------
   none('picture this: a beach, no phones, just the sea'),
   none("I'm feeling a bit under the weather today"),
+  none("it's raining cats and dogs in my inbox"),
   none('can you map out my week with me'),
   none("time flies when you're having fun"),
   none('I need to remember to breathe'),
@@ -208,7 +228,7 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   // -- two requests in one sentence -------------------------------------------------
   double('set a timer for ten minutes and remember that I like my tea strong', ['set_timer', 'remember']),
   double('show me pictures of Kyoto and tell me how many people live there', ['show_images', 'research']),
-  double("what's the weather in Paris, and show me photos of the Louvre", ['research', 'show_images']),
+  double("what's the weather in Paris, and show me photos of the Louvre", ['weather', 'show_images']),
   double('forget my old address and remember that I live in Leeds now', ['forget', 'remember']),
   double("look up when the Tate Modern closes and give me a link to its website", ['research', 'offer_link']),
   double('remind me in 15 minutes to call mum, and who won the snooker last night', ['set_timer', 'research']),

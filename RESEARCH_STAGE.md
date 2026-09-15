@@ -276,6 +276,62 @@ still pass. Time to first token did not move: 1165 ms at the median before and
 1133 ms after, over ten requests each, although the prompt and tool
 descriptions grew from 11,690 to 16,503 characters. A run costs about ten cents.
 
+With `weather` added on 15 September, the corpus has 144 cases. The first run
+gave 141 of 144 (97.9%) with every gate passed. The only miss worth acting on
+was "what time does the sun set in Edinburgh today": it went to `weather`,
+which could not yet say. The forecast now carries sunrise and sunset, and the
+case expects `weather`.
+
+The second run gave 140 of 144 (97.2%), with `weather` at 15 of 15 for
+precision and recall. One gate slipped: "stop remembering my address" was
+answered "I will forget your address" with no call, so forget's recall was 4 of
+5. Its manifest now says "stop remembering" in so many words. The two address
+cases then passed in three focused reruns (`ROUTING_ONLY=address`); the whole
+corpus was not run again.
+
+## The weather
+
+A forecast is data with a source, so it has its own tool rather than a trip to
+the research desk. The speaking model passes the place as the user said it,
+and a day only when one was named; everything else is decided in code
+(`tools/weather.ts`):
+
+- **The place.** Open-Meteo's place search gives the candidates. A capital, or a
+  place with five times the people of the next, is chosen: "Lisbon" is
+  Portugal's, and "Portland" is Oregon. A name that could mean several places
+  is asked about, as "Springfield" is, and "Portland, Maine" decides it.
+- **The day.** Counted from the place's own today. A day that has passed, or is
+  past the seven the card shows, is refused before any forecast is asked for,
+  with one sentence the model acts on: use research instead.
+- **The units.** Fahrenheit and miles an hour when asked for, or when the user's
+  clock is in the United States; Celsius and kilometres an hour otherwise.
+- **The words.** Each sky is named from its WMO code and each UV reading from
+  the WHO's bands, in code. A day's code is its worst hour's, so a day with
+  "rain" beside a 5% chance is called overcast. Fewer than 20% is not a wet day.
+
+The brief names the place, now, the day asked about, the next 24 hours, the
+rest of the week, the UV, and sunrise and sunset. The card draws the same
+figures: the place and its local date over now, how it feels and the UV down
+one side; beside them, the hours as a line with the chance of rain in columns
+and the night shaded, over the week as low-to-high bars on one scale. A day the
+voice names lights up. Nothing is shown that the forecast did not give: an hour
+with no chance of rain has no column.
+
+Measured live on 14 and 15 September 2026: finding the place and its forecast
+took 1.0 to 1.5 seconds from a cold connection and 0.2 to 0.3 seconds warm; one
+cold request took past five seconds, which is why the timeout is eight.
+"Will it rain in Lisbon tomorrow?" reached a first spoken word at 4.8 seconds,
+with the card, where the same question through research had taken 8.6 seconds
+to its brief alone. It said: "No rain is expected in Lisbon tomorrow. It will
+be overcast with temperatures between 19 and 26 degrees Celsius."
+
+Open-Meteo is free for non-commercial use under 10,000 calls a day and needs no
+key. If the site becomes commercial, the provider changes to MET Norway or a
+paid plan; the tool's provider interface is the only thing that changes. Where
+the user is, from the Worker's `request.cf`, is not wired yet, so "the weather
+here" is answered by asking which place, unless GIDEON already remembers where
+they live.
+
 ## Resources
 
 Everything GIDEON did and read used to be listed under the conversation, and it
@@ -302,7 +358,7 @@ it is on screen.
 ## Needs
 
 `EXA_API_KEY` in `.env` and in the Worker's secrets. Without it, research is not
-offered at all, and pictures come from Openverse alone.
+offered at all, and pictures come from Openverse alone. The weather needs no key.
 
 ## Later
 

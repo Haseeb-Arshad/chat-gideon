@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
-import { hear, saidEvents, saidItems, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
-import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type MediaBlock, type StoriesBlock } from '../../lib/cards/schema'
+import { hear, saidDays, saidEvents, saidItems, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
+import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type ForecastBlock, type MediaBlock, type StoriesBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
+import { Forecast, HourStrip, WeatherIcon, WeekDays } from './blocks/Forecast'
 import { Gallery } from './blocks/Gallery'
 import { Media, type MediaShape } from './blocks/Media'
+import { Meter } from './blocks/Meter'
 import { List, Steps, Timeline } from './blocks/Sequences'
 import { Sources } from './blocks/Sources'
 import { FrontPage, StoryList } from './blocks/Stories'
@@ -15,12 +17,12 @@ import { rise, risePlan, useFirst } from './stagger'
 /**
  * A card's face: its blocks, laid out by its recipe.
  *
- * Three layouts exist so far. The classic one is the card as it has always
+ * Four layouts exist so far. The classic one is the card as it has always
  * looked, a picture down the side (or across the top) beside a column of
  * words, and every recipe without a layout of its own uses it, block by block
  * in the order the card lists them. The gallery lays its pictures out in a
- * grid under its heading, and the front page sets the news out as a paper
- * does.
+ * grid under its heading, the front page sets the news out as a paper does,
+ * and the weather puts now beside the hours, over the week.
  */
 
 export interface CardFaceProps {
@@ -40,7 +42,9 @@ export interface CardFaceProps {
 export function CardFace(props: CardFaceProps) {
   if (props.card.recipe === 'gallery') return <GalleryLayout {...props} />
   const stories = props.card.recipe === 'front-page' ? blockOf(props.card, 'stories') : undefined
-  return stories ? <FrontPageLayout {...props} stories={stories} /> : <ClassicLayout {...props} />
+  if (stories) return <FrontPageLayout {...props} stories={stories} />
+  const forecast = props.card.recipe === 'weather' ? blockOf(props.card, 'forecast') : undefined
+  return forecast ? <WeatherLayout {...props} forecast={forecast} /> : <ClassicLayout {...props} />
 }
 
 interface BodyBlockProps {
@@ -85,6 +89,10 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, 
       return <Chart block={block} start={start} size={size} front={front} shared={shared} said={saidPoints(block, heard)} />
     case 'stories':
       return <StoryList block={block} start={start} front={front} said={saidStories(block, heard)} />
+    case 'forecast':
+      return <Forecast block={block} start={start} said={saidDays(block, heard)} />
+    case 'meter':
+      return <Meter block={block} start={start} />
     case 'media':
     case 'gallery':
       // A picture has its own place, and a gallery its own layout.
@@ -160,4 +168,44 @@ function GalleryLayout({ card, front }: CardFaceProps) {
 function FrontPageLayout({ card, spoken, front, stories }: CardFaceProps & { stories: StoriesBlock }) {
   const heard = useMemo(() => hear(spoken), [spoken])
   return <FrontPage title={blockOf(card, 'headline')?.title ?? card.title} block={stories} front={front} said={saidStories(stories, heard)} />
+}
+
+/**
+ * The weather: the place and its date across the top, now down the side with
+ * how it feels and the UV, and beside it the next hours over the week.
+ */
+function WeatherLayout({ card, spoken, forecast }: CardFaceProps & { forecast: ForecastBlock }) {
+  const heard = useMemo(() => hear(spoken), [spoken])
+  const headline = blockOf(card, 'headline')
+  const now = blockOf(card, 'stat')
+  const facts = blockOf(card, 'facts')
+  const meter = blockOf(card, 'meter')
+  const head = headline ? risePlan([headline]).after : 0
+  const sky = forecast.now ?? forecast.hours[0]
+
+  return (
+    <div className="card-weather">
+      {headline ? (
+        <header className="weather-head">
+          <Headline block={headline} start={0} />
+        </header>
+      ) : null}
+      <section className="weather-now" style={rise(head)} aria-label="Now">
+        {now ? (
+          <div className="weather-now-main">
+            {sky ? <WeatherIcon code={sky.code} isDay={sky.isDay} size={46} /> : null}
+            <div>
+              <strong className="weather-temperature">{now.value}</strong>
+              <span className="weather-condition">{now.label}</span>
+            </div>
+          </div>
+        ) : null}
+        {facts ? <Facts block={facts} start={head + 1} spoken={spoken} /> : null}
+        {meter ? <Meter block={meter} start={head + 2} /> : null}
+      </section>
+      <HourStrip block={forecast} start={head + 1} />
+      <WeekDays block={forecast} start={head + 2} said={saidDays(forecast, heard)} />
+      <Sources sources={card.sources} style={rise(head + 3)} />
+    </div>
+  )
 }

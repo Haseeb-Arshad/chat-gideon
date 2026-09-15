@@ -27,6 +27,7 @@ import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-build
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
 import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '../cards/from-materials'
 import { SKILLS, describeSkill } from './skills'
+import { openMeteo, runWeather } from './weather'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
 import type { CardPatch } from '../cards/patch'
@@ -151,6 +152,31 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
         },
       },
       required: ['query'],
+    },
+    readOnly: true,
+  },
+  {
+    name: 'weather',
+    description: describeSkill(SKILLS.weather),
+    parameters: {
+      type: 'object',
+      properties: {
+        place: {
+          type: 'string',
+          description:
+            'The place as the user said it, with its region or country when they gave one, such as "Portland, Oregon". When they did not say, a place they are known to be in.',
+        },
+        day: {
+          type: 'string',
+          description: "Only when the user asked about a particular day: 'today', 'tomorrow', a weekday, or a date as YYYY-MM-DD.",
+        },
+        units: {
+          type: 'string',
+          enum: ['celsius', 'fahrenheit'],
+          description: 'Only when the user asked for one, or is known to prefer it.',
+        },
+      },
+      required: ['place'],
     },
     readOnly: true,
   },
@@ -483,6 +509,14 @@ export async function runServerTool(
       return runResearch(args, context)
     case 'show_images':
       return runShowImages(args, context)
+    case 'weather':
+      return runWeather(
+        args,
+        { signal: context.signal, timezone: context.timezone },
+        // Read at the call, so a test that replaces fetch is the fetch the provider uses.
+        openMeteo({ fetch: (input, init) => globalThis.fetch(input, init), now: Date.now }),
+        Date.now(),
+      )
     default:
       return { ok: false, content: `There is no tool called ${name}.` }
   }

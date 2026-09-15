@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import {
   formatNumber,
   labelIndices,
@@ -11,6 +11,7 @@ import { SERIES } from '../../../lib/cards/palette'
 import type { CardSize, ChartBlock, ChartSeries, TableBlock } from '../../../lib/cards/schema'
 import { rise } from '../stagger'
 import { Table } from './Table'
+import { useWidth } from './useWidth'
 
 /**
  * A chart in a well.
@@ -47,40 +48,8 @@ interface ChartProps {
   said?: Set<number>
 }
 
-/**
- * The width a chart has to draw in, in pixels, or null before it is known.
- *
- * Read once, synchronously, before the first paint, and then kept current by
- * an observer. The first read cannot be left to the observer: a page that is
- * not visible (a background tab, a hidden pane) runs no rendering steps, so
- * the observer never reports, and a chart drawn at a guessed width would stay
- * at that width until someone looked at it. It measures the figure, which is
- * always there, rather than the well, which is swapped for a table and back.
- */
-function useWidth() {
-  const ref = useRef<HTMLElement | null>(null)
-  const [width, setWidth] = useState<number | null>(null)
-  useLayoutEffect(() => {
-    const node = ref.current
-    if (!node) return
-    const settle = (next: number) => {
-      const rounded = Math.round(next)
-      if (rounded > 0) setWidth((current) => (current !== null && Math.abs(current - rounded) < 2 ? current : rounded))
-    }
-    // Nothing laid out yet (no layout engine at all, or an element not yet
-    // displayed) measures zero; the chart draws at a likely width and the
-    // observer corrects it once there is something to measure.
-    settle(node.clientWidth || FALLBACK_WIDTH)
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => settle(entry.contentRect.width))
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-  return [ref, width] as const
-}
-
 export function Chart({ block, start, size, front, shared = false, said }: ChartProps) {
-  const [figure, width] = useWidth()
+  const [figure, width] = useWidth(FALLBACK_WIDTH)
   const [asTable, setAsTable] = useState(false)
   const [focus, setFocus] = useState<number | null>(null)
   const summary = block.summary || summarizeChart(block)

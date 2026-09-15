@@ -57,6 +57,8 @@ export function risesIn(block: Block): number {
     case 'quote':
     case 'chart':
     case 'stories':
+    case 'forecast':
+    case 'meter':
       return 1
   }
 }

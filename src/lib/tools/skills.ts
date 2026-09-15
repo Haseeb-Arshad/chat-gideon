@@ -14,7 +14,7 @@
  * sentences it has been shown has only recognised them.
  */
 
-export type ToolName = 'get_time' | 'remember' | 'recall' | 'forget' | 'research' | 'show_images' | 'set_timer' | 'offer_link'
+export type ToolName = 'get_time' | 'remember' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'set_timer' | 'offer_link'
 
 export interface SkillManifest {
   tool: ToolName
@@ -87,7 +87,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
   forget: {
     tool: 'forget',
     job: 'Delete stored memories matching a description.',
-    useWhen: ['whenever the user asks you to forget, delete or stop keeping something about them'],
+    useWhen: ['whenever the user asks you to forget, delete, stop remembering or stop keeping something about them'],
     neverFor: [
       { when: 'a fact that has changed, which remember replaces', use: 'remember' },
       { when: 'a figure of speech about the conversation, such as "forget it"', use: null },
@@ -103,12 +103,13 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     tool: 'research',
     job: 'Hand a question about the world to the research desk, which searches the live web, reads sources, and returns a short brief with the answer, the facts with their dates, and the sources.',
     useWhen: [
-      'anything current or anything you would otherwise be guessing at: news, prices, scores, weather, releases, what is true today',
+      'anything current or anything you would otherwise be guessing at: news, prices, scores, releases, what is true today',
       'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, where it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
       'a comparison of particular things, such as two languages, products or cities',
       'whenever the user tells you to search, look something up or check',
     ],
     neverFor: [
+      { when: 'the forecast, or the weather now, for a place', use: 'weather' },
       { when: 'pictures, photos, or what something looks like', use: 'show_images' },
       { when: 'something the user told you about themselves', use: 'recall' },
       { when: 'a question about a card already on screen that what it shows answers', use: null },
@@ -142,6 +143,27 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     counterExamples: [
       { text: 'how tall is a flamingo', use: 'research' },
       { text: 'picture me on a beach right now', use: null },
+    ],
+    sideEffects: false,
+  },
+  weather: {
+    tool: 'weather',
+    job: 'The forecast, or the conditions now, for one place, today and for the six days after it.',
+    useWhen: [
+      'what the weather is or will be somewhere, now or on a day this week',
+      'rain, snow, wind, temperature, the UV index, sunrise or sunset at a place, now or on a day this week',
+      'whether to take a coat, an umbrella or sunscreen somewhere',
+    ],
+    neverFor: [
+      { when: 'what a place is like in a season, or its climate', use: 'research' },
+      { when: 'the weather on a day that has passed, or more than a week away', use: 'research' },
+      { when: 'a figure of speech, such as "under the weather"', use: null },
+    ],
+    voice: 'The card shows the details: say the one or two things that matter, such as rain later or a cold night.',
+    examples: ['will it rain in Lisbon tomorrow', 'how cold is it in Reykjavik tonight', 'do I need sunscreen in Seville this afternoon'],
+    counterExamples: [
+      { text: 'what is Lisbon like in April', use: 'research' },
+      { text: 'I feel under the weather', use: null },
     ],
     sideEffects: false,
   },

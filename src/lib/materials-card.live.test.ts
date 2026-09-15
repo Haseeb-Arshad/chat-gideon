@@ -8,7 +8,7 @@ import type { ServerFrame } from './protocol'
  * sources, run on purpose with
  * `npx vitest run src/lib/materials-card.live.test.ts --mode live`.
  *
- * Skipped in the ordinary suite: it spends OpenRouter credit (four turns cost
+ * Skipped in the ordinary suite: it spends OpenRouter credit (five turns cost
  * a few cents) and needs OPENROUTER_API_KEY and EXA_API_KEY. Set LIVE_ONLY to
  * part of a question to ask only the questions that contain it. It answers what no
  * mock can: does the research model reach for the data tools when a question
@@ -37,6 +37,7 @@ const QUESTIONS: Array<{ question: string; recipe: string; source: string }> = [
   { question: 'Who was Marie Curie?', recipe: 'profile', source: 'wikidata.org' },
   { question: 'Compare GDP per person in Germany and France over time', recipe: 'compare', source: 'api.worldbank.org' },
   { question: "What's in the news today?", recipe: 'front-page', source: 'api.exa.ai' },
+  { question: 'Will it rain in Lisbon tomorrow?', recipe: 'weather', source: 'api.open-meteo.com' },
 ]
 
 describe.skipIf(!live)('live cards from figures and records', () => {
@@ -85,7 +86,7 @@ describe.skipIf(!live)('live cards from figures and records', () => {
       const drawn = card?.t === 'card' ? card.card : null
       report({
         question,
-        dataSources: [...hosts].filter((host) => host.includes('worldbank') || host.includes('wikidata') || host.includes('wikipedia')),
+        dataSources: [...hosts].filter((host) => ['worldbank', 'wikidata', 'wikipedia', 'open-meteo'].some((name) => host.includes(name))),
         ms: at,
         recipe: drawn?.recipe,
         size: drawn?.size,

@@ -225,6 +225,47 @@ export interface StoriesBlock extends BlockBase {
   items: StoryItem[]
 }
 
+export interface ForecastHour {
+  /** As it is shown: "13:00". */
+  time: string
+  temperature: number
+  rainChance: number | null
+  code: number
+  isDay: boolean
+}
+
+export interface ForecastDay {
+  id: string
+  /** As it is shown and said: "Today", "Tomorrow", "Wednesday". */
+  day: string
+  /** "2026-09-14", for sorting and for "the 16th". */
+  date: string
+  code: number
+  high: number
+  low: number
+  rainChance: number | null
+}
+
+/** The weather to come: the next hours as a line with the chance of rain under it, and the days as low-to-high bars. */
+export interface ForecastBlock extends BlockBase {
+  type: 'forecast'
+  unit: '°C' | '°F'
+  /** The sky now, for its picture beside the temperature. */
+  now?: { code: number; isDay: boolean }
+  hours: ForecastHour[]
+  days: ForecastDay[]
+}
+
+/** A value on a fixed scale with named bands, such as the UV index. The bands come from code, never from a model. */
+export interface MeterBlock extends BlockBase {
+  type: 'meter'
+  label: string
+  value: number
+  min: number
+  max: number
+  bands: Array<{ from: number; to: number; label: string }>
+}
+
 /**
  * `line`: how values moved, up to five series. `area`: one series, filled to
  * zero. `column`: values side by side, up to three series. `bar`: one series
@@ -296,6 +337,8 @@ export type Block =
   | QuoteBlock
   | ChartBlock
   | StoriesBlock
+  | ForecastBlock
+  | MeterBlock
 
 export type BlockType = Block['type']
 
@@ -315,6 +358,8 @@ export const BLOCK_TYPES: readonly BlockType[] = [
   'quote',
   'chart',
   'stories',
+  'forecast',
+  'meter',
 ]
 
 export interface CardV2 {

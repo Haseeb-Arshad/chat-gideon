@@ -93,7 +93,47 @@ export interface StoriesMaterial {
   source: SourceRef
 }
 
-export type Material = SeriesMaterial | RecordMaterial | StoriesMaterial
+/** An hour of a forecast, in the place's own local time. */
+export interface WeatherHour {
+  /** "2026-09-14T13:00", local to the place. */
+  time: string
+  temperature: number
+  /** Chance of rain, 0 to 100, or null where the forecast gives none. */
+  rainChance: number | null
+  /** A WMO weather code. */
+  code: number
+  isDay: boolean
+}
+
+export interface WeatherDay {
+  /** "2026-09-14", local to the place. */
+  date: string
+  code: number
+  high: number
+  low: number
+  rainChance: number | null
+  /** The day's highest UV index, or null where the forecast gives none. */
+  uv: number | null
+  /** "07:16", local to the place, or null on a day the sun does not rise or set. */
+  sunrise: string | null
+  sunset: string | null
+}
+
+/** A forecast for one place, as the provider gave it, in the units it was asked for. */
+export interface WeatherMaterial {
+  id: string
+  kind: 'weather'
+  place: { name: string; region: string; country: string; latitude: number; longitude: number; timezone: string }
+  units: { temperature: '°C' | '°F'; wind: 'km/h' | 'mph' }
+  current: { time: string; temperature: number; feelsLike: number; code: number; isDay: boolean; wind: number; humidity: number }
+  /** The next 24 hours, from the current one. */
+  hours: WeatherHour[]
+  /** Today and the days after it. */
+  days: WeatherDay[]
+  source: SourceRef
+}
+
+export type Material = SeriesMaterial | RecordMaterial | StoriesMaterial | WeatherMaterial
 
 export function isSeries(material: Material): material is SeriesMaterial {
   return material.kind === 'series'
@@ -105,4 +145,8 @@ export function isRecord(material: Material): material is RecordMaterial {
 
 export function isStories(material: Material): material is StoriesMaterial {
   return material.kind === 'stories'
+}
+
+export function isWeather(material: Material): material is WeatherMaterial {
+  return material.kind === 'weather'
 }

@@ -9,7 +9,7 @@
 import { cardFromMaterials } from '../lib/cards/from-materials'
 import type { Material, StoriesMaterial } from '../lib/cards/materials'
 import type { Block, CardPicture, CardV2 } from '../lib/cards/schema'
-import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO } from './materials'
+import { LIFE_EXPECTANCY_JPN, LISBON, MARIE_CURIE, POPULATION_CHN, POPULATION_JPN, POPULATION_KOR, PORTO, WEATHER_BERGEN, WEATHER_LISBON } from './materials'
 
 function svg(width: number, height: number, from: string, to: string, label: string): string {
   const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="${width}" height="${height}" fill="url(#g)"/><text x="50%" y="54%" font-family="Georgia, serif" font-size="${Math.round(height / 7)}" fill="rgba(255,255,255,0.78)" text-anchor="middle">${label}</text></svg>`
@@ -121,6 +121,8 @@ const SAMPLE_NEWS: StoriesMaterial = {
 }
 
 export const FIXTURES: Fixture[] = [
+  drawn('lab:weather-dry', 'weather, dry (Open-Meteo)', "What's the weather in Lisbon?", [WEATHER_LISBON], 'Sunny and 24 degrees, with a high of 27, and tomorrow is a touch cooler.'),
+  drawn('lab:weather-wet', 'weather, wet (Open-Meteo)', 'Will it rain in Bergen this week?', [WEATHER_BERGEN], 'Rain every day this week, and Sunday looks the coldest.'),
   drawn('lab:front-page', 'front page (sample stories)', "What's in the news today?", [SAMPLE_NEWS], 'Night ferries are coming back to the harbour after ten years.'),
   drawn('lab:data-trend', 'trend from World Bank figures', 'How has the population of Japan changed?', [POPULATION_JPN], 'It peaked at about 128 million in 2010.'),
   drawn('lab:data-compare', 'three countries on one chart', 'Compare the populations of Japan, South Korea and China', [

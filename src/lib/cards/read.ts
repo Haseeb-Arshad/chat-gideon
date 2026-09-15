@@ -32,6 +32,8 @@ import {
   type ChartForm,
   type ChartSeries,
   type ChipsBlock,
+  type ForecastDay,
+  type ForecastHour,
   type ListItem,
   type NoteBlock,
   type StatChange,
@@ -346,6 +348,37 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
       }
       return items.length ? { type, since: input.since === 'week' ? 'week' : 'day', items } : null
     }
+    case 'forecast': {
+      const hours: ForecastHour[] = []
+      for (const item of list(input.hours, 48)) {
+        if (!isObject(item) || !Number.isFinite(item.temperature)) continue
+        const time = text(item.time, 16)
+        if (time) hours.push({ time, temperature: item.temperature as number, rainChance: percent(item.rainChance), code: weatherCode(item.code), isDay: item.isDay !== false })
+      }
+      const days: ForecastDay[] = []
+      for (const item of list(input.days, 16)) {
+        if (!isObject(item) || !Number.isFinite(item.high) || !Number.isFinite(item.low)) continue
+        const id = text(item.id, 64) || `d${days.length}`
+        const day = text(item.day, 24)
+        if (!day || days.some((each) => each.id === id)) continue
+        const high = item.high as number
+        days.push({ id, day, date: text(item.date, 10), code: weatherCode(item.code), high, low: Math.min(item.low as number, high), rainChance: percent(item.rainChance) })
+      }
+      const now = isObject(input.now) ? { now: { code: weatherCode(input.now.code), isDay: input.now.isDay !== false } } : {}
+      return hours.length || days.length ? { type, unit: input.unit === '°F' ? '°F' : '°C', ...now, hours, days } : null
+    }
+    case 'meter': {
+      const label = text(input.label, 60)
+      const min = Number.isFinite(input.min) ? (input.min as number) : 0
+      const max = Number.isFinite(input.max) ? (input.max as number) : NaN
+      if (!label || !Number.isFinite(input.value) || !(max > min)) return null
+      const bands = list(input.bands, 8).flatMap((band) => {
+        if (!isObject(band) || !Number.isFinite(band.from) || !Number.isFinite(band.to)) return []
+        const name = text(band.label, 24)
+        return name && (band.to as number) > (band.from as number) ? [{ from: band.from as number, to: band.to as number, label: name }] : []
+      })
+      return { type, label, value: Math.min(Math.max(input.value as number, min), max), min, max, bands }
+    }
     case 'prose': {
       const paragraphs = list(input.paragraphs, 6)
         .map((paragraph) => text(paragraph, 1_200))
@@ -367,6 +400,16 @@ function readBody(type: BlockType, input: Input, sources: number): BlockBody | n
       return pictures.length ? { type, pictures } : null
     }
   }
+}
+
+/** A chance as a whole percentage, or null when there is none to show. */
+function percent(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(Math.round(value), 0), 100) : null
+}
+
+/** A WMO weather code; anything else is read as cloud, the least surprising sky to draw. */
+function weatherCode(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 99 ? value : 3
 }
 
 export function readBlocks(value: unknown, sources: number): Block[] {

@@ -10,6 +10,7 @@
  */
 
 import { formatNumber, withUnit } from './chart-math'
+import { conditionOf, degrees } from './weather'
 import { orderBySlot, type Block, type CardV2 } from './schema'
 
 export const DIGEST_LIMIT = 400
@@ -56,6 +57,26 @@ function blockDigest(block: Block): string {
       return `"${block.text}"${block.who ? ` (${block.who})` : ''}`
     case 'stories':
       return `Stories, the most reported first: ${joined(block.items.map((story) => `${story.headline} (${story.host})`))}`
+    case 'forecast': {
+      const say = (value: number) => `${degrees(value)}${block.unit === '°F' ? 'F' : 'C'}`
+      const parts: string[] = []
+      if (block.hours.length) {
+        const warmest = block.hours.reduce((best, hour) => (hour.temperature > best.temperature ? hour : best))
+        const coolest = block.hours.reduce((best, hour) => (hour.temperature < best.temperature ? hour : best))
+        const rain = Math.max(...block.hours.map((hour) => hour.rainChance ?? 0))
+        parts.push(`Next ${block.hours.length} hours: warmest ${say(warmest.temperature)} at ${warmest.time}, coolest ${say(coolest.temperature)} at ${coolest.time}, chance of rain up to ${rain}%`)
+      }
+      if (block.days.length) {
+        parts.push(
+          `Days: ${joined(block.days.map((day) => `${day.day} ${conditionOf(day.code).text.toLowerCase()}, ${say(day.low)} to ${say(day.high)}${day.rainChance ? `, ${day.rainChance}% rain` : ''}`))}`,
+        )
+      }
+      return parts.join('. ')
+    }
+    case 'meter': {
+      const band = block.bands.find((each) => block.value >= each.from && block.value < each.to)
+      return `${block.label}: ${formatNumber(block.value, 1)}${band ? ` (${band.label.toLowerCase()})` : ''}`
+    }
     case 'gallery':
       return `${block.pictures.length} pictures`
     case 'media':
