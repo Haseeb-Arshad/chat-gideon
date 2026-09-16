@@ -66,6 +66,12 @@ export const LIMITS = {
    */
   transcribe: { refillPerSecond: 8, capacity: 200 },
   config: { refillPerSecond: 2, capacity: 30 },
+  /**
+   * Making sure a caller has an account. A page asks once as it loads, so
+   * someone reloading as fast as they can stays well inside this; filling the
+   * database with empty accounts would take a script.
+   */
+  account: { refillPerSecond: 0.2, capacity: 20 },
 } as const satisfies Record<string, BucketConfig>
 
 export type LimitName = keyof typeof LIMITS

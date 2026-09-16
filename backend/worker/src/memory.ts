@@ -39,8 +39,22 @@ function isMemory(value: unknown): value is Memory {
   )
 }
 
-function validMemories(value: unknown): Memory[] {
+export function validMemories(value: unknown): Memory[] {
   return Array.isArray(value) ? value.filter(isMemory) : []
+}
+
+/**
+ * What an account keeps when it takes over what a browser's id remembered.
+ *
+ * Only an account that remembers nothing yet takes anything, so a second
+ * browser signing in later can never overwrite what the account has learned.
+ * The browser's id keeps its own copy, which means a takeover that fails part
+ * way has lost nothing.
+ */
+export function adoption(current: Memory[], incoming: unknown): { memories: Memory[]; result: number } {
+  const found = validMemories(incoming)
+  if (current.length || !found.length) return { memories: current, result: 0 }
+  return { memories: found, result: found.length }
 }
 
 abstract class SerialisedStore implements MemoryStore {

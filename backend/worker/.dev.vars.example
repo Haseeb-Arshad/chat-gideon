@@ -1,4 +1,9 @@
 OPENROUTER_API_KEY=replace_with_your_openrouter_key
+
+# Accounts. At least 32 characters: `openssl rand -base64 32`. Without it,
+# memory stays keyed by the browser's id. Apply the migration once first:
+# npx wrangler d1 migrations apply DB --local
+BETTER_AUTH_SECRET=replace_with_a_random_secret_of_32_or_more_characters
 OPENROUTER_SITE_URL=http://localhost:5173
 OPENROUTER_CHAT_MODEL=openai/gpt-4.1-mini
 OPENROUTER_CHAT_FALLBACK_MODEL=minimax/minimax-m3:free

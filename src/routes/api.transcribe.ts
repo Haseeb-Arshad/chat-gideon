@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { MAX_AUDIO_BYTES, apiError } from '../lib/openrouter'
 import { guardRequest, transcribe } from '../lib/openrouter.server'
+import { captureServerEvent } from '../lib/posthog-server'
 
 /**
  * Speech to text for one utterance.
@@ -55,6 +56,10 @@ export const Route = createFileRoute('/api/transcribe')({
         }
 
         const language = request.headers.get('x-gideon-language') || undefined
+        await captureServerEvent(request, 'transcription_requested', {
+          audio_bytes: audio.byteLength,
+          language_configured: Boolean(language),
+        })
         return transcribe(audio, request.signal, language)
       },
     },

@@ -1,8 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import type { GideonSession } from './realtime'
+
 /** Bindings used by the Cloudflare deployment. Secrets are never bundled. */
 export interface Env {
-  GIDEON_SESSION: DurableObjectNamespace
+  GIDEON_SESSION: DurableObjectNamespace<GideonSession>
+
+  /** Accounts. Both are needed; without either, memory stays keyed by the browser's id. */
+  DB?: D1Database
+  BETTER_AUTH_SECRET?: string
 
   OPENROUTER_API_KEY?: string
   OPENROUTER_CHAT_MODEL?: string

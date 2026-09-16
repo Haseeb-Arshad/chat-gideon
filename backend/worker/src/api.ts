@@ -6,7 +6,7 @@ import {
   transcribeAudio,
   warmUpstream,
 } from '../../../src/lib/agent-core'
-import { gate, originAllowed } from '../../../src/lib/guard'
+import { gate, originAllowed, type LimitName } from '../../../src/lib/guard'
 import { locationFromCf } from '../../../src/lib/location'
 import {
   MAX_AUDIO_BYTES,
@@ -18,7 +18,7 @@ import {
 import { encodeFrame, type ServerFrame } from '../../../src/lib/protocol'
 import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
-import { sessionIdFromRequest } from './identity'
+import { ensureAccount, ownerOf } from './accounts'
 import { memoryStoreForHttp } from './memory'
 import type { Env } from './types'
 
@@ -52,7 +52,7 @@ function json(value: unknown, request: Request, status = 200, headers?: HeadersI
   return response(JSON.stringify(value), request, { status, headers: merged })
 }
 
-function denied(request: Request, limit: 'config' | 'turn' | 'speak' | 'transcribe') {
+function denied(request: Request, limit: LimitName) {
   const result = gate(request, limit)
   if (result.ok) return null
   return json(
@@ -76,6 +76,7 @@ function invalidJson(request: Request) {
 function streamChat(
   request: Request,
   env: Env,
+  owner: string,
   id: string,
   messages: ReturnType<typeof parseChatBody>,
   timezone: string | undefined,
@@ -83,7 +84,7 @@ function streamChat(
   screen: ScreenState | null,
 ): Response {
   const encoder = new TextEncoder()
-  const store = memoryStoreForHttp(env, sessionIdFromRequest(request))
+  const store = memoryStoreForHttp(env, owner)
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -139,6 +140,7 @@ async function chat(request: Request, env: Env) {
     return streamChat(
       request,
       env,
+      await ownerOf(request, env),
       id,
       parsed,
       timezone,
@@ -210,6 +212,22 @@ async function transcribe(request: Request) {
   return json({ text: result.text, model: result.model }, request, 200, { 'Cache-Control': 'no-store' })
 }
 
+async function account(request: Request, env: Env) {
+  try {
+    const result = await ensureAccount(request, env)
+    if (!result) {
+      return json(apiError('accounts_off', 'Accounts are not set up on this deployment.'), request, 404)
+    }
+    const reply = json({ anonymous: result.anonymous }, request, 200, { 'Cache-Control': 'no-store' })
+    // Appended one by one: Better Auth sends more than one cookie, and
+    // setting the header would keep only the last.
+    for (const cookie of result.headers.getSetCookie()) reply.headers.append('Set-Cookie', cookie)
+    return reply
+  } catch {
+    return json(apiError('account_failed', 'The account could not be set up.', true), request, 503)
+  }
+}
+
 /** Handles API routes; the caller sends non-API requests to TanStack Start. */
 export async function handleApi(request: Request, env: Env): Promise<Response | null> {
   setRuntimeEnv(env)
@@ -260,6 +278,22 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
       200,
       { 'Cache-Control': 'no-store' },
     )
+  }
+
+  if (url.pathname === '/api/account') {
+    if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
+    // Only a page makes an account, and a page always says where it is from,
+    // so a request without an Origin is a script filling the database.
+    if (!originAllowed(request.headers.get('origin'), request.headers.get('host'), true)) {
+      return json(
+        apiError('origin_rejected', 'That request came from an origin GIDEON does not answer.'),
+        request,
+        403,
+      )
+    }
+    const check = denied(request, 'account')
+    if (check) return check
+    return account(request, env)
   }
 
   if (url.pathname === '/api/chat') {

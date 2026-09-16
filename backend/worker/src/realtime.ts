@@ -5,16 +5,20 @@ import { originAllowed } from '../../../src/lib/guard'
 import { LOCATION_HEADER, decodeLocation, readLocation, type CoarseLocation } from '../../../src/lib/location'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { createRealtimeSession, type RealtimeSession } from '../../../src/lib/realtime-session'
+import type { Memory, MemoryStore } from '../../../src/lib/tools/memory'
+import { OWNER_HEADER } from './accounts'
 import { callerFromRequest, sessionIdFromRequest } from './identity'
 import {
   DurableObjectMemoryStore,
+  adoption,
   hasSupabaseMemory,
   SupabaseMemoryStore,
 } from './memory'
 import type { Env } from './types'
 
 interface SessionAttachment {
-  sessionId: string
+  /** Whose memory this is: `user/<id>` for an account, otherwise the browser's id. */
+  owner: string
   caller: string
   host: string | null
   /** Roughly where the socket was opened from, as the Worker found it. */
@@ -26,13 +30,13 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<SessionAttachment>
   if (
-    typeof candidate.sessionId !== 'string' ||
+    typeof candidate.owner !== 'string' ||
     typeof candidate.caller !== 'string'
   ) {
     return null
   }
   return {
-    sessionId: candidate.sessionId,
+    owner: candidate.owner,
     caller: candidate.caller,
     host: typeof candidate.host === 'string' ? candidate.host : null,
     location: readLocation(candidate.location),
@@ -63,10 +67,40 @@ export class GideonSession extends DurableObject<Env> {
     }
   }
 
+  /**
+   * One store for every socket on this object.
+   *
+   * Each socket used to build its own, and a store caches what it read, so two
+   * tabs each wrote back their own copy and the later write erased what the
+   * other had just learned. An object named by an account is shared by every
+   * tab and device that account opens, which makes that the normal case.
+   */
+  private localMemory: DurableObjectMemoryStore | null = null
+  private remoteMemory: SupabaseMemoryStore | null = null
+
+  private local() {
+    this.localMemory ??= new DurableObjectMemoryStore(this.ctx.storage)
+    return this.localMemory
+  }
+
+  private memoryFor(owner: string): MemoryStore {
+    if (!hasSupabaseMemory(this.env)) return this.local()
+    this.remoteMemory ??= new SupabaseMemoryStore(this.env, owner)
+    return this.remoteMemory
+  }
+
+  /** What this object remembers, read by an account taking over from a browser's id. */
+  async memories(): Promise<Memory[]> {
+    return this.local().all()
+  }
+
+  /** Takes on a browser's memories, unless this object already remembers something. */
+  async adopt(memories: Memory[]): Promise<number> {
+    return this.local().mutate((current) => adoption(current, memories))
+  }
+
   private createSession(socket: WebSocket, attachment: SessionAttachment) {
-    const memoryStore = hasSupabaseMemory(this.env)
-      ? new SupabaseMemoryStore(this.env, attachment.sessionId)
-      : new DurableObjectMemoryStore(this.ctx.storage)
+    const memoryStore = this.memoryFor(attachment.owner)
 
     return createRealtimeSession(
       {
@@ -100,7 +134,8 @@ export class GideonSession extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server)
 
     const attachment: SessionAttachment = {
-      sessionId: sessionIdFromRequest(request),
+      // Set by the Worker once it has checked the account cookie.
+      owner: request.headers.get(OWNER_HEADER) || sessionIdFromRequest(request),
       caller: callerFromRequest(request),
       host: request.headers.get('host'),
       // Set by the Worker in front of this object, which removes any a client sent.

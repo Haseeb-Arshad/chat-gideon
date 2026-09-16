@@ -1,3 +1,4 @@
+import { usePostHog } from '@posthog/react'
 import {
   Activity,
   ArrowUp,
@@ -432,6 +433,7 @@ function useGlide(ref: React.RefObject<HTMLElement | null>, key: unknown) {
 }
 
 export function AgentPage() {
+  const posthog = usePostHog()
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [draft, setDraft] = useState('')
   const [phase, setPhaseState] = useState<Phase>('idle')
@@ -1684,6 +1686,11 @@ export function AgentPage() {
 
       if (!turn) return
 
+      posthog.capture('message_sent', {
+        interaction_mode: voiceModeRef.current === 'active' ? 'voice' : 'text',
+        conversation_message_count: context.length,
+      })
+
       messagesRef.current = context
       setMessages(context)
       setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
@@ -1691,7 +1698,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, feel, promote, resetSilenceTimer, stopPartials, tuckStage],
+    [abandon, beginTurn, feel, posthog, promote, resetSilenceTimer, stopPartials, tuckStage],
   )
 
   /**
@@ -2042,17 +2049,26 @@ export function AgentPage() {
   startListeningRef.current = startListening
 
   const handleVoiceControl = useCallback(() => {
-    if (voiceModeRef.current === 'active') {
+    const enabling = voiceModeRef.current !== 'active'
+    posthog.capture('voice_control_changed', {
+      enabled: enabling,
+      previous_mode: voiceModeRef.current,
+    })
+    if (!enabling) {
       turnVoiceOff()
       return
     }
     setNotice(null)
     startListening(false)
-  }, [setNotice, startListening, turnVoiceOff])
+  }, [posthog, setNotice, startListening, turnVoiceOff])
 
   const stopCurrentTurn = useCallback(() => {
     const turn = turnRef.current
     if (turn) {
+      posthog.capture('response_stopped', {
+        phase: phaseRef.current,
+        voice_enabled: voiceModeRef.current === 'active',
+      })
       turn.timeline.interrupted = true
       logRef.current.push(turn.timeline.summary())
     }
@@ -2066,9 +2082,13 @@ export function AgentPage() {
       resetSilenceTimer()
       scheduleListen(220)
     }
-  }, [abandon, resetSilenceTimer, scheduleListen, setPhase])
+  }, [abandon, posthog, resetSilenceTimer, scheduleListen, setPhase])
 
   const newConversation = useCallback(() => {
+    posthog.capture('conversation_reset', {
+      previous_message_count: messagesRef.current.length,
+      resource_count: resources.length,
+    })
     abandon(turnRef.current)
     turnRef.current = null
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current)
@@ -2105,7 +2125,7 @@ export function AgentPage() {
     } else {
       setPhase(voiceModeRef.current === 'paused' ? 'paused' : 'idle')
     }
-  }, [abandon, resetStage, resetSilenceTimer, scheduleListen, setPhase])
+  }, [abandon, posthog, resetStage, resetSilenceTimer, resources.length, scheduleListen, setPhase])
 
   // The metal face still tilts toward the pointer; the eyes track it themselves.
   function handlePointerMove(event: React.PointerEvent<HTMLElement>) {
@@ -2244,6 +2264,12 @@ export function AgentPage() {
             type="button"
             data-fresh={freshResources}
             onClick={() => {
+              if (!resourcesOpen) {
+                posthog.capture('resources_opened', {
+                  resource_count: resources.length,
+                  has_new_resources: freshResources,
+                })
+              }
               setResourcesOpen((open) => !open)
               setHudOpen(false)
             }}

@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { parseChatBody, RequestValidationError, apiError } from '../lib/openrouter'
 import { guardRequest, streamChat } from '../lib/openrouter.server'
+import { captureServerEvent } from '../lib/posthog-server'
 import { readScreen } from '../lib/stage-judge'
 
 /**
@@ -25,9 +26,15 @@ export const Route = createFileRoute('/api/chat')({
           const id = typeof body?.id === 'string' ? body.id : 'turn'
           const timezone =
             typeof body?.timezone === 'string' ? body.timezone.slice(0, 64) : undefined
+          const messages = parseChatBody(body)
+          await captureServerEvent(request, 'chat_requested', {
+            message_count: messages.length,
+            speculative: body?.speculative === true,
+            has_screen_context: Boolean(body?.screen),
+          })
           return streamChat(
             id,
-            parseChatBody(body),
+            messages,
             request.signal,
             timezone,
             body?.speculative === true,

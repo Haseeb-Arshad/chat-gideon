@@ -18,7 +18,7 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from './protocol'
-import { backendHeaders, backendUrl, backendWebSocketUrl } from './backend'
+import { backendHeaders, backendUrl, backendWebSocketUrl, ensureAccount } from './backend'
 import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
 import type { CardV2 } from './cards/schema'
@@ -106,6 +106,7 @@ export class RealtimeLink {
   transport: LinkTransport = 'idle'
 
   private socket: WebSocket | null = null
+  private awaitingAccount = false
   private openTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -162,11 +163,23 @@ export class RealtimeLink {
     if (typeof window === 'undefined') return
     if (fallbackRemembered() || typeof WebSocket === 'undefined') {
       this.setTransport('http')
+      void ensureAccount()
       return
     }
-    if (this.socket) return
+    if (this.socket || this.awaitingAccount) return
 
     this.setTransport('connecting')
+
+    // The socket's memory is chosen as it opens, so the account comes first.
+    this.awaitingAccount = true
+    void ensureAccount().then(() => {
+      this.awaitingAccount = false
+      this.open()
+    })
+  }
+
+  private open() {
+    if (this.disposed || this.socket) return
 
     let socket: WebSocket
     try {

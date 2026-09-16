@@ -1,3 +1,4 @@
+import { PostHogProvider } from '@posthog/react'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 
 import appCss from '../styles.css?url'
@@ -56,6 +57,38 @@ function NotFound() {
   )
 }
 
+function PostHogRoot({ children }: { children: React.ReactNode }) {
+  const token = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN as string | undefined
+  const host = import.meta.env.VITE_PUBLIC_POSTHOG_HOST as string | undefined
+
+  if (!token || !host) {
+    if (import.meta.env.DEV) {
+      const variable = !token
+        ? 'VITE_PUBLIC_POSTHOG_PROJECT_TOKEN'
+        : 'VITE_PUBLIC_POSTHOG_HOST'
+      throw new Error(
+        `${variable} variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once ${variable} is configured`,
+      )
+    }
+    return children
+  }
+
+  return (
+    <PostHogProvider
+      apiKey={token}
+      options={{
+        api_host: host,
+        defaults: '2025-05-24',
+        capture_exceptions: true,
+        debug: import.meta.env.DEV,
+        tracing_headers: typeof window !== 'undefined' ? [window.location.hostname] : [],
+      }}
+    >
+      {children}
+    </PostHogProvider>
+  )
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
@@ -63,7 +96,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere]">
-        {children}
+        <PostHogRoot>{children}</PostHogRoot>
         <Scripts />
       </body>
     </html>

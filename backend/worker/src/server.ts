@@ -2,8 +2,8 @@ import handler from '@tanstack/react-start/server-entry'
 import { withLocation } from '../../../src/lib/location'
 import { REALTIME_PATH } from '../../../src/lib/protocol'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
+import { ownerOf, withOwner } from './accounts'
 import { handleApi, isApiPath } from './api'
-import { sessionIdFromRequest } from './identity'
 import type { Env, WorkerContext } from './types'
 
 export { GideonSession } from './realtime'
@@ -28,9 +28,12 @@ export default {
       if (!env.GIDEON_SESSION) {
         return new Response('The realtime Durable Object is not configured.', { status: 503 })
       }
-      const id = env.GIDEON_SESSION.idFromName(sessionIdFromRequest(request))
+      // One object per owner, so every tab and device on an account meets the same memory.
+      const owner = await ownerOf(request, env)
+      const id = env.GIDEON_SESSION.idFromName(owner)
       // The object cannot see Cloudflare's lookup of where the request came from, so it is handed over.
-      return env.GIDEON_SESSION.get(id).fetch(withLocation(request, (request as { cf?: unknown }).cf))
+      const located = withLocation(request, (request as { cf?: unknown }).cf)
+      return env.GIDEON_SESSION.get(id).fetch(withOwner(located, owner))
     }
 
     if (isApiPath(url.pathname)) {

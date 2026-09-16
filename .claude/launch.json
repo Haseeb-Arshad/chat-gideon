@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "dev:cloudflare",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:cloudflare"],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

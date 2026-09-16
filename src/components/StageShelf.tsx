@@ -1,3 +1,4 @@
+import { usePostHog } from '@posthog/react'
 import type { CSSProperties } from 'react'
 import { RECIPES } from '../lib/cards/recipes'
 import { cardThumbnail } from '../lib/cards/schema'
@@ -24,6 +25,8 @@ export function StageShelf({
   entries: StageEntry[]
   onShow: (id: string) => void
 }) {
+  const posthog = usePostHog()
+
   // Only cards: a searching pane that never became one has nothing to come back to.
   const shelved = entries
     .filter((entry) => entry.card && !entry.leaving)
@@ -41,7 +44,13 @@ export function StageShelf({
             type="button"
             className="shelf-tab"
             key={entry.id}
-            onClick={() => onShow(entry.id)}
+            onClick={() => {
+              posthog.capture('card_restored', {
+                card_recipe: card.recipe,
+                shelf_position: index,
+              })
+              onShow(entry.id)
+            }}
             style={{ '--i': index } as CSSProperties}
             aria-label={`Bring back ${card.title}`}
           >

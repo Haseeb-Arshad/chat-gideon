@@ -159,7 +159,7 @@ Browser ────────────────────────
        ├─ server tools: clock · memory · research ──► research model ──► Exa
        └─ client tools: tool_request ──► browser ──► tool_reply
   memory: IDF-ranked facts, merged on restatement, evicted by usefulness
-          └─ Durable Object storage, optionally mirrored to Supabase
+          └─ Durable Object storage per account, optionally mirrored to Supabase
   guard: origin · per-caller token buckets
 ```
 
@@ -301,6 +301,7 @@ recogniser survives only as a fallback for a browser without it.
 | `OPENROUTER_STT_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Transcription; fastest measured |
 | `OPENROUTER_STT_FALLBACK_MODEL` | `deepgram/nova-3` | Used if the primary fails |
 | `GIDEON_MEMORY_PATH` | `.gideon/memory.json` | Where facts persist; `none` for no disk |
+| `BETTER_AUTH_SECRET` | unset | Cloudflare only. Turns on accounts, so memory follows a person rather than a browser; 32+ characters |
 | `EXA_API_KEY` | unset | Enables live `research` |
 | `MAPBOX_PUBLIC_TOKEN` | unset | Enables `show_map`. Sent to the browser on every map card, so restrict it by URL |
 | `MAPBOX_SERVER_TOKEN` | unset | Optional secret for the server's own Mapbox requests; the public token is used when it is refused |
@@ -382,9 +383,10 @@ for a focused rerun. About ten cents a run; results in
 Conversation history stays in this browser's local storage. Memories are the
 only thing that leaves it, and only to the server you are running. The local
 Node server writes them to `GIDEON_MEMORY_PATH` (`.gideon/memory.json` by
-default, gitignored). The Cloudflare Worker keeps the active session's memory
-in Durable Object storage and mirrors it to Supabase when the Worker bindings
-are configured. See [`backend/worker/README.md`](backend/worker/README.md).
+default, gitignored). The Cloudflare Worker gives each visitor an anonymous
+account, a session cookie with no sign-up, and keeps that account's memory in
+Durable Object storage, mirrored to Supabase when the Worker bindings are
+configured. See [`backend/worker/README.md`](backend/worker/README.md).
 
 Asked about the weather without a place, the Cloudflare deployment uses the
 city Cloudflare places the connection in. Its coordinates, rounded to about a
@@ -427,8 +429,10 @@ npx wrangler login
 npm run deploy:cloudflare
 ```
 
-Put `OPENROUTER_API_KEY`, `EXA_API_KEY`, `MAPBOX_PUBLIC_TOKEN`,
-`MAPBOX_SERVER_TOKEN` and `SUPABASE_SERVICE_ROLE_KEY` in Wrangler secrets. Apply
+Put `BETTER_AUTH_SECRET`, `OPENROUTER_API_KEY`, `EXA_API_KEY`,
+`MAPBOX_PUBLIC_TOKEN`, `MAPBOX_SERVER_TOKEN` and `SUPABASE_SERVICE_ROLE_KEY` in
+Wrangler secrets. The deploy creates the D1 database for accounts on its first
+run and applies its migrations every time. Apply
 [`001_gideon_memories.sql`](backend/worker/supabase/migrations/001_gideon_memories.sql)
 in Supabase before enabling the database mirror. Cloudflare and Supabase free
 tiers cover small personal demos within their quotas; OpenRouter model,
