@@ -38,6 +38,8 @@ export interface Utterance {
   sampleRate: number
   /** Speech length in milliseconds, hangover excluded. */
   ms: number
+  /** A bounded segment of ongoing speech; append its transcript, do not commit yet. */
+  continued?: boolean
 }
 
 export interface CaptureHandlers {
@@ -269,9 +271,9 @@ export class MicCapture {
         1,
         Math.round((this.options.preRollMs ?? 500) / FRAME_MS),
       )
-      this.maxFrames = Math.round(
+      this.maxFrames = Math.max(frameSize, Math.round(
         ((this.options.maxUtteranceMs ?? 30_000) / 1000) * this.context.sampleRate,
-      )
+      ))
       this.source = this.context.createMediaStreamSource(this.stream)
       this.node = new AudioWorkletNode(this.context, WORKLET_NAME, {
         numberOfInputs: 1,
@@ -388,10 +390,8 @@ export class MicCapture {
     // frames that prove speech started are the ones already gone by then.
     if (pcm) {
       if (this.recording) {
-        if (this.recordedFrames < this.maxFrames) {
-          this.recording.push(pcm)
-          this.recordedFrames += pcm.length
-        }
+        this.recording.push(pcm)
+        this.recordedFrames += pcm.length
       } else {
         this.preRoll.push(pcm)
         if (this.preRoll.length > this.preRollFrames) this.preRoll.shift()
@@ -421,7 +421,6 @@ export class MicCapture {
       this.sileroHeardStart = Boolean(this.silero)
       this.silero?.markUtterance()
     }
-
     if (this.ducking) {
       // While GIDEON is talking, sustained speech is an interruption, and the
       // ordinary endpointer's edges are meaningless — the utterance it would
@@ -438,10 +437,30 @@ export class MicCapture {
         this.bargedIn = true
         this.options.onBargeIn?.()
       }
+      // Echo is never transcribed. Bound its rolling buffer while retaining
+      // the recent onset in case the interruption is confirmed next frame.
+      if (this.recording && this.recordedFrames > this.maxFrames) {
+        this.takeRecording(this.recordedFrames - this.maxFrames)
+      }
       return
     }
 
     if (result.onSpeechStart) this.options.onSpeechStart?.()
+
+    const noise = this.silero !== null && this.sileroHeardStart &&
+      this.silero.speechMs < MIN_NEURAL_SPEECH_MS
+    // Bound PCM without resetting VAD, repeating pre-roll, or dropping samples.
+    // Keep a full final segment for the endpoint rather than emitting an empty tail.
+    while (this.recording && this.recordedFrames >= this.maxFrames &&
+      !(result.onSpeechEnd && this.recordedFrames === this.maxFrames)) {
+      const frames = this.takeRecording(this.maxFrames)
+      if (!noise) this.options.onUtterance?.({
+        frames,
+        sampleRate: this.rate,
+        ms: Math.round((this.maxFrames / this.rate) * 1000),
+        continued: true,
+      })
+    }
 
     if (result.onSpeechEnd) {
       // Sound Silero never once heard as speech is the room, not the person:
@@ -463,12 +482,30 @@ export class MicCapture {
       if (utterance) this.options.onUtterance?.(utterance)
       this.options.onSpeechEnd?.(result.speechMs)
     }
-
     if (result.onFalseStart) {
       // Too short to be a word, so the audio is dropped rather than sent.
       this.recording = null
       this.recordedFrames = 0
     }
+  }
+
+  /** Remove exactly `samples`, splitting a worklet frame when necessary. */
+  private takeRecording(samples: number): Float32Array[] {
+    const frames: Float32Array[] = []
+    let remaining = samples
+    while (remaining > 0 && this.recording?.length) {
+      const frame = this.recording.shift()!
+      if (frame.length <= remaining) {
+        frames.push(frame)
+        remaining -= frame.length
+      } else {
+        frames.push(frame.slice(0, remaining))
+        this.recording.unshift(frame.slice(remaining))
+        remaining = 0
+      }
+    }
+    this.recordedFrames -= samples - remaining
+    return frames
   }
 
   private async teardown() {

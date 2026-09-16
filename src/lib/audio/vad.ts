@@ -222,7 +222,9 @@ export class VoiceActivityDetector {
     const floor = this.floor.update(features.rms, speaking)
     const snrDb = toDb(features.rms / floor)
 
-    const probability = speechProbability(features, snrDb, config)
+    // Barge-in consumes probability, not the state machine's active flag.
+    // Apply the same echo margin to both paths.
+    const probability = speechProbability(features, snrDb - this.duckDb, config)
     // Hysteresis: it takes more to start speaking than to keep speaking, which
     // is what stops the state flapping on the quiet part of a word.
     const threshold = (speaking ? config.releaseDb : config.onsetDb) + this.duckDb

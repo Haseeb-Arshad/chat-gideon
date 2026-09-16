@@ -146,7 +146,9 @@ export class Listener {
     this.pendingText = ''
     this.changedAt = Date.now()
 
-    if (!preserveDeadline) this.silenceDeadline = Date.now() + SILENCE_LIMIT_MS
+    if (!preserveDeadline || !this.silenceDeadline) {
+      this.silenceDeadline = Date.now() + SILENCE_LIMIT_MS
+    }
     this.armSilence()
     this.armStability()
 

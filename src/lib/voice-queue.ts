@@ -115,7 +115,7 @@ interface QueueItem {
   seq: number
   text: string
   startChar: number
-  audio: Promise<Blob>
+  audio: Promise<{ ok: true; blob: Blob } | { ok: false; error: unknown }>
 }
 
 export class VoiceQueue {
@@ -129,6 +129,7 @@ export class VoiceQueue {
   private waiting: Array<() => void> = []
   private controller = new AbortController()
   private failed = false
+  private finished = false
   private sawAudio = false
   private readonly player: ScheduledPlayer
 
@@ -164,15 +165,18 @@ export class VoiceQueue {
 
   /** Feeds newly streamed reply text; complete chunks are dispatched at once. */
   feed(text: string) {
-    if (this.controller.signal.aborted) return
+    if (this.controller.signal.aborted || this.finished) return
     this.buffer += text
     this.drainBuffer(false)
   }
 
   /** Marks the reply complete so the tail is spoken too. */
   finish() {
-    if (this.controller.signal.aborted) return
+    if (this.controller.signal.aborted || this.finished) return
+    this.finished = true
     this.drainBuffer(true)
+    // Callers may not await idle; finishing still owns successful cleanup.
+    void this.idle()
   }
 
   /**
@@ -182,7 +186,11 @@ export class VoiceQueue {
    */
   async idle() {
     while (this.draining) await this.draining
-    if (!this.controller.signal.aborted) await this.player.drain()
+    if (!this.controller.signal.aborted) {
+      await this.player.drain()
+      // An idle streaming queue can receive more text. Only finish seals it.
+      if (this.finished) await this.player.dispose()
+    }
   }
 
   cancel() {
@@ -227,7 +235,13 @@ export class VoiceQueue {
       seq,
       text,
       startChar,
-      audio: this.generate(seq, text),
+      // Observe failures immediately, even while an earlier request blocks the
+      // ordered drain. Keep the original error rather than replacing it with
+      // a cancellation or leaking an unhandled rejection.
+      audio: this.generate(seq, text).then(
+        (blob) => ({ ok: true as const, blob }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ),
     }
     this.items.push(item)
     this.startDraining()
@@ -287,15 +301,16 @@ export class VoiceQueue {
       const item = this.items[this.playIndex]
       this.playIndex += 1
 
-      let blob: Blob
-      try {
-        blob = await item.audio
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') return
+      const outcome = await item.audio
+      if (!outcome.ok) {
+        if ((outcome.error as Error)?.name === 'AbortError') return
+        if (this.controller.signal.aborted) return
         if (!this.failed) {
           this.failed = true
           this.options.onError?.(
-            error instanceof Error ? error.message : 'The voice could not be generated.',
+            outcome.error instanceof Error
+              ? outcome.error.message
+              : 'The voice could not be generated.',
           )
         }
         continue
@@ -308,7 +323,7 @@ export class VoiceQueue {
       }
 
       try {
-        await this.player.enqueue(blob, item.startChar, item.text.length)
+        await this.player.enqueue(outcome.blob, item.startChar, item.text.length)
       } catch (error) {
         if (this.controller.signal.aborted) return
         if (!this.failed) {

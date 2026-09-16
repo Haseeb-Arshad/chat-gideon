@@ -58,6 +58,8 @@ export class ScheduledPlayer {
   private speaking = false
   private stopped = false
   private levelValue = 0
+  /** Completed chunks must still count after their source nodes are removed. */
+  private completedChars = 0
   /** 1 normally; lower while an interruption is being checked. */
   private volume = 1
 
@@ -76,9 +78,9 @@ export class ScheduledPlayer {
    */
   get spokenChars(): number {
     const context = this.context
-    if (!context) return 0
+    if (!context) return this.completedChars
     const now = context.currentTime
-    let reached = 0
+    let reached = this.completedChars
     for (const item of this.playing) {
       if (now >= item.startAt + item.duration) {
         reached = Math.max(reached, item.startChar + item.chars)
@@ -154,6 +156,9 @@ export class ScheduledPlayer {
     this.playing.push(item)
 
     source.onended = () => {
+      this.completedChars = Math.max(this.completedChars, item.startChar + item.chars)
+      this.handlers.onProgress?.(this.spokenChars)
+      source.disconnect()
       const index = this.playing.indexOf(item)
       if (index >= 0) this.playing.splice(index, 1)
       if (!this.playing.length) this.setSpeaking(false)
@@ -172,6 +177,28 @@ export class ScheduledPlayer {
       if (remaining <= 0) break
       await new Promise((resolve) => setTimeout(resolve, Math.min(120, remaining * 1000 + 20)))
     }
+  }
+
+  /** Close a finished queue without waiting for a fade of already silent audio. */
+  async dispose(): Promise<void> {
+    await this.drain()
+    if (this.stopped) return
+    this.completedChars = this.spokenChars
+    this.stopped = true
+    const context = this.context
+    for (const item of this.playing) {
+      item.source.onended = null
+      item.source.disconnect()
+    }
+    this.playing.length = 0
+    this.context = null
+    this.gain = null
+    this.analyser = null
+    this.samples = null
+    this.stopMeter()
+    this.setSpeaking(false)
+    this.handlers.onProgress?.(this.completedChars)
+    await context?.close().catch(() => undefined)
   }
 
   /**
@@ -211,6 +238,7 @@ export class ScheduledPlayer {
    */
   stop() {
     if (this.stopped) return
+    this.completedChars = this.spokenChars
     this.stopped = true
 
     const context = this.context
@@ -243,6 +271,7 @@ export class ScheduledPlayer {
     this.context = null
     this.gain = null
     this.analyser = null
+    this.samples = null
     this.stopMeter()
     this.setSpeaking(false)
   }

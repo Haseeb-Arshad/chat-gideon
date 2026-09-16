@@ -51,8 +51,8 @@ function harness(options: CaptureOptions = {}): Harness {
     maxFrames: number
     rate: number
   }
-  inner.preRollFrames = Math.round(500 / FRAME_MS)
-  inner.maxFrames = 16_000 * 30
+  inner.preRollFrames = Math.max(1, Math.round((options.preRollMs ?? 500) / FRAME_MS))
+  inner.maxFrames = Math.max(SAMPLES, 16 * (options.maxUtteranceMs ?? 30_000))
   inner.rate = 16_000
 
   const frame = (rms: number) => {
@@ -128,6 +128,54 @@ describe('MicCapture retention', () => {
     feed(h, VOICE, 2)
     feed(h, ROOM, 60)
     expect(h.utterances).toEqual([])
+  })
+})
+
+describe('MicCapture long dictation', () => {
+  it('segments over a minute of speech without losing or repeating samples', () => {
+    const h = harness()
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 3_250)
+    expect(h.utterances).toHaveLength(2)
+    expect(h.utterances.every((u) => u.continued)).toBe(true)
+    expect(h.starts).toBe(1)
+    feed(h, ROOM, 35)
+    expect(h.utterances).toHaveLength(3)
+    expect(h.utterances.at(-1)?.continued).toBeUndefined()
+    const frames = h.utterances.flatMap((u) => u.frames)
+    expect(frames.filter((f) => f[0] > 0.1)).toHaveLength(3_250)
+    // 500ms pre-roll has three onset frames, so just 22 quiet frames precede speech.
+    expect(frames.length).toBe(22 + 3_250 + 35)
+    expect(h.utterances.every((u) => u.frames.reduce((n, f) => n + f.length, 0) <= 480_000)).toBe(true)
+    expect(h.capture.snapshot()).toBeNull()
+  })
+
+  it('keeps exact sample boundaries for a non-frame-aligned segment limit', () => {
+    const h = harness({ maxUtteranceMs: 333 })
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 100)
+    feed(h, ROOM, 35)
+    const samples = h.utterances.flatMap((u) => u.frames.flatMap((f) => Array.from(f)))
+    expect(samples.filter((v) => v > 0.1)).toHaveLength(100 * SAMPLES)
+    expect(samples.length).toBe((22 + 100 + 35) * SAMPLES)
+    expect(h.utterances.every((u) => u.frames.reduce((n, f) => n + f.length, 0) <= 16 * 333)).toBe(true)
+    expect(h.utterances.at(-1)?.continued).toBeUndefined()
+  })
+
+  it('drops the in-progress tail on reset, with fresh pre-roll for the next utterance', () => {
+    const h = harness({ maxUtteranceMs: 1_000 })
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 80)
+    expect(h.utterances.length).toBeGreaterThan(0)
+    h.capture.resetUtterance()
+    expect(h.capture.snapshot()).toBeNull()
+    h.utterances.length = 0
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 20)
+    feed(h, ROOM, 35)
+    const frames = h.utterances.flatMap((u) => u.frames)
+    expect(frames.filter((f) => f[0] > 0.1)).toHaveLength(20)
+    expect(h.utterances.at(-1)?.continued).toBeUndefined()
   })
 })
 
@@ -248,6 +296,16 @@ describe('MicCapture with Silero', () => {
     // Loud and sustained, which on its own is exactly what used to interrupt.
     feed(h, VOICE, 40)
     expect(h.barges).toBe(0)
+  })
+
+  it('does not let high neural confidence bypass the ducked echo threshold', () => {
+    const h = harness({ duckDb: 14 })
+    withSilero(h, 0.99)
+    feed(h, ROOM, 40)
+    h.capture.setDucking(true)
+    feed(h, 0.03, 50)
+    expect(h.barges).toBe(0)
+    expect(h.starts).toBe(0)
   })
 
   it('still lets a real voice interrupt', () => {
