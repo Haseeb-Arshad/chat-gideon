@@ -3,9 +3,9 @@ import { EphemeralMemoryStore } from './memory'
 import { runServerTool, type ToolContext } from './registry'
 
 /**
- * The memory tools as the speaking model calls them. What is pinned here is
- * the one call that changes two things: a fact that has changed takes the old
- * one's place, and takes nothing else with it.
+ * The memory tools as the speaking model calls them. Replacement and forgetting
+ * are destructive, so both are pinned to what the user actually said: an
+ * unambiguous selector, exact words, and nothing else going with it.
  */
 
 const context = (store: EphemeralMemoryStore): ToolContext => ({
@@ -54,5 +54,41 @@ describe('remember a fact that has changed', () => {
     expect(unmatched.content).toBe('Stored.')
 
     expect(await kept(store)).toHaveLength(4)
+  })
+})
+
+describe('forget', () => {
+  it('removes only the memory every word of the query names', async () => {
+    const store = new EphemeralMemoryStore()
+    await runServerTool('remember', { text: 'The user is allergic to peanuts.' }, context(store))
+    await runServerTool('remember', { text: 'The user is allergic to shellfish.' }, context(store))
+    await runServerTool('remember', { text: 'The user plays the cello.' }, context(store))
+
+    const outcome = await runServerTool('forget', { query: 'allergic to peanuts' }, context(store))
+
+    expect(outcome.ok).toBe(true)
+    expect(await kept(store)).toEqual(['The user is allergic to shellfish.', 'The user plays the cello.'])
+  })
+
+  it('removes nothing when the query only shares words with unrelated facts', async () => {
+    const store = new EphemeralMemoryStore()
+    await runServerTool('remember', { text: 'The user is allergic to peanuts.' }, context(store))
+    await runServerTool('remember', { text: 'The user plays the cello.' }, context(store))
+
+    const outcome = await runServerTool('forget', { query: 'cello playing' }, context(store))
+
+    expect(outcome.content).toBe('There was nothing stored about that.')
+    expect(await kept(store)).toEqual(['The user is allergic to peanuts.', 'The user plays the cello.'])
+  })
+
+  it('refuses to act when the query alone would match everything', async () => {
+    const store = new EphemeralMemoryStore()
+    await runServerTool('remember', { text: 'The user is allergic to peanuts.' }, context(store))
+    await runServerTool('remember', { text: 'The user plays the cello.' }, context(store))
+
+    const outcome = await runServerTool('forget', { query: 'the user' }, context(store))
+
+    expect(outcome.content).toBe('There was nothing stored about that.')
+    expect(await kept(store)).toHaveLength(2)
   })
 })

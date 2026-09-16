@@ -18,7 +18,7 @@ import {
 import { encodeFrame, type ServerFrame } from '../../../src/lib/protocol'
 import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
-import { ensureAccount, ownerOf } from './accounts'
+import { ensureAccount, ownerOf, OwnerUnavailable } from './accounts'
 import { memoryStoreForHttp } from './memory'
 import type { Env } from './types'
 
@@ -27,7 +27,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' }
 function corsHeaders(request: Request): Headers {
   const headers = new Headers()
   const origin = request.headers.get('origin')
-  if (origin && originAllowed(origin, request.headers.get('host'))) {
+  if (origin && originAllowed(origin, request.url)) {
     headers.set('Access-Control-Allow-Origin', origin)
     headers.set('Access-Control-Allow-Credentials', 'false')
     headers.set('Vary', 'Origin')
@@ -53,7 +53,7 @@ function json(value: unknown, request: Request, status = 200, headers?: HeadersI
 }
 
 function denied(request: Request, limit: LimitName) {
-  const result = gate(request, limit)
+  const result = gate(request, limit, Date.now(), 'cloudflare')
   if (result.ok) return null
   return json(
     apiError(result.code, result.message, result.status === 429),
@@ -84,7 +84,10 @@ function streamChat(
   screen: ScreenState | null,
 ): Response {
   const encoder = new TextEncoder()
-  const store = memoryStoreForHttp(env, owner)
+  // Every verified owner's reads and writes meet the same serialised authority
+  // the sockets use; an unverified caller gets an ephemeral store that exists
+  // for this response alone.
+  const store = memoryStoreForHttp(env, owner, env.GIDEON_SESSION)
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -151,7 +154,10 @@ async function chat(request: Request, env: Env) {
     if (error instanceof RequestValidationError) {
       return json(apiError(error.code, error.message), request, 400)
     }
-    return invalidJson(request)
+    if (error instanceof OwnerUnavailable) {
+      return json(apiError('account_unavailable', 'Account verification is temporarily unavailable.', true), request, 503)
+    }
+    return json(apiError('memory_unavailable', 'Memory is temporarily unavailable.', true), request, 503)
   }
 }
 
@@ -236,7 +242,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
   if (request.method === 'OPTIONS') {
     // Preflight only validates the browser origin. It does not consume a
     // provider-backed rate-limit token.
-    if (!originAllowed(request.headers.get('origin'), request.headers.get('host'))) {
+    if (!originAllowed(request.headers.get('origin'), request.url)) {
       return json(
         apiError('origin_rejected', 'That request came from an origin GIDEON does not answer.'),
         request,
@@ -284,7 +290,7 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
     if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
     // Only a page makes an account, and a page always says where it is from,
     // so a request without an Origin is a script filling the database.
-    if (!originAllowed(request.headers.get('origin'), request.headers.get('host'), true)) {
+    if (!originAllowed(request.headers.get('origin'), request.url, true)) {
       return json(
         apiError('origin_rejected', 'That request came from an origin GIDEON does not answer.'),
         request,

@@ -18,6 +18,7 @@ import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
 import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as ApiAccountRouteImport } from './routes/api.account'
 
 const SystemCardRoute = SystemCardRouteImport.update({
   id: '/system-card',
@@ -64,11 +65,17 @@ const ApiChatRoute = ApiChatRouteImport.update({
   path: '/api/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAccountRoute = ApiAccountRouteImport.update({
+  id: '/api/account',
+  path: '/api/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
   '/system-card': typeof SystemCardRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
   '/system-card': typeof SystemCardRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
   '/system-card': typeof SystemCardRoute
+  '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agent'
     | '/system-card'
+    | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agent'
     | '/system-card'
+    | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agent'
     | '/system-card'
+    | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentRoute: typeof AgentRoute
   SystemCardRoute: typeof SystemCardRoute
+  ApiAccountRoute: typeof ApiAccountRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiConfigRoute: typeof ApiConfigRoute
   ApiHealthzRoute: typeof ApiHealthzRoute
@@ -212,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/account': {
+      id: '/api/account'
+      path: '/api/account'
+      fullPath: '/api/account'
+      preLoaderRoute: typeof ApiAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -219,6 +239,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentRoute: AgentRoute,
   SystemCardRoute: SystemCardRoute,
+  ApiAccountRoute: ApiAccountRoute,
   ApiChatRoute: ApiChatRoute,
   ApiConfigRoute: ApiConfigRoute,
   ApiHealthzRoute: ApiHealthzRoute,

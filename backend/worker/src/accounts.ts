@@ -8,16 +8,15 @@
  *
  * Nobody is asked to sign up. Everyone gets an anonymous account on arrival,
  * which a real sign-in can later be attached to. Accounts need a D1 database
- * and a secret; without either, memory stays keyed by the browser's id exactly
- * as before.
+ * and a secret; without either, unverified callers get per-request/connection
+ * ephemeral memory. Legacy browser IDs never prove ownership.
  */
 
 import { betterAuth } from 'better-auth'
 import { anonymous } from 'better-auth/plugins'
 import { allowedOrigins } from '../../../src/lib/guard'
-import type { Memory } from '../../../src/lib/tools/memory'
 import { sessionIdFromRequest } from './identity'
-import { SupabaseMemoryStore, adoption, hasSupabaseMemory } from './memory'
+import { memoryStoreForHttp, adoption } from './memory'
 import type { Env } from './types'
 
 /** Set by the Worker in front of the session object, which removes any a client sent. */
@@ -25,6 +24,8 @@ export const OWNER_HEADER = 'x-gideon-owner'
 
 /** Matches the plain and the `__Secure-` form Better Auth uses over HTTPS. */
 const SESSION_COOKIE = 'better-auth.session_token'
+
+export class OwnerUnavailable extends Error {}
 
 const DAY = 60 * 60 * 24
 
@@ -74,15 +75,21 @@ export function accountOwner(userId: string) {
   return `user/${userId}`
 }
 
-/** The name memory is kept under: the account if the caller has one, otherwise the browser's id. */
+/** The name memory is kept under: the account if the caller has one, otherwise never a shared id. */
 export async function ownerOf(request: Request, env: Env): Promise<string> {
   const auth = authFor(request, env)
-  if (auth && request.headers.get('cookie')?.includes(SESSION_COOKIE)) {
+  const hasCredentials = request.headers.get('cookie')?.includes(SESSION_COOKIE)
+  if (!auth && hasCredentials) throw new OwnerUnavailable('Account verification is not configured.')
+  if (auth && hasCredentials) {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
       if (session) return accountOwner(session.user.id)
-    } catch {
-      // A database outage costs this turn the account, not the turn itself.
+    } catch (error) {
+      // The caller presented credentials that could not be verified right now.
+      // Answering with an unverified id would hand this turn somebody else's
+      // conversation, and a shared fallback would hand it to strangers, so the
+      // caller is told to retry rather than served under a borrowed name.
+      throw new OwnerUnavailable('The account could not be verified.', { cause: error })
     }
   }
   return sessionIdFromRequest(request)
@@ -105,9 +112,8 @@ export interface AccountResult {
  * Makes sure the caller has an account, creating an anonymous one if not.
  *
  * The page calls this before opening its socket, because the socket's memory
- * is chosen as it opens. A new account takes over whatever the browser's id
- * already remembered, so nobody loses what GIDEON knew about them on the day
- * accounts arrive.
+ * is chosen as it opens. No legacy browser-ID data is imported: those IDs were
+ * unverified. Cookie issuance has no dependency on memory storage/adoption.
  */
 export async function ensureAccount(request: Request, env: Env): Promise<AccountResult | null> {
   const auth = authFor(request, env)
@@ -120,24 +126,18 @@ export async function ensureAccount(request: Request, env: Env): Promise<Account
   }
 
   const created = await auth.api.signInAnonymous({ headers: request.headers, returnHeaders: true })
-  const browser = sessionIdFromRequest(request)
-  // `anonymous` is the one id every browser without storage shares, so what
-  // it holds belongs to nobody in particular and must never be handed on.
-  if (browser !== 'anonymous') {
-    await adoptMemories(env, browser, accountOwner(created.response.user.id))
-  }
   return { anonymous: true, headers: created.headers }
 }
 
-/** Copies one owner's memories to another that has none yet. */
+/**
+ * Copies one owner's memories to another that has none yet, when the new owner
+ * is verified.
+ *
+ * The browser's id keeps its own copy, so a takeover that fails part way has
+ * lost nothing.
+ */
 export async function adoptMemories(env: Env, from: string, to: string): Promise<number> {
-  if (hasSupabaseMemory(env)) {
-    const found = await new SupabaseMemoryStore(env, from).all()
-    return new SupabaseMemoryStore(env, to).mutate((current) => adoption(current, found))
-  }
-
-  const source = env.GIDEON_SESSION.get(env.GIDEON_SESSION.idFromName(from))
-  const found: Memory[] = await source.memories()
-  if (!found.length) return 0
-  return env.GIDEON_SESSION.get(env.GIDEON_SESSION.idFromName(to)).adopt(found)
+  if (!from.startsWith('user/') || !to.startsWith('user/')) return 0
+  const found = await memoryStoreForHttp(env, from, env.GIDEON_SESSION).all()
+  return memoryStoreForHttp(env, to, env.GIDEON_SESSION).mutate((target) => adoption(target, found))
 }

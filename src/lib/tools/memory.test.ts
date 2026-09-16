@@ -78,14 +78,25 @@ describe('remember', () => {
     expect(result.memory.kind).toBe('preference')
   })
 
-  it('merges a restatement instead of duplicating it', () => {
+  it('merges a formatting-equivalent restatement instead of duplicating it', () => {
     const first = remember([], 'fact', 'The user prefers tea')
-    const second = remember(first.memories, 'preference', 'The user prefers tea in the morning')
+    const second = remember(first.memories, 'preference', 'The user prefers tea.')
     expect(second.memories).toHaveLength(1)
     expect(second.result.status).toBe('merged')
     // The newer phrasing wins, and the kind is corrected with it.
-    expect(second.memories[0].text).toBe('The user prefers tea in the morning')
+    expect(second.memories[0].text).toBe('The user prefers tea.')
     expect(second.memories[0].kind).toBe('preference')
+  })
+
+  it.each([
+    ['The user prefers tea', 'The user prefers tea in the morning'],
+    ['The user has a severe allergy to peanuts', 'The user has a severe allergy to shellfish'],
+    ['The user is allergic to peanuts', 'The user is not allergic to peanuts'],
+    ['The user takes 5 mg daily', 'The user takes 50 mg daily'],
+  ])('keeps distinct statements without explicit replacement: %s', (first, second) => {
+    const result = remember(remember([], 'fact', first).memories, 'fact', second)
+    expect(result.result.status).toBe('stored')
+    expect(result.memories.map((memory) => memory.text)).toEqual([first, second])
   })
 
   it('truncates something far too long to be one fact', () => {

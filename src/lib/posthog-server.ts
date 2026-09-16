@@ -1,62 +1,81 @@
 import { PostHog } from 'posthog-node'
 
 let posthogClient: PostHog | null = null
+let warned = false
 
 export function getPostHogClient() {
-  const token =
-    process.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ||
-    (import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN as string | undefined)
-  const host =
-    process.env.VITE_PUBLIC_POSTHOG_HOST ||
-    (import.meta.env.VITE_PUBLIC_POSTHOG_HOST as string | undefined)
+  try {
+    const token = (
+      process.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ||
+      (import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN as string | undefined)
+    )?.trim()
+    const host = (
+      process.env.VITE_PUBLIC_POSTHOG_HOST ||
+      (import.meta.env.VITE_PUBLIC_POSTHOG_HOST as string | undefined)
+    )?.trim()
 
-  if (!token || !host) {
-    if (import.meta.env.DEV) {
-      const variable = !token
-        ? 'VITE_PUBLIC_POSTHOG_PROJECT_TOKEN'
-        : 'VITE_PUBLIC_POSTHOG_HOST'
-      throw new Error(
-        `${variable} variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once ${variable} is configured`,
-      )
+    if (!token || !host || token.startsWith('replace_with_')) {
+      if (import.meta.env.DEV && !warned) {
+        warned = true
+        console.warn('PostHog is not configured; analytics is disabled.')
+      }
+      return null
     }
+
+    posthogClient ??= new PostHog(token, {
+      host,
+      flushAt: 1,
+      flushInterval: 0,
+      requestTimeout: 1_000,
+      fetchRetryCount: 0,
+      enableExceptionAutocapture: true,
+    })
+    return posthogClient
+  } catch {
     return null
   }
-
-  posthogClient ??= new PostHog(token, {
-    host,
-    flushAt: 1,
-    flushInterval: 0,
-    enableExceptionAutocapture: true,
-  })
-  return posthogClient
 }
 
-export async function captureServerEvent(
+type BackgroundRequest = Request & { waitUntil?: (work: Promise<unknown>) => unknown }
+type RequestContext = { get?: () => { waitUntil?: (work: Promise<unknown>) => unknown } }
+
+function keepAlive(request: Request, work: Promise<unknown>) {
+  const background = (request as BackgroundRequest).waitUntil
+  if (background) {
+    background.call(request, work)
+    return
+  }
+  // Vercel exposes the active invocation here; long-lived Node needs no extension.
+  const context = (globalThis as unknown as Record<symbol, RequestContext>)[
+    Symbol.for('@vercel/request-context')
+  ]?.get?.()
+  context?.waitUntil?.(work)
+}
+
+export function captureServerEvent(
   request: Request,
   event: string,
   properties: Record<string, unknown> = {},
-) {
-  const client = getPostHogClient()
-  if (!client) return
-
-  const sessionId = request.headers.get('X-PostHog-Session-Id') || undefined
-  const distinctId =
-    request.headers.get('X-PostHog-Distinct-Id') ||
-    request.headers.get('X-Gideon-Session') ||
-    'anonymous'
-
+): void {
   try {
+    const client = getPostHogClient()
+    if (!client) return
+
     client.capture({
-      distinctId,
+      distinctId:
+        request.headers.get('X-PostHog-Distinct-Id') ||
+        request.headers.get('X-Gideon-Session') ||
+        'anonymous',
       event,
       properties: {
         ...properties,
-        $session_id: sessionId,
+        $session_id: request.headers.get('X-PostHog-Session-Id') || undefined,
         source: 'api',
       },
     })
-    await client.flush()
+    const delivery = client.flush().catch(() => undefined)
+    keepAlive(request, delivery)
   } catch {
-    // Analytics delivery must not prevent the underlying request from completing.
+    // Optional telemetry cannot change the outcome of a conversation request.
   }
 }

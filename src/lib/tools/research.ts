@@ -889,38 +889,13 @@ export class SharedRun {
 
 const CACHE_TTL_MS = 10 * 60_000
 const CACHE_LIMIT = 64
-/** Word overlap above which two questions are the same question. */
-const SAME_QUESTION = 0.72
-
-/**
- * Words that frame a question without being part of it. "Was" and "were" are
- * deliberately absent: tense is content when the question is about the world.
- */
-const FRAMING = new Set([
-  'what', 'whats', 'is', 'are', 'the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for',
-  'and', 'or', 'do', 'does', 'can', 'you', 'me', 'tell', 'know', 'please', 'about',
-  'find', 'out', 'up', 'look', 'search', 'check', 'right', 'now', 'currently', 'today',
-])
-
-function keyWords(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .split(/\s+/)
-      .filter((word) => word.length > 1 && !FRAMING.has(word)),
-  )
-}
-
-function overlap(a: Set<string>, b: Set<string>): number {
-  if (!a.size || !b.size) return 0
-  let shared = 0
-  for (const word of a) if (b.has(word)) shared += 1
-  return shared / (a.size + b.size - shared)
+/** Formatting only: entities, word order, dates, signs and numbers are content. */
+function questionKey(text: string): string {
+  return text.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ')
 }
 
 interface CacheEntry {
-  words: Set<string>
+  key: string
   at: number
   run: SharedRun
 }
@@ -958,39 +933,21 @@ export function foundNothing(result: ResearchResult): boolean {
   return EMPTY_HANDED.some((pattern) => pattern.test(answer))
 }
 
-/**
- * Recent research, findable by a question that is *nearly* the same.
- *
- * Exact-match caching would almost never hit here: the speculative turn and the
- * real one are two model calls, and they phrase the question differently even
- * when the user said the same words. Word overlap catches that, and the
- * threshold is high enough that "weather in London today" and "weather in
- * London tomorrow" stay different questions.
- */
+/** Recent research, shared only for the same normalized question. */
 export class ResearchCache {
   private entries: CacheEntry[] = []
 
   constructor(private readonly now: () => number = Date.now) {}
 
   lookup(question: string): SharedRun | null {
-    const words = keyWords(question)
+    const key = questionKey(question)
     const cutoff = this.now() - CACHE_TTL_MS
     this.entries = this.entries.filter((entry) => entry.at >= cutoff)
-
-    let best: CacheEntry | null = null
-    let bestScore = 0
-    for (const entry of this.entries) {
-      const score = overlap(words, entry.words)
-      if (score >= SAME_QUESTION && score > bestScore) {
-        best = entry
-        bestScore = score
-      }
-    }
-    return best?.run ?? null
+    return this.entries.find((entry) => entry.key === key)?.run ?? null
   }
 
   store(question: string, run: SharedRun) {
-    this.entries.push({ words: keyWords(question), at: this.now(), run })
+    this.entries.push({ key: questionKey(question), at: this.now(), run })
     if (this.entries.length > CACHE_LIMIT) this.entries.shift()
     // A run that failed, or came back empty-handed, is not an answer worth
     // repeating for ten minutes.

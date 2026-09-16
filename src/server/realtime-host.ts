@@ -10,8 +10,9 @@
  */
 
 import { REALTIME_PATH } from '../lib/protocol'
-import { callerKey, limiter, originAllowed, rateLimited } from '../lib/guard'
+import { callerKey, isLocalRequest, isTrustedAddress, limiter, originAllowed, rateLimited } from '../lib/guard'
 import { createRealtimeSession } from '../lib/realtime-session'
+import { nodeMemoryStore } from './identity'
 
 /** Minimal structural view of `ws`, which ships without type declarations. */
 interface NodeWebSocket {
@@ -38,6 +39,8 @@ interface IncomingLike {
 interface DuplexLike {
   write: (data: string) => void
   destroy: () => void
+  remoteAddress?: string
+  encrypted?: boolean
 }
 
 interface ServerLike {
@@ -128,8 +131,12 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
         // page anywhere could open one and spend the OpenRouter key. The
         // header is required rather than merely checked: only a browser
         // legitimately opens this, and browsers always send one.
-        if (
-          !originAllowed(headerValue(request, 'origin'), headerValue(request, 'host'), true)
+        const forwardedProtocol = isTrustedAddress(socket.remoteAddress)
+          ? headerValue(request, 'x-forwarded-proto')?.split(',').at(-1)?.trim() : null
+        const protocol = socket.encrypted || forwardedProtocol === 'https' ? 'https' : 'http'
+        const requestHost = headerValue(request, 'host')
+        if (!requestHost ||
+          !originAllowed(headerValue(request, 'origin'), `${protocol}://${requestHost}`, true)
         ) {
           socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
           socket.destroy()
@@ -138,9 +145,10 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
 
         // Opening sockets is itself cheap enough to abuse, so the handshake
         // spends from the same bucket a config read would — but only where
-        // there is anybody to protect against.
-        const host = headerValue(request, 'host')
-        const caller = callerKey({ get: (name) => headerValue(request, name) })
+        // there is anybody to protect against. The socket's own peer address
+        // decides trust: a spoofed forwarded chain cannot rotate identities.
+        const host = isLocalRequest(socket.remoteAddress) ? headerValue(request, 'host') : null
+        const caller = callerKey({ get: (name) => headerValue(request, name) }, 'unknown', 'none', socket.remoteAddress)
         if (rateLimited(host) && !limiter.check(caller, 'config').allowed) {
           socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n')
           socket.destroy()
@@ -158,6 +166,9 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
           const create = options.loadSession ? options.loadSession() : Promise.resolve(createRealtimeSession)
           void create
             .then((factory) => {
+              // Only a valid server-issued cookie reaches the durable store; an
+              // unverified socket gets memory that lives and dies with itself.
+              // The same rule the HTTP fallback applies to its own request.
               session = factory(
                 {
                   sendText: (data) => {
@@ -167,7 +178,13 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
                     if (client.readyState === OPEN) client.send(data)
                   },
                 },
-                { caller, host },
+                {
+                  caller,
+                  host,
+                  memoryStore: nodeMemoryStore({
+                    get: (name) => headerValue(request, name),
+                  }),
+                },
               )
               if (closed) return session.close()
               for (const message of waiting.splice(0)) session.handleMessage(message)

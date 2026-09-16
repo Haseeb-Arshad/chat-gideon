@@ -27,7 +27,7 @@ export const Route = createFileRoute('/api/chat')({
           const timezone =
             typeof body?.timezone === 'string' ? body.timezone.slice(0, 64) : undefined
           const messages = parseChatBody(body)
-          await captureServerEvent(request, 'chat_requested', {
+          captureServerEvent(request, 'chat_requested', {
             message_count: messages.length,
             speculative: body?.speculative === true,
             has_screen_context: Boolean(body?.screen),
@@ -39,6 +39,7 @@ export const Route = createFileRoute('/api/chat')({
             timezone,
             body?.speculative === true,
             readScreen(body?.screen),
+            request,
           )
         } catch (error) {
           if (error instanceof RequestValidationError) {

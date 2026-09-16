@@ -56,7 +56,7 @@ export const Route = createFileRoute('/api/transcribe')({
         }
 
         const language = request.headers.get('x-gideon-language') || undefined
-        await captureServerEvent(request, 'transcription_requested', {
+        captureServerEvent(request, 'transcription_requested', {
           audio_bytes: audio.byteLength,
           language_configured: Boolean(language),
         })

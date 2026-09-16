@@ -30,7 +30,6 @@ import {
 } from './tools/registry'
 import {
   EphemeralMemoryStore,
-  JsonMemoryStore,
   type MemoryStore,
 } from './tools/memory'
 import { nameOf, positionIn, type CoarseLocation } from './location'
@@ -180,28 +179,6 @@ function deltaText(data: unknown) {
         : '',
     )
     .join('')
-}
-
-// -- Memory ----------------------------------------------------------------
-
-/**
- * One store for the process.
- *
- * A path makes memory durable, which is what a long-lived server wants; its
- * absence makes it per-process, which is the only honest thing a serverless
- * host can offer. Choosing here rather than at each call site means a turn
- * never has to care which it got.
- */
-let store: MemoryStore | null = null
-
-export function memoryStore(): MemoryStore {
-  if (store) return store
-  // Defaulted rather than opt-in: memory that silently evaporates on restart
-  // is worse than none, because GIDEON says it will remember and then does not.
-  // `none` is the explicit escape hatch for a host with no writable disk.
-  const path = readEnv('GIDEON_MEMORY_PATH', '.gideon/memory.json')
-  store = path === 'none' ? new EphemeralMemoryStore() : new JsonMemoryStore(path)
-  return store
 }
 
 /**
@@ -443,9 +420,12 @@ export async function* streamTurn(
     return
   }
 
+  const turnStore = options.memoryStore ?? new EphemeralMemoryStore()
   const memories = await contextMemories(
-    options.memoryStore ?? memoryStore(),
+    turnStore,
     messages.at(-1)?.content ?? '',
+    4,
+    Boolean(options.speculative),
   ).catch(() => [])
 
   const history: UpstreamMessage[] = [
@@ -584,17 +564,26 @@ export async function* streamTurn(
     const decoder = new TextDecoder()
     let buffer = ''
     let finished = false
+    let terminal = false
+    let upstreamFailure = false
 
     const readPayload = (line: string) => {
       if (!line.startsWith('data:')) return null
       const payload = line.slice(5).trim()
       if (!payload) return null
       if (payload === '[DONE]') {
+        terminal = true
         finished = true
         return null
       }
       try {
         const data = JSON.parse(payload)
+        const reason = data.choices?.[0]?.finish_reason
+        if (data.error || (reason && !['stop', 'tool_calls', 'function_call'].includes(reason))) {
+          upstreamFailure = true
+          finished = true
+        }
+        if (['stop', 'tool_calls', 'function_call'].includes(reason)) terminal = true
         readToolDeltas(data, pending)
         return deltaText(data)
       } catch {
@@ -646,6 +635,11 @@ export async function* streamTurn(
       return
     } finally {
       void reader.cancel().catch(() => undefined)
+    }
+
+    if (upstreamFailure || !terminal) {
+      yield errorFrame(id, 'stream_interrupted', 'The reply was cut off mid-thought.', true)
+      return
     }
 
     const calls = [...pending.entries()]
@@ -702,7 +696,7 @@ export async function* streamTurn(
     // Once, before the tools that need it. The browser asks the user the first
     // time; after that it answers at once, and the session remembers the answer.
     if (locating && options.bridge) {
-      const callId = `where_${round}`
+      const callId = `where_${id}_${round}`
       yield { t: 'tool_request', id, call: callId, name: 'get_location', args: {} }
       const answer = await options.bridge.call(callId, 'get_location', {}, signal)
       if (signal.aborted) return
@@ -753,7 +747,7 @@ export async function* streamTurn(
           }
         }
         outcome = await runServerTool(call.name, args, {
-          store: options.memoryStore ?? memoryStore(),
+          store: turnStore,
           timezone: options.timezone || 'UTC',
           signal,
           env: configValue,

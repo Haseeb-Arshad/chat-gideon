@@ -5,14 +5,16 @@ import { originAllowed } from '../../../src/lib/guard'
 import { LOCATION_HEADER, decodeLocation, readLocation, type CoarseLocation } from '../../../src/lib/location'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { createRealtimeSession, type RealtimeSession } from '../../../src/lib/realtime-session'
-import type { Memory, MemoryStore } from '../../../src/lib/tools/memory'
+import type { Memory } from '../../../src/lib/tools/memory'
+import { VersionedMemoryAuthority } from '../../../src/server/memory-authority'
 import { OWNER_HEADER } from './accounts'
-import { callerFromRequest, sessionIdFromRequest } from './identity'
+import { callerFromRequest } from './identity'
 import {
   DurableObjectMemoryStore,
-  adoption,
-  hasSupabaseMemory,
+  EphemeralMemoryStore,
   SupabaseMemoryStore,
+  hasSupabaseMemory,
+  type MemorySnapshot,
 } from './memory'
 import type { Env } from './types'
 
@@ -67,40 +69,35 @@ export class GideonSession extends DurableObject<Env> {
     }
   }
 
-  /**
-   * One store for every socket on this object.
-   *
-   * Each socket used to build its own, and a store caches what it read, so two
-   * tabs each wrote back their own copy and the later write erased what the
-   * other had just learned. An object named by an account is shared by every
-   * tab and device that account opens, which makes that the normal case.
-   */
-  private localMemory: DurableObjectMemoryStore | null = null
-  private remoteMemory: SupabaseMemoryStore | null = null
+  private authority: VersionedMemoryAuthority | null = null
+  private owner: string | null = null
 
-  private local() {
-    this.localMemory ??= new DurableObjectMemoryStore(this.ctx.storage)
-    return this.localMemory
+  private memoryFor(owner: string): VersionedMemoryAuthority {
+    if (!owner.startsWith('user/')) throw new Error('Unverified memory owner')
+    // RPC arguments cannot redirect this object to a different owner's row.
+    if (this.env.GIDEON_SESSION.idFromName(owner).toString() !== this.ctx.id.toString()) {
+      throw new Error('Memory owner does not match object')
+    }
+    if (this.owner && this.owner !== owner) throw new Error('Memory owner mismatch')
+    this.owner = owner
+    this.authority ??= new VersionedMemoryAuthority(hasSupabaseMemory(this.env)
+      ? new SupabaseMemoryStore(this.env, owner)
+      : new DurableObjectMemoryStore(this.ctx.storage))
+    return this.authority
   }
 
-  private memoryFor(owner: string): MemoryStore {
-    if (!hasSupabaseMemory(this.env)) return this.local()
-    this.remoteMemory ??= new SupabaseMemoryStore(this.env, owner)
-    return this.remoteMemory
+  async memorySnapshot(owner: string): Promise<MemorySnapshot> {
+    return this.memoryFor(owner).snapshot()
   }
 
-  /** What this object remembers, read by an account taking over from a browser's id. */
-  async memories(): Promise<Memory[]> {
-    return this.local().all()
-  }
-
-  /** Takes on a browser's memories, unless this object already remembers something. */
-  async adopt(memories: Memory[]): Promise<number> {
-    return this.local().mutate((current) => adoption(current, memories))
+  async memoryCommit(owner: string, expected: string, memories: Memory[]): Promise<boolean> {
+    return this.memoryFor(owner).commit(expected, memories)
   }
 
   private createSession(socket: WebSocket, attachment: SessionAttachment) {
-    const memoryStore = this.memoryFor(attachment.owner)
+    const memoryStore = attachment.owner.startsWith('user/')
+      ? this.memoryFor(attachment.owner)
+      : new EphemeralMemoryStore()
 
     return createRealtimeSession(
       {
@@ -124,20 +121,30 @@ export class GideonSession extends DurableObject<Env> {
     }
 
     const origin = request.headers.get('origin')
-    if (!originAllowed(origin, request.headers.get('host'), true)) {
+    if (!originAllowed(origin, request.url, true)) {
       return new Response('That WebSocket origin is not allowed.', { status: 403 })
     }
 
     const pair = new WebSocketPair()
     const client = pair[0]
     const server = pair[1]
+
+    const owner = request.headers.get(OWNER_HEADER) || ''
+    if ((!owner.startsWith('user/') && !owner.startsWith('ephemeral/')) ||
+        this.env.GIDEON_SESSION.idFromName(owner).toString() !== this.ctx.id.toString()) {
+      return new Response('Invalid internal session owner.', { status: 403 })
+    }
+
     this.ctx.acceptWebSocket(server)
 
     const attachment: SessionAttachment = {
-      // Set by the Worker once it has checked the account cookie.
-      owner: request.headers.get(OWNER_HEADER) || sessionIdFromRequest(request),
+      // Set by the Worker once it has checked the account cookie. A socket may
+      // only be served under a verified account owner; the Worker rejects the
+      // upgrade otherwise, so a missing header here is a protocol violation.
+      owner,
       caller: callerFromRequest(request),
-      host: request.headers.get('host'),
+      // Cloudflare ingress is public even if a caller supplies a local Host.
+      host: null,
       // Set by the Worker in front of this object, which removes any a client sent.
       location: decodeLocation(request.headers.get(LOCATION_HEADER)),
     }

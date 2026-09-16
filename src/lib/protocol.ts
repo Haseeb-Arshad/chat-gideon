@@ -46,7 +46,7 @@ export type ClientFrame =
     }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }
-  /** The browser's answer to a `tool_request`. */
+  /** Echo BOTH fields from tool_request: id is the original turn, call is its tool call. */
   | { t: 'tool_reply'; id: string; call: string; ok: boolean; content: string }
   | { t: 'ping'; at: number }
 

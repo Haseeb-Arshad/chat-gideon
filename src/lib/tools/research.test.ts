@@ -574,11 +574,11 @@ describe('sharing a run', () => {
 
     // The guess asks, then is discarded before the answer comes back.
     const guess = new AbortController()
-    const guessed = research("what's the answer to q", { signal: guess.signal }, shared, cache)
+    const guessed = research("what is the answer to q", { signal: guess.signal }, shared, cache)
     guess.abort()
     expect((await guessed).brief).toBe('Cancelled.')
 
-    // The real turn asks nearly the same thing and picks the run up.
+    // The real turn asks the same thing and picks the run up.
     const real = research('what is the answer to q', { signal: new AbortController().signal }, shared, cache)
     release()
     const result = await real
@@ -616,11 +616,12 @@ describe('ResearchCache', () => {
   }
   const settled = (value: ResearchResult) => new SharedRun(() => Promise.resolve(value), 5)
 
-  it('finds a question phrased a little differently, and no other', () => {
+  it('normalizes formatting but never approximates the question', () => {
     const cache = new ResearchCache(() => 0)
     cache.store('what is the weather in london today', settled(result('rain')))
-    expect(cache.lookup("what's the weather in london today?")).not.toBeNull()
-    expect(cache.lookup('weather london today')).not.toBeNull()
+    expect(cache.lookup("  WHAT is the weather in london today  ")).not.toBeNull()
+    expect(cache.lookup("what's the weather in london today?")).toBeNull()
+    expect(cache.lookup('weather london today')).toBeNull()
     expect(cache.lookup('what is the weather in london tomorrow')).toBeNull()
     expect(cache.lookup('what is the population of london')).toBeNull()
   })
@@ -637,7 +638,7 @@ describe('ResearchCache', () => {
     const signal = new AbortController().signal
 
     const guess = research('what is the answer to q', { signal }, deps(fetch), cache)
-    const real = research('what is the answer to q please', { signal }, deps(fetch), cache)
+    const real = research(' what is the answer to q ', { signal }, deps(fetch), cache)
     const [a, b] = await Promise.all([guess, real])
 
     expect(a.via).toBe('agent')
@@ -674,7 +675,7 @@ describe('ResearchCache', () => {
     cache.store('ai research papers from august 2026', run)
     await run.promise
     await sleep(0)
-    expect(cache.lookup('ai research papers august 2026')).toBeNull()
+    expect(cache.lookup('ai research papers from august 2026')).toBeNull()
   })
 
   it('keeps an answer that actually found something', async () => {
@@ -683,7 +684,7 @@ describe('ResearchCache', () => {
     cache.store('ai research papers from august 2026', run)
     await run.promise
     await sleep(0)
-    expect(cache.lookup('ai research papers august 2026')).not.toBeNull()
+    expect(cache.lookup('ai research papers from august 2026')).not.toBeNull()
   })
 })
 

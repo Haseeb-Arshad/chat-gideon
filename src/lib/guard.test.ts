@@ -76,15 +76,35 @@ describe('RateLimiter', () => {
 })
 
 describe('callerKey', () => {
-  it('trusts only the first hop of a forwarded chain', () => {
+  it('never trusts a forwarded chain from an untrusted socket', () => {
     expect(callerKey(headers({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1, 10.0.0.2' }))).toBe(
-      '203.0.113.7',
+      'local',
     )
   })
 
-  it('falls back through the other proxy headers', () => {
-    expect(callerKey(headers({ 'cf-connecting-ip': '198.51.100.4' }))).toBe('198.51.100.4')
-    expect(callerKey(headers({}))).toBe('local')
+  it('believes only the hop a trusted proxy itself appended', () => {
+    expect(
+      callerKey(
+        headers({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1' }),
+        'local',
+        'none',
+        '10.0.0.1',
+      ),
+    ).toBe('10.0.0.1')
+  })
+
+  it('prefers the ingress address Cloudflare verified', () => {
+    expect(callerKey(headers({ 'cf-connecting-ip': '198.51.100.4' }), 'local', 'cloudflare')).toBe(
+      '198.51.100.4',
+    )
+    expect(callerKey(headers({ 'cf-connecting-ip': '198.51.100.4' }))).toBe('local')
+  })
+
+  it('falls back to the socket address over a header it cannot vouch for', () => {
+    expect(callerKey(headers({ 'x-real-ip': '198.51.100.9' }), 'local', 'none', '203.0.113.1')).toBe(
+      '203.0.113.1',
+    )
+    expect(callerKey(headers({ 'x-real-ip': '198.51.100.9' }))).toBe('local')
   })
 })
 
@@ -93,9 +113,10 @@ describe('originAllowed', () => {
     expect(originAllowed('https://gideon.example', 'gideon.example')).toBe(true)
   })
 
-  it('allows localhost on any port', () => {
-    expect(originAllowed('http://localhost:3000', 'gideon.example')).toBe(true)
-    expect(originAllowed('http://127.0.0.1:5173', 'gideon.example')).toBe(true)
+  it('keeps a local page local: localhost may not answer as a public host', () => {
+    expect(originAllowed('http://localhost:3000', 'http://localhost:3000')).toBe(true)
+    expect(originAllowed('http://localhost:3000', 'gideon.example')).toBe(false)
+    expect(originAllowed('http://gideon.example', 'https://gideon.example')).toBe(false)
   })
 
   it('rejects an unlisted cross origin', () => {

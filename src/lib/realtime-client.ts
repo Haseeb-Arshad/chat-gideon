@@ -18,7 +18,7 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from './protocol'
-import { backendHeaders, backendUrl, backendWebSocketUrl, ensureAccount } from './backend'
+import { backendHeaders, backendUrl, backendWebSocketUrl, awaitAccount, ensureAccount, onAccountReady } from './backend'
 import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
 import type { CardV2 } from './cards/schema'
@@ -100,18 +100,28 @@ interface PendingAudio {
   resolve: (blob: Blob) => void
   reject: (error: Error) => void
   mime: string
+  /** Detaches the caller's abort listener once this pending no longer needs it. */
+  cleanup: () => void
 }
 
 export class RealtimeLink {
   transport: LinkTransport = 'idle'
 
   private socket: WebSocket | null = null
-  private awaitingAccount = false
+  /** A refresh waits for the current turn to drain before rebinding. */
+  private refreshPending = false
+  /** Gate while the account is resolved, or the wait for it gives up. */
+  private accountRelease: (() => void) | null = null
+  /** Detaches the late-identity listener when the link is thrown away. */
+  private unsubscribeAccount: (() => void) | null = null
+  private readonly socketTurns = new Set<string>()
+  private readonly httpControllers = new Map<string, AbortController>()
   private openTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 600
   private disposed = false
+  private readonly lifetime = new AbortController()
 
   private readonly turns = new Map<string, TurnHandlers>()
   /**
@@ -166,21 +176,63 @@ export class RealtimeLink {
       void ensureAccount()
       return
     }
-    if (this.socket || this.awaitingAccount) return
+    if (this.socket || this.accountRelease) return
 
     this.setTransport('connecting')
 
-    // The socket's memory is chosen as it opens, so the account comes first.
-    this.awaitingAccount = true
-    void ensureAccount().then(() => {
-      this.awaitingAccount = false
+    // The socket's memory is chosen as it opens, so the account comes first —
+    // but only for a bounded moment. A server that is slow to answer still
+    // gets its socket, under the browser's id, and if the account lands
+    // afterwards the idle socket is replaced rather than the turn held up.
+    const release = () => {
+      if (this.accountRelease !== release) return
+      this.accountRelease = null
+      if (this.disposed) return
       this.open()
-    })
+    }
+    this.accountRelease = release
+    void ensureAccount(2_000, this.lifetime.signal).then((state) => {
+      if (this.disposed) return
+      if (state === 'pending' || state === 'error') {
+        this.unsubscribeAccount?.()
+        this.unsubscribeAccount = onAccountReady(() => {
+          this.refreshPending = true
+          this.drainRefresh()
+        })
+      }
+      release()
+    }).catch(() => { this.accountRelease = null })
+  }
+
+  /**
+   * Replaces the socket so its memory follows the account cookie.
+   *
+   * Only an idle socket is replaced — never mid-turn. With a turn on the
+   * socket, or the link already fallen back to HTTP, the replacement waits
+   * for the next natural reconnect instead of interrupting an answer.
+   */
+  private refreshSocket() {
+    this.unsubscribeAccount?.()
+    this.unsubscribeAccount = null
+    if (this.disposed || !this.refreshPending || this.socketTurns.size || this.audio.size) return
+    this.refreshPending = false
+    const old = this.socket
+    if (!old) return
+    this.socket = null
+    this.clearSocketTimers()
+    try { old.close() } catch { /* Already gone. */ }
+    this.setTransport('connecting')
+    this.open()
+  }
+
+  /** A turn finished; a refresh held back for it can now have the socket. */
+  private drainRefresh() {
+    if (!this.refreshPending || this.disposed) return
+    if (this.socketTurns.size === 0 && this.audio.size === 0) this.refreshSocket()
   }
 
   private open() {
     if (this.disposed || this.socket) return
-
     let socket: WebSocket
     try {
       socket = new WebSocket(backendWebSocketUrl())
@@ -206,6 +258,7 @@ export class RealtimeLink {
     }, OPEN_TIMEOUT_MS)
 
     socket.onopen = () => {
+      if (this.disposed || this.socket !== socket) return
       if (this.openTimer) clearTimeout(this.openTimer)
       this.openTimer = null
       this.reconnectDelay = 600
@@ -215,6 +268,7 @@ export class RealtimeLink {
     }
 
     socket.onmessage = (event) => {
+      if (this.disposed || this.socket !== socket) return
       if (typeof event.data === 'string') {
         const frame = decodeFrame<ServerFrame>(event.data)
         if (frame) this.dispatch(frame)
@@ -224,16 +278,15 @@ export class RealtimeLink {
     }
 
     socket.onerror = () => {
+      if (this.socket !== socket) return
       if (this.transport === 'connecting') this.degrade()
     }
 
     socket.onclose = () => {
+      if (this.socket !== socket) return
       this.clearSocketTimers()
       this.socket = null
-      // Anything in flight died with the connection. Settling it here is what
-      // stops a turn hanging in `thinking` forever and a voice chunk promise
-      // blocking the queue's drain for the life of the page.
-      this.abortInFlight('The connection dropped mid-answer.')
+      this.abortSocketWork('The connection dropped mid-answer.')
       if (this.disposed) return
       if (this.transport === 'connecting') {
         this.degrade()
@@ -248,11 +301,22 @@ export class RealtimeLink {
 
   dispose() {
     this.disposed = true
+    this.lifetime.abort()
     this.clearSocketTimers()
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    this.unsubscribeAccount?.()
+    this.unsubscribeAccount = null
+    this.accountRelease = null
     this.turns.clear()
-    for (const pending of this.audio.values()) pending.reject(new Error('The link closed.'))
+    this.socketTurns.clear()
+    this.refreshPending = false
+    for (const controller of this.httpControllers.values()) controller.abort()
+    this.httpControllers.clear()
+    for (const pending of this.audio.values()) {
+      pending.cleanup()
+      pending.reject(new Error('The link closed.'))
+    }
     this.audio.clear()
     try {
       this.socket?.close()
@@ -269,15 +333,23 @@ export class RealtimeLink {
     handlers: TurnHandlers,
     options: { speculative?: boolean; screen?: ScreenState } = {},
   ): TurnHandle {
+    if (this.disposed) {
+      handlers.onError('The link closed.', false)
+      return { id, cancel: () => undefined }
+    }
     this.turns.set(id, handlers)
     if (options.speculative) this.speculativeTurns.add(id)
 
     const forget = () => {
       this.turns.delete(id)
       this.speculativeTurns.delete(id)
+      this.socketTurns.delete(id)
+      this.httpControllers.delete(id)
     }
 
-    if (this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
+    if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
+      // Remembered so a close — and only a close — can settle what rode on it.
+      this.socketTurns.add(id)
       this.send({
         t: 'turn',
         id,
@@ -291,11 +363,13 @@ export class RealtimeLink {
         cancel: () => {
           forget()
           this.send({ t: 'cancel', id })
+          this.drainRefresh()
         },
       }
     }
 
     const controller = new AbortController()
+    this.httpControllers.set(id, controller)
     void this.runHttpTurn(id, messages, controller.signal, options.speculative, options.screen)
     return {
       id,
@@ -308,28 +382,41 @@ export class RealtimeLink {
 
   /** Requests spoken audio for one chunk of the reply. */
   async speak(turnId: string, seq: number, text: string, signal: AbortSignal): Promise<Blob> {
-    if (this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
+    if (this.disposed) throw new DOMException('Aborted', 'AbortError')
+    if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
       const key = `${turnId}#${seq}`
       return new Promise<Blob>((resolve, reject) => {
         if (signal.aborted) {
           reject(new DOMException('Aborted', 'AbortError'))
           return
         }
-        this.audio.set(key, { resolve, reject, mime: 'audio/mpeg' })
-        signal.addEventListener(
-          'abort',
-          () => {
-            if (!this.audio.has(key)) return
-            this.audio.delete(key)
-            this.send({ t: 'cancel', id: key })
-            reject(new DOMException('Aborted', 'AbortError'))
-          },
-          { once: true },
-        )
+        const onAbort = () => {
+          if (!this.audio.has(key)) return
+          this.audio.delete(key)
+          this.send({ t: 'cancel', id: key })
+          reject(new DOMException('Aborted', 'AbortError'))
+          this.drainRefresh()
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        // Settling forgets the listener, either way: a chunk that failed or
+        // finished must not leave a wire into a signal that outlives it.
+        const settled = (finish: () => void) => {
+          signal.removeEventListener('abort', onAbort)
+          finish()
+        }
+        this.audio.set(key, {
+          resolve: (blob) => settled(() => resolve(blob)),
+          reject: (error) => settled(() => reject(error)),
+          mime: 'audio/mpeg',
+          cleanup: () => signal.removeEventListener('abort', onAbort),
+        })
         this.send({ t: 'speak', id: key, seq, text })
       })
     }
 
+    signal = AbortSignal.any([signal, this.lifetime.signal])
+    await this.awaitAccountForRequest(signal)
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
     const response = await fetch(backendUrl('/api/voice'), {
       method: 'POST',
       headers: backendHeaders('application/json'),
@@ -340,22 +427,33 @@ export class RealtimeLink {
     return response.blob()
   }
 
-  /**
-   * Fails every outstanding turn and audio request.
-   *
-   * Retryable on purpose: a dropped socket is the textbook case where trying
-   * again is the right move, and the link is already reconnecting underneath.
-   */
-  private abortInFlight(message: string) {
-    const turns = [...this.turns.entries()]
-    this.turns.clear()
-    this.speculativeTurns.clear()
-    for (const [, handlers] of turns) handlers.onError(message, true)
+  private awaitAccountForRequest(signal?: AbortSignal): Promise<void> {
+    return awaitAccount(signal)
+  }
 
-    const audio = [...this.audio.values()]
-    this.audio.clear()
+  /**
+   * Fails only the work the socket was carrying.
+   *
+   * HTTP turns and voice run on their own connection with their own
+   * controller: a dropped socket says nothing about their health, and a
+   * fallback that answers fine must not be failed because the preferred
+   * transport died next to it.
+   */
+  private abortSocketWork(message: string) {
+    for (const id of this.socketTurns) {
+      const handlers = this.turns.get(id)
+      this.turns.delete(id)
+      this.speculativeTurns.delete(id)
+      handlers?.onError(message, true)
+    }
+    this.socketTurns.clear()
+
+    for (const [key, pending] of this.audio) {
+      this.audio.delete(key)
+      pending.cleanup()
+      pending.reject(new Error(message))
+    }
     this.pendingAudioKey = null
-    for (const pending of audio) pending.reject(new Error(message))
   }
 
   private setTransport(next: LinkTransport) {
@@ -366,7 +464,10 @@ export class RealtimeLink {
 
   private degrade() {
     this.clearSocketTimers()
+    const old = this.socket
     this.socket = null
+    try { old?.close() } catch { /* Already gone. */ }
+    this.abortSocketWork('The connection dropped mid-answer.')
     rememberFallback()
     this.setTransport('http')
   }
@@ -445,7 +546,9 @@ export class RealtimeLink {
         const handlers = this.turns.get(frame.id)
         this.turns.delete(frame.id)
         this.speculativeTurns.delete(frame.id)
+        this.socketTurns.delete(frame.id)
         handlers?.onDone(frame.text)
+        this.drainRefresh()
         return
       }
       case 'error': {
@@ -453,13 +556,16 @@ export class RealtimeLink {
           const pending = this.audio.get(frame.id)!
           this.audio.delete(frame.id)
           pending.reject(new Error(frame.message))
+          this.drainRefresh()
           return
         }
         if (frame.id) {
           const handlers = this.turns.get(frame.id)
           this.turns.delete(frame.id)
           this.speculativeTurns.delete(frame.id)
+          this.socketTurns.delete(frame.id)
           handlers?.onError(frame.message, frame.retryable)
+          this.drainRefresh()
         }
         return
       }
@@ -477,6 +583,8 @@ export class RealtimeLink {
    * seconds of silence to learn what a single frame could have told it.
    */
   private async fulfilTool(turnId: string, call: string, name: string, args: unknown) {
+    const socket = this.socket
+    const handlers = this.turns.get(turnId)
     let result = { ok: false, content: `The browser cannot run ${name}.` }
     // A cancelled turn, or a guess: either way nothing may actually happen.
     if (!this.turns.has(turnId) || this.speculativeTurns.has(turnId)) {
@@ -491,7 +599,11 @@ export class RealtimeLink {
         }
       }
     }
-    this.send({ t: 'tool_reply', id: call, call, ok: result.ok, content: result.content })
+    // The turn was cancelled, replaced, or the socket swapped while the tool
+    // ran: a stale result must not re-enter a turn that has moved on, and the
+    // server settles only a reply naming the turn it is still holding.
+    if (this.disposed || this.socket !== socket || !handlers || this.turns.get(turnId) !== handlers) return
+    this.send({ t: 'tool_reply', id: turnId, call, ok: result.ok, content: result.content })
   }
 
   private resolveAudio(buffer: ArrayBuffer) {
@@ -502,6 +614,7 @@ export class RealtimeLink {
     if (!pending) return
     this.audio.delete(key)
     pending.resolve(new Blob([buffer], { type: pending.mime }))
+    this.drainRefresh()
   }
 
   private async runHttpTurn(
@@ -515,6 +628,8 @@ export class RealtimeLink {
     if (!handlers) return
 
     try {
+      await this.awaitAccountForRequest(signal)
+      if (this.disposed || signal.aborted) return
       const response = await fetch(backendUrl('/api/chat'), {
         method: 'POST',
         headers: backendHeaders('application/json'),
@@ -531,6 +646,7 @@ export class RealtimeLink {
 
       while (true) {
         const { done, value } = await reader.read()
+        if (signal.aborted || this.disposed) { await reader.cancel(); return }
         buffer += decoder.decode(value, { stream: !done })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
@@ -561,6 +677,9 @@ export class RealtimeLink {
         error instanceof Error ? error.message : 'The reply was interrupted.',
         true,
       )
+    } finally {
+      this.speculativeTurns.delete(id)
+      this.httpControllers.delete(id)
     }
   }
 }

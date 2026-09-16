@@ -1,9 +1,8 @@
 import { memoryAdapter } from 'better-auth/adapters/memory'
 import { describe, expect, it } from 'vitest'
 import type { Memory } from '../../../src/lib/tools/memory'
-import { ownerOf } from './accounts'
+import { OwnerUnavailable, ownerOf } from './accounts'
 import { handleApi } from './api'
-import { sessionIdFromRequest } from './identity'
 import { adoption } from './memory'
 import type { Env } from './types'
 
@@ -19,9 +18,8 @@ const cello: Memory = {
 }
 
 /**
- * Real Better Auth on its in-memory adapter, with session objects reduced to
- * the two calls a takeover makes. The objects apply the same `adoption` rule
- * the Durable Object does.
+ * Real Better Auth on its in-memory adapter, with the session namespace reduced
+ * to the memory RPC surface the account flow uses.
  */
 function world({ accounts = true } = {}) {
   const tables: Record<string, Array<Record<string, unknown>>> = {
@@ -43,6 +41,11 @@ function world({ accounts = true } = {}) {
           const { memories: next, result } = adoption(objects.get(name) ?? [], memories)
           objects.set(name, next)
           return result
+        },
+        memorySnapshot: async (owner: string) => ({ memories: objects.get(owner) ?? [], version: 'test' }),
+        memoryCommit: async (owner: string, _expected: string, memories: Memory[]) => {
+          objects.set(owner, memories)
+          return true
         },
       }),
     },
@@ -91,48 +94,51 @@ describe('accounts', () => {
     )
   })
 
-  it('takes over what the browser already remembered, and leaves the browser its copy', async () => {
-    const { env, tables, objects } = world()
-    objects.set('browser-1', [cello])
-
-    await visit(env, { 'X-Gideon-Session': 'browser-1' })
-
-    expect(objects.get(`user/${tables.user[0]?.id}`)).toEqual([cello])
-    expect(objects.get('browser-1')).toEqual([cello])
-  })
-
-  it('never hands on what the shared anonymous id holds', async () => {
-    const { env, tables, objects } = world()
-    objects.set('anonymous', [cello])
-
-    await visit(env)
-
-    expect(objects.get(`user/${tables.user[0]?.id}`)).toBeUndefined()
-  })
-
-  it('refuses to make an account for a request that did not come from a page', async () => {
-    const { env, tables } = world()
-
-    const response = await handleApi(new Request(`${ORIGIN}/api/account`, { method: 'POST' }), env)
-
-    expect(response?.status).toBe(403)
-    expect(tables.user).toHaveLength(0)
-  })
-
-  it('keeps memory on the browser id when accounts are not set up', async () => {
+  it('keeps memory on the ephemeral id when accounts are not set up', async () => {
     const { env } = world({ accounts: false })
 
     expect((await visit(env))?.status).toBe(404)
-    expect(await ownerOf(request({ 'X-Gideon-Session': 'browser-1' }), env)).toBe('browser-1')
+    const owner = await ownerOf(request({ 'X-Gideon-Session': 'browser-1' }), env)
+    expect(owner.startsWith('ephemeral/')).toBe(true)
+    const second = await ownerOf(request({ 'X-Gideon-Session': 'browser-1' }), env)
+    expect(second).not.toBe(owner)
   })
 
-  it('lets no browser id name an account', async () => {
+  it('never lets a browser id name an account owner', async () => {
     const { env, tables } = world()
     await visit(env)
     const name = `user/${tables.user[0]?.id}`
 
-    expect(sessionIdFromRequest(request({ 'X-Gideon-Session': name }))).toBe('anonymous')
-    expect(await ownerOf(request({ 'X-Gideon-Session': name }), env)).toBe('anonymous')
+    const owner = await ownerOf(request({ 'X-Gideon-Session': name }), env)
+    expect(owner.startsWith('user/')).toBe(false)
+  })
+
+  it('returns 503 when credentials are present but cannot be verified', async () => {
+    const { env, tables } = world()
+    const cookie = cookiesFrom(await visit(env))
+    // Drop the database: the cookie can no longer be checked.
+    delete env.DB
+
+    await expect(ownerOf(request({ Cookie: cookie }), env)).rejects.toBeInstanceOf(OwnerUnavailable)
+
+    const chat = await handleApi(
+      new Request(`${ORIGIN}/api/chat`, {
+        method: 'POST',
+        headers: { Origin: ORIGIN, 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+      }),
+      env,
+    )
+    expect(chat?.status).toBe(503)
+    expect(tables.user).toHaveLength(1)
+  })
+
+  it('serves nothing durable to a request without credentials', async () => {
+    const { env, tables } = world()
+
+    const owner = await ownerOf(request({ 'X-Gideon-Session': 'browser-1' }), env)
+    expect(owner.startsWith('ephemeral/')).toBe(true)
+    expect(tables.user).toHaveLength(0)
   })
 })
 

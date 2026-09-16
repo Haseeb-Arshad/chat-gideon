@@ -1,13 +1,3 @@
-/**
- * Cloudflare persistence for GIDEON's small durable-memory corpus.
- *
- * WebSocket sessions are named by the browser's opaque session id, so a
- * Durable Object gives each conversation a serialized write lane. When the
- * Supabase bindings are present, the same store is mirrored in the database;
- * the Durable Object storage fallback keeps local Worker development and a
- * no-database deployment honest and functional.
- */
-
 import type { Memory, MemoryStore } from '../../../src/lib/tools/memory'
 
 const MEMORY_KEY = 'memories'
@@ -17,40 +7,25 @@ interface StorageLike {
   get<T>(key: string): Promise<T | undefined>
   put<T>(key: string, value: T): Promise<void>
 }
-
 export interface MemoryEnv {
   SUPABASE_URL?: string
   SUPABASE_SERVICE_ROLE_KEY?: string
 }
-
 function isMemory(value: unknown): value is Memory {
   if (!value || typeof value !== 'object') return false
-  const memory = value as Partial<Memory>
-  return (
-    typeof memory.id === 'string' &&
-    typeof memory.text === 'string' &&
-    typeof memory.createdAt === 'string' &&
-    typeof memory.usedAt === 'string' &&
-    typeof memory.uses === 'number' &&
-    (memory.kind === 'fact' ||
-      memory.kind === 'preference' ||
-      memory.kind === 'plan' ||
-      memory.kind === 'person')
-  )
+  const m = value as Partial<Memory>
+  return typeof m.id === 'string' && typeof m.text === 'string' &&
+    typeof m.createdAt === 'string' && typeof m.usedAt === 'string' &&
+    typeof m.uses === 'number' && Number.isFinite(m.uses) &&
+    ['fact', 'preference', 'plan', 'person'].includes(m.kind ?? '')
 }
-
 export function validMemories(value: unknown): Memory[] {
   return Array.isArray(value) ? value.filter(isMemory) : []
 }
-
-/**
- * What an account keeps when it takes over what a browser's id remembered.
- *
- * Only an account that remembers nothing yet takes anything, so a second
- * browser signing in later can never overwrite what the account has learned.
- * The browser's id keeps its own copy, which means a takeover that fails part
- * way has lost nothing.
- */
+function decodeMemories(value: unknown): Memory[] {
+  if (!Array.isArray(value) || !value.every(isMemory)) throw new Error('Invalid memory data')
+  return structuredClone(value)
+}
 export function adoption(current: Memory[], incoming: unknown): { memories: Memory[]; result: number } {
   const found = validMemories(incoming)
   if (current.length || !found.length) return { memories: current, result: 0 }
@@ -59,14 +34,11 @@ export function adoption(current: Memory[], incoming: unknown): { memories: Memo
 
 abstract class SerialisedStore implements MemoryStore {
   private queue: Promise<unknown> = Promise.resolve()
-
   abstract all(): Promise<Memory[]>
   abstract save(memories: Memory[]): Promise<void>
-
   mutate<T>(change: (memories: Memory[]) => { memories: Memory[]; result: T }): Promise<T> {
     const run = this.queue.then(async () => {
-      const current = await this.all()
-      const { memories, result } = change(current)
+      const { memories, result } = change(structuredClone(await this.all()))
       await this.save(memories)
       return result
     })
@@ -74,131 +46,97 @@ abstract class SerialisedStore implements MemoryStore {
     return run
   }
 }
-
 export class DurableObjectMemoryStore extends SerialisedStore {
   private cache: Memory[] | null = null
-
-  constructor(private readonly storage: StorageLike) {
-    super()
-  }
-
+  constructor(private readonly storage: StorageLike) { super() }
   async all() {
-    if (this.cache) return this.cache
-    this.cache = validMemories(await this.storage.get<unknown>(MEMORY_KEY))
-    return this.cache
+    if (!this.cache) {
+      const data = await this.storage.get<unknown>(MEMORY_KEY)
+      this.cache = data === undefined ? [] : decodeMemories(data)
+    }
+    return structuredClone(this.cache)
   }
-
   async save(memories: Memory[]) {
-    this.cache = memories
-    await this.storage.put(MEMORY_KEY, memories)
+    const next = decodeMemories(memories)
+    await this.storage.put(MEMORY_KEY, next)
+    this.cache = next
   }
 }
-
-/** A no-op persistence layer used only when no external store is configured. */
+/** Used per request/connection, never persisted or shared between strangers. */
 export class EphemeralMemoryStore extends SerialisedStore {
   private memories: Memory[] = []
-
-  async all() {
-    return this.memories
-  }
-
-  async save(memories: Memory[]) {
-    this.memories = memories
-  }
+  async all() { return structuredClone(this.memories) }
+  async save(memories: Memory[]) { this.memories = decodeMemories(memories) }
 }
 
-/**
- * Supabase REST store. The service-role key never leaves the Worker.
- *
- * This deliberately uses REST instead of the Supabase JS client: the Worker
- * only needs two calls, and avoiding a Node-oriented SDK keeps the bundle
- * small and compatible with workerd.
- */
+/** Only instantiated by the owner's DO, never by an HTTP request or socket. */
 export class SupabaseMemoryStore extends SerialisedStore {
   private cache: Memory[] | null = null
   private readonly baseUrl: string
-
-  constructor(
-    private readonly env: MemoryEnv,
-    private readonly ownerId: string,
-    private readonly fetcher: typeof fetch = fetch,
-  ) {
+  constructor(private readonly env: MemoryEnv, private readonly ownerId: string,
+    private readonly fetcher: typeof fetch = fetch) {
     super()
     this.baseUrl = (env.SUPABASE_URL ?? '').replace(/\/$/, '')
   }
-
   private headers() {
-    const key = envValue(this.env.SUPABASE_SERVICE_ROLE_KEY)
-    return {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    }
+    if (!hasSupabaseMemory(this.env)) throw new Error('Memory database is not configured')
+    const key = this.env.SUPABASE_SERVICE_ROLE_KEY!.trim()
+    return { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
   }
-
-  private rowUrl() {
-    return `${this.baseUrl}/rest/v1/${MEMORY_TABLE}?session_id=${encodeURIComponent(`eq.${this.ownerId}`)}&select=memories`
-  }
-
   async all() {
-    if (this.cache) return this.cache
-    if (!this.baseUrl || !envValue(this.env.SUPABASE_SERVICE_ROLE_KEY)) {
-      this.cache = []
-      return this.cache
-    }
-
-    try {
-      const response = await this.fetcher(this.rowUrl(), {
-        headers: this.headers(),
-      })
-      if (!response.ok) {
-        this.cache = []
-        return this.cache
-      }
-      const body = (await response.json()) as unknown
-      const row = Array.isArray(body) ? body[0] : null
-      this.cache = validMemories(
-        row && typeof row === 'object' ? (row as { memories?: unknown }).memories : [],
-      )
-    } catch {
-      // A database outage should not make the voice companion crash. The
-      // in-process cache still lets the current turn finish.
-      this.cache = []
-    }
-    return this.cache
+    if (this.cache) return structuredClone(this.cache)
+    const url = `${this.baseUrl}/rest/v1/${MEMORY_TABLE}?session_id=${encodeURIComponent(`eq.${this.ownerId}`)}&select=memories`
+    const response = await this.fetcher(url, { headers: this.headers() })
+    if (!response.ok) { await response.body?.cancel(); throw new Error('Memory read failed') }
+    const body: unknown = await response.json()
+    if (!Array.isArray(body) || body.length > 1) throw new Error('Invalid memory response')
+    this.cache = body.length === 0 ? [] : decodeMemories(body[0]?.memories)
+    return structuredClone(this.cache)
   }
-
   async save(memories: Memory[]) {
-    this.cache = memories
-    if (!this.baseUrl || !envValue(this.env.SUPABASE_SERVICE_ROLE_KEY)) return
-
-    try {
-      const response = await this.fetcher(`${this.baseUrl}/rest/v1/${MEMORY_TABLE}`, {
-        method: 'POST',
-        headers: {
-          ...this.headers(),
-          Prefer: 'resolution=merge-duplicates,return=minimal',
-        },
-        body: JSON.stringify({ session_id: this.ownerId, memories }),
-      })
-      await response.body?.cancel()
-    } catch {
-      // The local cache is still useful for the rest of this live session.
-    }
+    const next = decodeMemories(memories)
+    const response = await this.fetcher(`${this.baseUrl}/rest/v1/${MEMORY_TABLE}`, {
+      method: 'POST', headers: { ...this.headers(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ session_id: this.ownerId, memories: next }),
+    })
+    await response.body?.cancel()
+    if (!response.ok) throw new Error('Memory write failed')
+    this.cache = next
   }
 }
-
-function envValue(value: string | undefined) {
-  return value?.trim() || ''
-}
-
 export function hasSupabaseMemory(env: MemoryEnv) {
-  return Boolean(envValue(env.SUPABASE_URL) && envValue(env.SUPABASE_SERVICE_ROLE_KEY))
+  return Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim())
 }
 
-export function memoryStoreForHttp(env: MemoryEnv, ownerId: string): MemoryStore {
-  return hasSupabaseMemory(env)
-    ? new SupabaseMemoryStore(env, ownerId)
-    : new EphemeralMemoryStore()
+export interface MemorySnapshot { memories: Memory[]; version: string }
+/** RPC carries data only. The authority compares the baseline inside its mutation queue. */
+export interface MemoryRpc {
+  memorySnapshot(owner: string): Promise<MemorySnapshot>
+  memoryCommit(owner: string, expected: string, memories: Memory[]): Promise<boolean>
+}
+/** The slice of the session namespace the memory RPC needs. */
+export interface MemoryNamespace {
+  idFromName(name: string): { toString(): string }
+  get(id: { toString(): string }): MemoryRpc
+}
+export function memoryStoreForHttp(_env: MemoryEnv, ownerId: string, session?: MemoryNamespace): MemoryStore {
+  if (!ownerId.startsWith('user/')) return new EphemeralMemoryStore()
+  if (!session) throw new Error('Memory authority is unavailable')
+  return new RpcMemoryStore(session.get(session.idFromName(ownerId)), ownerId)
 }
 
+export class RpcMemoryStore implements MemoryStore {
+  constructor(private readonly rpc: MemoryRpc, private readonly owner: string) {}
+  async all() { return (await this.rpc.memorySnapshot(this.owner)).memories }
+  async save(_memories: Memory[]): Promise<void> {
+    throw new Error('Replacement writes require a versioned mutation')
+  }
+  async mutate<T>(change: (memories: Memory[]) => { memories: Memory[]; result: T }): Promise<T> {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const snapshot = await this.rpc.memorySnapshot(this.owner)
+      const { memories, result } = change(snapshot.memories)
+      if (await this.rpc.memoryCommit(this.owner, snapshot.version, memories)) return result
+    }
+    throw new Error('Memory is busy; retry this operation')
+  }
+}

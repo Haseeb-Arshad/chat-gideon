@@ -258,10 +258,10 @@ interface Article {
  * that could be several things is a disambiguation page, and counts for nothing.
  */
 async function article(name: string, deps: MapsDeps, signal: AbortSignal): Promise<Article | null> {
-  return articles.get(nameKey(name), async () => {
+  return articles.getShared(nameKey(name), async (fresh) => {
     const response = await deps.fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}?redirect=true`, {
       headers: { 'Api-User-Agent': WIKIPEDIA_AGENT, 'User-Agent': WIKIPEDIA_AGENT },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
+      signal: fresh,
     })
     if (!response.ok) {
       void response.body?.cancel()
@@ -271,7 +271,7 @@ async function article(name: string, deps: MapsDeps, signal: AbortSignal): Promi
     const { lat, lon } = body.coordinates ?? {}
     if (body.type !== 'standard' || typeof body.title !== 'string' || typeof lat !== 'number' || typeof lon !== 'number') return null
     return { title: body.title, description: typeof body.description === 'string' ? body.description : '', at: [lon, lat] }
-  })
+  }, signal, TIMEOUT_MS)
 }
 
 /** What an article's description says the place is, for how close to show it. */
@@ -326,7 +326,7 @@ export async function findPlace(asked: string, deps: MapsDeps, weather: WeatherP
 
   const chosen = choosePlace(asked, places.filter((place) => PEOPLED.test(place.featureCode ?? 'PPL')))
   const town = chosen && 'place' in chosen && nameKey(chosen.place.name) === key ? chosen.place : null
-  const area = admin.find((feature) => nameKey(feature.name) === key)
+  const area = admin.find((feature) => nameKey(feature.name) === key && qualifiedBy(qualifiers, feature.detail, feature.country))
 
   if (area && (area.type === 'country' || area.type === 'region') && !(town && (town.capital || town.population >= MAJOR))) {
     return { place: fromFeature(area) }
@@ -366,10 +366,6 @@ export async function findPlace(asked: string, deps: MapsDeps, weather: WeatherP
   if (exact.length) return askAbout(name, exact.slice(0, 3).map((feature) => [feature.name, feature.detail].filter(Boolean).join(', ')))
   if (chosen && 'place' in chosen) return { place: fromPlace(chosen.place) }
 
-  // "Lake Saiful Muluk, Rawalpindi, Pakistan": where the user is, added to a place that is not there. Searched again without it.
-  const here = context.location
-  const theirs = new Set([here?.city, here?.region, here?.country].filter((part): part is string => Boolean(part)).map(nameKey))
-  if (qualifiers.length && qualifiers.every((part) => theirs.has(part))) return findPlace(name, deps, weather, context)
   return { none: `No place called ${asked} could be found. Ask the user where they mean.` }
 }
 
@@ -404,9 +400,9 @@ const routes = new TimedCache<{ seconds: number; metres: number; line: LngLat[];
 
 async function directions(from: LngLat, to: LngLat, travel: Travel, deps: MapsDeps, signal: AbortSignal) {
   const key = `${travel}|${from.map((value) => value.toFixed(4)).join(',')}|${to.map((value) => value.toFixed(4)).join(',')}`
-  return routes.get(key, async () => {
+  return routes.getShared(key, async (fresh) => {
     const params = new URLSearchParams({ geometries: 'geojson', overview: 'simplified', steps: 'true', language: 'en' })
-    const response = await mapbox(deps, `https://api.mapbox.com/directions/v5/mapbox/${PROFILES[travel]}/${from.join(',')};${to.join(',')}?${params}`, signal)
+    const response = await mapbox(deps, `https://api.mapbox.com/directions/v5/mapbox/${PROFILES[travel]}/${from.join(',')};${to.join(',')}?${params}`, fresh)
     const body = (await response.json()) as {
       code?: string
       routes?: Array<{ duration: number; distance: number; geometry?: { coordinates?: LngLat[] }; legs?: Array<{ steps?: Array<{ maneuver?: { instruction?: string } }> }> }>
@@ -421,7 +417,7 @@ async function directions(from: LngLat, to: LngLat, travel: Travel, deps: MapsDe
       line: thinLine(route.geometry?.coordinates ?? [], LINE_POINTS),
       steps: (route.legs?.[0]?.steps ?? []).map((step) => step.maneuver?.instruction ?? '').filter(Boolean),
     }
-  })
+  }, signal, TIMEOUT_MS)
 }
 
 const onScreen = (what: string) => `On the user's screen now: ${what}. Do not read out coordinates or the card.`

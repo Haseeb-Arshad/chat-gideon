@@ -76,6 +76,7 @@ const LOCATE_TIMEOUT_MS = 30_000
 interface PendingTool {
   resolve: (outcome: ToolOutcome) => void
   timer: ReturnType<typeof setTimeout>
+  cleanup: () => void
 }
 
 export function createRealtimeSession(
@@ -156,6 +157,7 @@ export function createRealtimeSession(
     if (!pending) return
     pendingTools.delete(call)
     clearTimeout(pending.timer)
+    pending.cleanup()
     pending.resolve(outcome)
   }
 
@@ -170,7 +172,8 @@ export function createRealtimeSession(
   /** Where the user's device placed them, once a tool had to ask. Kept for the socket's life, never stored. */
   let located: CoarseLocation | null = null
 
-  const bridge: ClientToolBridge = {
+  const toolKey = (turnId: string, callId: string) => JSON.stringify([turnId, callId])
+  const bridgeFor = (turnId: string): ClientToolBridge => ({
     call: (callId, name, _args, signal) =>
       new Promise<ToolOutcome>((resolve) => {
         if (closed || signal.aborted) {
@@ -178,23 +181,18 @@ export function createRealtimeSession(
           return
         }
 
-        const timer = setTimeout(() => {
-          pendingTools.delete(callId)
-          resolve({
-            ok: false,
-            content: `The browser did not complete ${name} in time. Tell the user it did not go through.`,
-          })
-        }, name === 'get_location' ? LOCATE_TIMEOUT_MS : CLIENT_TOOL_TIMEOUT_MS)
-
-        pendingTools.set(callId, { resolve, timer })
-
-        signal.addEventListener(
-          'abort',
-          () => settleTool(callId, { ok: false, content: 'That turn was cancelled.' }),
-          { once: true },
-        )
+        const key = toolKey(turnId, callId)
+        const abort = () => settleTool(key, { ok: false, content: 'That turn was cancelled.' })
+        const timer = setTimeout(() => settleTool(key, {
+          ok: false,
+          content: `The browser did not complete ${name} in time. Tell the user it did not go through.`,
+        }), name === 'get_location' ? LOCATE_TIMEOUT_MS : CLIENT_TOOL_TIMEOUT_MS)
+        pendingTools.set(key, {
+          resolve, timer, cleanup: () => signal.removeEventListener('abort', abort),
+        })
+        signal.addEventListener('abort', abort, { once: true })
       }),
-  }
+  })
 
   async function runTurn(frame: Extract<ClientFrame, { t: 'turn' }>) {
     let messages
@@ -216,7 +214,7 @@ export function createRealtimeSession(
     try {
       for await (const event of streamTurn(frame.id, messages, controller.signal, {
         timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : undefined,
-        bridge,
+        bridge: bridgeFor(frame.id),
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
         screen: readScreen(frame.screen),
@@ -314,7 +312,7 @@ export function createRealtimeSession(
           if (!allowed(frame.id, 'speak')) return
           return guarded(frame.id, runSpeak(frame))
         case 'tool_reply': {
-          settleTool(frame.call, {
+          settleTool(toolKey(frame.id, frame.call), {
             ok: Boolean(frame.ok),
             content:
               typeof frame.content === 'string' && frame.content.trim()
@@ -344,6 +342,7 @@ export function createRealtimeSession(
       turns.clear()
       for (const [call, pending] of pendingTools) {
         clearTimeout(pending.timer)
+        pending.cleanup()
         pending.resolve({ ok: false, content: 'The connection closed.' })
         pendingTools.delete(call)
       }

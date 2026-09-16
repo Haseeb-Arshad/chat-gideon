@@ -35,6 +35,27 @@ export class TimedCache<T> {
     return value
   }
 
+  /** Shared work owns its deadline; each caller only cancels its own wait. */
+  getShared(
+    key: string,
+    load: (signal: AbortSignal) => Promise<T>,
+    signal: AbortSignal,
+    timeoutMs: number,
+    keep: (value: T) => boolean = () => true,
+  ): Promise<T> {
+    if (signal.aborted) return Promise.reject(signal.reason)
+    const value = this.get(key, () => load(AbortSignal.timeout(timeoutMs)), keep)
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason) }
+      signal.addEventListener('abort', abort, { once: true })
+      value.then(
+        (result) => { signal.removeEventListener('abort', abort); resolve(result) },
+        (error) => { signal.removeEventListener('abort', abort); reject(error) },
+      )
+      if (signal.aborted) abort()
+    })
+  }
+
   clear() {
     this.entries.clear()
   }

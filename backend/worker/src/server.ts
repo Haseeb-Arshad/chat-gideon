@@ -29,7 +29,9 @@ export default {
         return new Response('The realtime Durable Object is not configured.', { status: 503 })
       }
       // One object per owner, so every tab and device on an account meets the same memory.
-      const owner = await ownerOf(request, env)
+      let owner: string
+      try { owner = await ownerOf(request, env) }
+      catch { return new Response('Account verification is temporarily unavailable.', { status: 503 }) }
       const id = env.GIDEON_SESSION.idFromName(owner)
       // The object cannot see Cloudflare's lookup of where the request came from, so it is handed over.
       const located = withLocation(request, (request as { cf?: unknown }).cf)

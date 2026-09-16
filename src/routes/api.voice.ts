@@ -13,7 +13,7 @@ export const Route = createFileRoute('/api/voice')({
         try {
           const body = await request.json()
           const text = parseVoiceBody(body)
-          await captureServerEvent(request, 'voice_synthesis_requested', {
+          captureServerEvent(request, 'voice_synthesis_requested', {
             character_count: text.length,
           })
           return await synthesizeVoice(text, request.signal)

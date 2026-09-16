@@ -136,25 +136,109 @@ export class RateLimiter {
   }
 }
 
-export const limiter = new RateLimiter()
+const LIMITER = Symbol.for('gideon.rate-limiter.v1')
+const globals = globalThis as typeof globalThis & { [LIMITER]?: RateLimiter }
+export const limiter = globals[LIMITER] ??= new RateLimiter()
 
 /**
  * Who is asking, as well as a stateless server can tell.
  *
- * Behind a proxy the socket address is the proxy, so the forwarded chain is
- * preferred — but only its first entry, because everything after it is
- * attacker-supplied. This identifies a caller well enough to rate-limit them;
- * it is not an authentication claim and is never treated as one.
+ * `x-forwarded-for` is client-supplied on almost every deployment, so trusting
+ * it lets anyone rotate their rate-limit identity per request. It is honoured
+ * only when the TCP peer address itself is a trusted proxy, and only its last
+ * entry — the one the trusted proxy appended — is believed. Everything else
+ * falls back to platform-ingress headers, and finally to the address the host
+ * actually saw. This identifies a caller well enough to rate-limit them; it is
+ * not an authentication claim and is never treated as one.
  */
-export function callerKey(headers: {
-  get: (name: string) => string | null
-}, fallback = 'local'): string {
-  const forwarded = headers.get('x-forwarded-for')
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim()
-    if (first) return first
+export function trustedProxies(): string[] {
+  const configured = readEnv('GIDEON_TRUSTED_PROXIES')
+  if (!configured) return []
+  return configured.split(',').map((value) => value.trim()).filter(Boolean)
+}
+
+/** True when `address` is a trusted proxy or the request came from the host itself. */
+export function isTrustedAddress(address: string | null | undefined): boolean {
+  if (!address) return false
+  const value = address.trim().toLowerCase().replace(/^::ffff:/, '')
+  if (!value) return false
+  // Trust is opt-in, including loopback: a local direct client can set XFF too.
+  return trustedProxies().some((proxy) => {
+    const candidate = proxy.toLowerCase().replace(/^::ffff:/, '')
+    // A bare /8, /16 or /32 word is treated as an exact address; anything with
+    // a prefix length is compared numerically.
+    const [network, bits] = candidate.split('/')
+    if (bits === undefined) return network === value
+    if (!/^\d+$/.test(bits)) return false
+    const prefix = Number(bits)
+    return sameNetwork(value, network, prefix)
+  })
+}
+
+/** Compares the leading `prefix` bits of two IPv4 or IPv6 addresses. */
+export function sameNetwork(address: string, network: string, prefix: number): boolean {
+  const parse = (value: string): bigint | null => {
+    const clean = value.toLowerCase().replace(/^::ffff:/, '')
+    if (clean.includes(':')) {
+      const sections = clean.split('::')
+      if (sections.length > 2) return null
+      const head = sections[0] ? sections[0].split(':') : []
+      const tail = sections[1] ? sections[1].split(':') : []
+      const missing = 8 - head.length - tail.length
+      if (sections.length === 2 ? missing < 0 : head.length !== 8) return null
+      const words = [...head, ...Array.from({ length: Math.max(missing, 0) }, () => '0'), ...tail]
+      if (words.length !== 8 || words.some((word) => !/^[0-9a-f]{1,4}$/.test(word))) return null
+      return words.reduce((sum, word) => (sum << 16n) + BigInt(parseInt(word, 16)), 0n)
+    }
+    const octets = clean.split('.')
+    if (octets.length !== 4 || octets.some((octet) => !/^\d{1,3}$/.test(octet) || Number(octet) > 255)) return null
+    return octets.reduce((sum, octet) => (sum << 8n) + BigInt(Number(octet)), 0n)
   }
-  return headers.get('x-real-ip')?.trim() || headers.get('cf-connecting-ip')?.trim() || fallback
+
+  if (!Number.isInteger(prefix) || prefix < 0) return false
+  const normalAddress = address.replace(/^::ffff:/i, '')
+  const normalNetwork = network.replace(/^::ffff:/i, '')
+  if (normalAddress.includes(':') !== normalNetwork.includes(':')) return false
+  const left = parse(normalAddress)
+  const right = parse(normalNetwork)
+  if (left === null || right === null) return false
+  const width = normalAddress.includes(':') ? 128n : 32n
+  const bits = BigInt(prefix)
+  if (bits > width) return false
+  if (bits === 0n) return true
+  const shift = width - bits
+  return left >> shift === right >> shift
+}
+
+/**
+ * The caller a rate-limit bucket is filed under.
+ *
+ * Platform ingress headers (Cloudflare's `cf-connecting-ip`) win, because that
+ * platform stripped any client copy before we saw the request. The forwarded
+ * chain is read only from a trusted proxy, and only its last entry — the one
+ * that proxy itself appended — is believed.
+ */
+export function callerKey(
+  headers: { get: (name: string) => string | null },
+  fallback = 'local',
+  /** Which ingress headers may be trusted: who terminated the TLS in front of us. */
+  ingress: 'none' | 'cloudflare' = 'none',
+  /** The socket's peer address, when the host can see it. */
+  remoteAddress?: string | null,
+): string {
+  if (remoteAddress && isTrustedAddress(remoteAddress)) {
+    const forwarded = headers.get('x-forwarded-for')
+    if (forwarded) {
+      const last = forwarded.split(',').map((hop) => hop.trim()).filter(Boolean).pop()
+      if (last) return last
+    }
+  }
+  if (ingress === 'cloudflare') {
+    const connecting = headers.get('cf-connecting-ip')?.trim()
+    if (connecting) return connecting
+  }
+  if (remoteAddress) return remoteAddress
+  return fallback
 }
 
 function readEnv(name: string): string {
@@ -184,6 +268,14 @@ export function isLocalHost(host: string | null): boolean {
 }
 
 /**
+ * Whether the request arrived from the machine itself, judged on the socket's
+ * peer address — never on a header, which any client can set.
+ */
+export function isLocalRequest(remoteAddress: string | null | undefined): boolean {
+  return Boolean(remoteAddress) && isLocalHost(remoteAddress ? String(remoteAddress) : null)
+}
+
+/**
  * Whether to meter this request at all.
  *
  * `auto`, the default, means "protect a public deployment and stay out of the
@@ -209,38 +301,24 @@ export function rateLimited(host: string | null): boolean {
 export function originAllowed(
   origin: string | null,
   host: string | null,
-  /**
-   * Demand the header rather than tolerating its absence.
-   *
-   * The tolerance above is correct for HTTP, where a health checker or curl
-   * legitimately sends no Origin. It is wrong for a socket upgrade: the only
-   * legitimate client is a browser, browsers always send one, and treating its
-   * absence as trustworthy is exactly the hole a command-line client walks
-   * through to reach the turn endpoint unmetered.
-   */
   requireOrigin = false,
 ): boolean {
   if (!origin) return !requireOrigin
-
-  let hostname: string
   try {
-    hostname = new URL(origin).host
-  } catch {
-    return false
-  }
-
-  if (host && hostname === host) return true
-  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(hostname)) return true
-
-  const allowlist = allowedOrigins()
-  if (!allowlist.length) return false
-  return allowlist.some((entry) => {
-    try {
-      return new URL(entry).host === hostname
-    } catch {
-      return entry === hostname
-    }
-  })
+    const source = new URL(origin)
+    if (!['http:', 'https:'].includes(source.protocol) || source.origin !== origin) return false
+    // Callers should pass the full trusted request URL. Bare hosts remain a
+    // secure-by-default compatibility form: public hosts mean HTTPS.
+    const target = host
+      ? new URL(host.includes('://') ? host : `${/^(\[::1\]|::1|127\.|localhost)/i.test(host) ? 'http' : 'https'}://${host}`)
+      : null
+    if (target && source.origin === target.origin) return true
+    // Development exceptions apply only when both ends are local.
+    if (target && isLocalHost(target.host) && isLocalHost(source.host) && source.protocol === target.protocol) return true
+    return allowedOrigins().some((entry) => {
+      try { return new URL(entry).origin === source.origin } catch { return false }
+    })
+  } catch { return false }
 }
 
 export interface GateResult {
@@ -255,13 +333,14 @@ const PASS: GateResult = { ok: true, status: 200, code: '', message: '', retryAf
 
 /** One check covering origin and rate limit, in that order. */
 export function gate(
-  request: { headers: { get: (name: string) => string | null } },
+  request: { url?: string; headers: { get: (name: string) => string | null } },
   limit: LimitName,
   now = Date.now(),
+  ingress: 'none' | 'cloudflare' = 'none',
 ): GateResult {
   const headers = request.headers
 
-  if (!originAllowed(headers.get('origin'), headers.get('host'))) {
+  if (!originAllowed(headers.get('origin'), request.url ?? headers.get('host'))) {
     return {
       ok: false,
       status: 403,
@@ -271,9 +350,11 @@ export function gate(
     }
   }
 
-  if (!rateLimited(headers.get('host'))) return PASS
+  // Framework Request does not expose a trusted peer address. Never disable
+  // public limits based on the client-controlled Host header alone.
+  if (!rateLimited(request.url ? null : headers.get('host'))) return PASS
 
-  const decision = limiter.check(callerKey(headers), limit, now)
+  const decision = limiter.check(callerKey(headers, 'local', ingress), limit, now)
   if (!decision.allowed) {
     return {
       ok: false,

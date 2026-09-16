@@ -106,8 +106,10 @@ describe('choosing a place', () => {
     const maine = place('Portland', { region: 'Maine', country: 'United States', population: 66_900 })
     expect(choosePlace('Portland, Maine', [oregon, maine])).toEqual({ place: maine })
     expect(choosePlace('Portland, Peru', [oregon, maine])).toBeNull()
-    // A model adds every region it knows; one of them agreeing is enough.
-    expect(choosePlace('Portland, Cumberland County, Maine, United States', [oregon, maine])).toEqual({ place: maine })
+    // Unverified qualifiers are not silently dropped, even with a matching country.
+    expect(choosePlace('Portland, Cumberland County, Maine, United States', [oregon, maine])).toBeNull()
+    expect(choosePlace('Portland, Maine, United States', [oregon])).toBeNull()
+    expect(choosePlace('Portland, Maine, United States', [oregon, maine])).toEqual({ place: maine })
     expect(choosePlace('Atlantis', [])).toBeNull()
   })
 

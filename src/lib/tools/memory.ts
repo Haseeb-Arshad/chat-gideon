@@ -138,7 +138,20 @@ export function similarity(a: string, b: string): number {
   return shared / Math.max(left.size, right.size)
 }
 
-const DUPLICATE_THRESHOLD = 0.72
+/** Destructive operations require every meaningful word, never ranked overlap.
+ * Preserve negation and numbers: "not allergic" and "allergic" are not duplicates.
+ */
+export function matchesMemory(text: string, query: string): boolean {
+  const words = (value: string) => value.toLowerCase().match(/[\p{L}\p{N}]+(?:'[\p{L}]+)?/gu) ?? []
+  const terms = words(query).filter((word) => word === 'not' || (!STOP.has(word) && !['user', 'where'].includes(word)))
+  const document = new Set(words(text))
+  return terms.length > 0 && terms.every((term) => document.has(term))
+}
+
+/** Only formatting-equivalent statements merge automatically. Refinement is explicit. */
+function duplicateKey(text: string): string {
+  return normaliseText(text).toLowerCase().replace(/[.!?]+$/, '')
+}
 
 export interface ScoredMemory {
   memory: Memory
@@ -204,7 +217,7 @@ export function remember(
   const text = normaliseText(rawText)
   const stamp = now.toISOString()
 
-  const existing = memories.find((memory) => similarity(memory.text, text) >= DUPLICATE_THRESHOLD)
+  const existing = memories.find((memory) => duplicateKey(memory.text) === duplicateKey(text))
   if (existing) {
     // The newer phrasing wins: a fact restated has usually been refined.
     const merged: Memory = { ...existing, text, kind, usedAt: stamp, uses: existing.uses + 1 }
@@ -284,16 +297,19 @@ export class JsonMemoryStore extends SerialisedStore {
       const { readFile } = await import('node:fs/promises')
       const raw = await readFile(this.path, 'utf8')
       const parsed = JSON.parse(raw)
-      this.cache = Array.isArray(parsed) ? parsed.filter(isMemory) : []
-    } catch {
-      // No file yet, unreadable, or not ours: start empty rather than fail a turn.
+      if (!Array.isArray(parsed) || !parsed.every(isMemory)) throw new Error('Invalid memory file')
+      this.cache = parsed
+    } catch (error) {
+      // Only a file that does not exist is an empty corpus. Outages and corrupt
+      // data must not become a writable blank baseline.
+      if ((error as { code?: string }).code !== 'ENOENT') throw error
       this.cache = []
     }
     return this.cache
   }
 
   async save(memories: Memory[]): Promise<void> {
-    this.cache = memories
+    const next = structuredClone(memories)
     try {
       const { mkdir, writeFile, rename } = await import('node:fs/promises')
       const { dirname } = await import('node:path')
@@ -303,11 +319,11 @@ export class JsonMemoryStore extends SerialisedStore {
       // carries the process id because a second process sharing this file
       // would otherwise rename the same path out from under us.
       const temporary = `${this.path}.${process.pid}.tmp`
-      await writeFile(temporary, JSON.stringify(memories, null, 2), 'utf8')
+      await writeFile(temporary, JSON.stringify(next, null, 2), 'utf8')
       await rename(temporary, this.path)
-    } catch {
-      // A read-only or ephemeral filesystem costs persistence, not the turn:
-      // the in-process cache still serves this session.
+      this.cache = next
+    } catch (error) {
+      throw error
     }
   }
 }

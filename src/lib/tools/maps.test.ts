@@ -205,15 +205,15 @@ describe('finding a place', () => {
   it('takes the famous place over businesses with the name in theirs, and asks when there is nothing famous to go by', async () => {
     expect(await place('Faisal Mosque')).toMatchObject({ place: { name: 'Faisal Mosque', at: [73.0372, 33.7297] } })
     expect(await place('King Faisal Mosque')).toHaveProperty('ask')
-    // Where the user is, added to a place that is not there, is searched again without it.
+    // Explicit qualifiers are never discarded just because they match the user location.
     const location = { city: 'Rawalpindi', region: 'Punjab', country: 'Pakistan', latitude: 33.6, longitude: 73.05, timezone: 'Asia/Karachi' }
-    expect(await findPlace('Faisal Mosque, Punjab', deps(), weather, { ...context, location })).toMatchObject({ place: { name: 'Faisal Mosque' } })
-    expect(await findPlace('Faisal Mosque, Punjab, Pakistan', deps(), weather, { ...context, location })).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    expect(await findPlace('Faisal Mosque, Punjab', deps(), weather, { ...context, location })).toHaveProperty('none')
+    expect(await findPlace('Faisal Mosque, Punjab, Pakistan', deps(), weather, { ...context, location })).toHaveProperty('none')
     expect(await findPlace('Faisal Mosque, Sindh', deps(), weather, { ...context, location })).toHaveProperty('none')
-    // Regions run together by a model still count.
-    expect(await findPlace('Faisal Mosque, Pakistan Islamabad Capital Territory', deps(), weather, context)).toMatchObject({ place: { name: 'Faisal Mosque' } })
-    // Every region a model knows, added after the name: one agreeing is enough.
-    expect(await findPlace('Faisal Mosque, Margalla Hills, Islamabad Capital Territory, Pakistan', deps(), weather, context)).toMatchObject({ place: { name: 'Faisal Mosque' } })
+    // Unverified combined qualifiers do not justify guessing.
+    expect(await findPlace('Faisal Mosque, Pakistan Islamabad Capital Territory', deps(), weather, context)).toHaveProperty('none')
+    // Every explicit region must be supported.
+    expect(await findPlace('Faisal Mosque, Margalla Hills, Islamabad Capital Territory, Pakistan', deps(), weather, context)).toHaveProperty('none')
     // The town the model added without a comma is read as one.
     expect(await place('Faisal Mosque Islamabad')).toMatchObject({ place: { name: 'Faisal Mosque', at: [73.0372, 33.7297] } })
   })

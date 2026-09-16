@@ -201,11 +201,10 @@ export function nameKey(text: string): string {
 /**
  * The regions and countries named after a comma, each as names are compared:
  * "Lake Saiful Muluk, Kaghan Valley, Khyber Pakhtunkhwa, Pakistan" names three.
- * A model given a place tends to add every one it knows, so any of them agreeing
- * is enough, and a place is only ruled out when none does.
+ * Every explicit qualifier must agree; a matching country cannot excuse a wrong region.
  */
 export function qualifiersOf(query: string): string[] {
-  return query.split(',').slice(1, 5).map(nameKey).filter(Boolean)
+  return query.split(',').slice(1).map(nameKey).filter(Boolean)
 }
 
 /**
@@ -216,12 +215,12 @@ export function qualifiersOf(query: string): string[] {
 export function qualifierMatches(qualifiers: string[], ...texts: string[]): number {
   const keys = texts.flatMap((text) => text.split(',')).map(nameKey).filter((key) => key.length >= 4)
   const joined = texts.map(nameKey).join('|')
-  return qualifiers.filter((qualifier) => joined.includes(qualifier) || keys.some((key) => key.startsWith(qualifier) || qualifier.includes(key))).length
+  return qualifiers.filter((qualifier) => joined.includes(qualifier) || keys.some((key) => key === qualifier)).length
 }
 
 /** Whether a place answers to what was said after the comma: anything, when nothing was. */
 export function qualifiedBy(qualifiers: string[], ...texts: string[]): boolean {
-  return !qualifiers.length || qualifierMatches(qualifiers, ...texts) > 0
+  return qualifierMatches(qualifiers, ...texts) === qualifiers.length
 }
 
 export function choosePlace(query: string, places: Place[]): { place: Place } | { options: Place[] } | null {
@@ -231,10 +230,7 @@ export function choosePlace(query: string, places: Place[]): { place: Place } | 
   const asked = nameKey(query.split(',')[0])
   const called = places.filter((place) => nameKey(place.name) === asked)
   const pool = called.length ? called : places
-  // The places that agree with the most of what was said: "Maine, United States" is Maine's Portland, though both are in the United States.
-  const scored = pool.map((place) => ({ place, matches: qualifierMatches(qualifiers, place.region, place.country) }))
-  const most = Math.max(0, ...scored.map((each) => each.matches))
-  const candidates = qualifiers.length ? scored.filter((each) => each.matches > 0 && each.matches === most).map((each) => each.place) : pool
+  const candidates = pool.filter((place) => qualifiedBy(qualifiers, place.region, place.country))
   const [first, second] = candidates
   if (!first) return null
   if (!second) return { place: first }
@@ -377,7 +373,13 @@ export async function runWeather(args: Record<string, unknown>, context: Weather
 
   let found: Place[]
   try {
-    found = await places.get(`${provider.name}|${name.toLowerCase()}`, () => provider.places(name, context.signal), (each) => each.length > 0)
+    found = await places.getShared(
+      `${provider.name}|${name.toLowerCase()}`,
+      (fresh) => provider.places(name, fresh),
+      context.signal,
+      TIMEOUT_MS,
+      (each) => each.length > 0,
+    )
   } catch (error) {
     if (context.signal.aborted) throw error
     return { ok: false, content: 'The forecast could not be reached just now. Say so in one short sentence.', summary: 'Could not get the weather' }
@@ -410,8 +412,11 @@ async function forecastFor(place: Place, args: Record<string, unknown>, context:
   const unit = unitFor(args.units, context.timezone)
   let material: WeatherMaterial
   try {
-    material = await forecasts.get(`${provider.name}|${place.latitude.toFixed(2)},${place.longitude.toFixed(2)}|${unit}`, () =>
-      provider.forecast(place, unit, context.signal),
+    material = await forecasts.getShared(
+      `${provider.name}|${place.latitude.toFixed(2)},${place.longitude.toFixed(2)}|${unit}`,
+      (fresh) => provider.forecast(place, unit, fresh),
+      context.signal,
+      TIMEOUT_MS,
     )
   } catch (error) {
     if (context.signal.aborted) throw error

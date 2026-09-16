@@ -18,6 +18,7 @@ import {
 import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
+import { nodeMemoryStore } from '../server/identity'
 
 export { getPublicConfig, warmUpstream }
 
@@ -40,6 +41,11 @@ export function guardRequest(request: Request, limit: LimitName): Response | nul
 /**
  * Streams one turn as newline-delimited protocol frames — the same frames the
  * WebSocket link emits, so the browser parses exactly one format.
+ *
+ * Memory is selected from the request's own credentials: only a valid
+ * server-issued cookie reaches the durable store, and an unverified caller gets
+ * an ephemeral one that exists for this response alone. The same selection rule
+ * is used by the realtime host, so both transports meet the same corpus.
  */
 export function streamChat(
   id: string,
@@ -54,8 +60,11 @@ export function streamChat(
   speculative?: boolean,
   /** What the page is showing, already read and bounded. */
   screen?: import('./stage-judge').ScreenState | null,
+  /** The request itself, so memory can be resolved from its cookie. */
+  request?: Request,
 ): Response {
   const encoder = new TextEncoder()
+  const memoryStore = request ? nodeMemoryStore(request.headers) : undefined
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -67,6 +76,7 @@ export function streamChat(
           timezone,
           speculative,
           screen,
+          memoryStore,
         })) {
           if (signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))

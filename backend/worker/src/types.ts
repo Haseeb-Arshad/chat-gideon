@@ -6,7 +6,7 @@ import type { GideonSession } from './realtime'
 export interface Env {
   GIDEON_SESSION: DurableObjectNamespace<GideonSession>
 
-  /** Accounts. Both are needed; without either, memory stays keyed by the browser's id. */
+  /** Accounts. Both are needed for verified durable ownership; otherwise memory is ephemeral. */
   DB?: D1Database
   BETTER_AUTH_SECRET?: string
 

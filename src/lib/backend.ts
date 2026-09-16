@@ -30,35 +30,66 @@ export function sessionId() {
   }
 }
 
-/** Longest the socket waits on an account before opening under the browser's id. */
-const ACCOUNT_WAIT_MS = 2_000
+export type AccountState = 'pending' | 'ready' | 'unavailable' | 'error'
+let account: Promise<AccountState> | null = null
+let accountState: AccountState = 'pending'
+const accountListeners = new Set<() => void>()
 
-let account: Promise<void> | null = null
+/** Success is a real identity transition, even after a caller stopped waiting. */
+export function onAccountReady(listener: () => void): () => void {
+  accountListeners.add(listener)
+  return () => { accountListeners.delete(listener) }
+}
 
-/**
- * Makes sure this browser belongs to an account before memory is chosen.
- *
- * Memory follows the account cookie, and a socket's memory is fixed as it
- * opens, so the link waits for this first. Never for long: a server without
- * accounts answers 404 at once, and a slow one leaves memory on the browser's
- * id as before rather than holding up the voice.
- */
-export function ensureAccount(): Promise<void> {
-  if (account) return account
-
-  // A backend on another origin is sent no cookies, so an account made there
-  // would be created on every load and never seen again.
+function initializeAccount(): Promise<AccountState> {
+  if (account && accountState !== 'error') return account
+  accountState = 'pending'
+  // External backends do not participate in same-origin account cookies.
   if (typeof window === 'undefined' || configuredHttpBase() || configuredWebSocketBase()) {
-    account = Promise.resolve()
-    return account
+    accountState = 'unavailable'
+    return (account = Promise.resolve(accountState))
   }
-
-  const request = fetch('/api/account', { method: 'POST', headers: backendHeaders() })
-    .then((response) => response.body?.cancel())
-    .catch(() => undefined)
-  const giveUp = new Promise<void>((resolve) => setTimeout(resolve, ACCOUNT_WAIT_MS))
-  account = Promise.race([request, giveUp]).then(() => undefined)
+  account = Promise.resolve().then(() => fetch('/api/account', {
+    method: 'POST', headers: backendHeaders(),
+  })).then((response) => {
+    // Do not wait for an unused body before observing the Set-Cookie transition.
+    void response.body?.cancel().catch(() => undefined)
+    accountState = response.ok ? 'ready' : response.status === 404 ? 'unavailable' : 'error'
+    if (accountState === 'ready') {
+      for (const listener of accountListeners) listener()
+    }
+    return accountState
+  }, () => (accountState = 'error'))
   return account
+}
+
+/** Bounded wait; timing out does not discard the eventual identity transition. */
+export function ensureAccount(waitMs = 2_000, signal?: AbortSignal): Promise<AccountState> {
+  const initialized = initializeAccount()
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (state?: AccountState) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      if (state) resolve(state)
+      else reject(new DOMException('Aborted', 'AbortError'))
+    }
+    const abort = () => finish()
+    const timer = setTimeout(() => finish(accountState), waitMs)
+    if (signal?.aborted) return abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    void initialized.then(finish)
+  })
+}
+
+/** Never send memory-bearing HTTP work under an unresolved or failed identity. */
+export async function awaitAccount(signal?: AbortSignal): Promise<void> {
+  const state = await ensureAccount(8_000, signal)
+  if (state === 'pending' || state === 'error') {
+    throw new Error('The account is not ready. Please try again shortly.')
+  }
 }
 
 export function backendUrl(path: string) {

@@ -18,6 +18,7 @@ import {
   type MemoryStore,
   rank,
   remember,
+  matchesMemory,
   tokenise,
   touch,
   type MemoryKind,
@@ -265,8 +266,6 @@ function text(args: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-// -- Server tools ----------------------------------------------------------
-
 function describeTime(timezone: string): ToolOutcome {
   const now = new Date()
   let formatted: string
@@ -287,31 +286,18 @@ function describeTime(timezone: string): ToolOutcome {
   return { ok: true, content: formatted }
 }
 
-/** At most this many memories give way to a fact that has changed. */
-const MAX_REPLACED = 2
-
-/**
- * The memories a changed fact takes the place of: the closest matches to what
- * it replaces, and only those at least half as close as the best. An old fact
- * has to share a word with the new one as well, so what goes is always about
- * the same thing as what comes in, however loosely the model named it. "The
- * user" is in nearly every memory, so a match on it alone replaces nothing.
- */
+/** Replacement requires a unique selector or a unique subject shared with the new fact. */
 function outdatedBy(memories: Memory[], replaces: string, fact: string): Set<string> {
-  const named = new Set(tokenise(replaces).filter((term) => term !== 'user'))
+  const exact = memories.filter((memory) => matchesMemory(memory.text, replaces))
+  if (exact.length) return new Set(exact.length === 1 ? [exact[0].id] : [])
   const about = new Set(tokenise(fact).filter((term) => term !== 'user'))
-  if (!named.size || !about.size) return new Set()
-  const hits = rank(memories, replaces).filter((hit) => {
-    const terms = tokenise(hit.memory.text)
-    return terms.some((term) => named.has(term)) && terms.some((term) => about.has(term))
+  const shared = tokenise(replaces).filter((term) => term !== 'user' && about.has(term))
+  if (!shared.length) return new Set()
+  const hits = memories.filter((memory) => {
+    const terms = new Set(tokenise(memory.text))
+    return shared.every((term) => terms.has(term))
   })
-  const best = hits[0]?.score ?? 0
-  return new Set(
-    hits
-      .filter((hit) => hit.score >= best / 2)
-      .slice(0, MAX_REPLACED)
-      .map((hit) => hit.memory.id),
-  )
+  return new Set(hits.length === 1 ? [hits[0].id] : [])
 }
 
 /**
@@ -377,8 +363,15 @@ async function runMemoryTool(
 
   if (name === 'forget') {
     const query = text(args, 'query')
+    if (!query) return { ok: false, content: 'Nothing was given to forget.' }
     return store.mutate<ToolOutcome>((memories) => {
-      const hits = rank(memories, query).slice(0, 5)
+      // Forgetting is destructive, so it takes exact-word certainty: every
+      // meaningful word of the query must appear in the memory. Ranking is for
+      // recall, where a wrong hit costs a sentence; here it would delete a
+      // fact because it shared "the user" with the question. Overlapping
+      // phrasings ("allergic to peanuts" vs "allergic to shellfish") stay
+      // distinct, so one ask removes one thing.
+      const hits = memories.filter((memory) => matchesMemory(memory.text, query))
       if (!hits.length) {
         return {
           memories,
@@ -388,12 +381,12 @@ async function runMemoryTool(
           } satisfies ToolOutcome,
         }
       }
-      const doomed = new Set(hits.map((hit) => hit.memory.id))
+      const doomed = new Set(hits.map((hit) => hit.id))
       return {
         memories: memories.filter((memory) => !doomed.has(memory.id)),
         result: {
           ok: true,
-          content: `Forgotten: ${hits.map((hit) => hit.memory.text).join('; ')}`,
+          content: `Forgotten: ${hits.map((hit) => hit.text).join('; ')}`,
           summary: `Forgot ${hits.length} memor${hits.length === 1 ? 'y' : 'ies'}`,
         } satisfies ToolOutcome,
       }
@@ -596,8 +589,10 @@ export async function contextMemories(
   store: MemoryStore,
   latestUserText: string,
   limit = 4,
+  readOnly = false,
 ): Promise<Memory[]> {
   if (!latestUserText.trim()) return []
+  if (readOnly) return rank(await store.all(), latestUserText).slice(0, limit).map((hit) => hit.memory)
   // This runs on every turn, which is exactly why it has to go through the
   // serialised path: it was the most frequent writer, and therefore the one
   // most likely to clobber a fact stored a moment earlier.

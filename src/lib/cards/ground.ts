@@ -28,37 +28,56 @@ export function cleanText(value: unknown, limit: number): string {
   return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`
 }
 
-/**
- * The numbers a piece of text states, normalised so "1,879" and "1879" are the
- * same number and "17°C" is 17. Ordinary spaces are deliberately not part of a
- * number: "in 2023 42 people" is two numbers, not 202342. The spaces that are
- * part of one ("1 879" set with a no-break or narrow no-break space) are
- * written as escapes, because the characters themselves look exactly like the
- * ordinary space that must not match, and did not survive being copied once.
- */
+/** Numeric extraction retained for callers that only need to detect figures. */
 export function numbersIn(text: string): string[] {
-  const found = text.match(/\d(?:[\d,.\u00a0\u202f]*\d)?/g) ?? []
-  return found.map((number) => number.replace(/[,\u00a0\u202f]/g, ''))
+  return quantities(text).map((quantity) => quantity.number)
 }
 
-/**
- * Every number in `source`, in full and by its whole part.
- *
- * The whole part is there so a card may round: "$67,420" is fair from a source
- * that says "$67,420.50". It never works the other way, so a decimal the source
- * does not contain is still caught.
- */
+interface Quantity { number: string; scale: string; unit: string; currency: string }
+const UNIT = /^(%|percent\b|percentage points?\b|°\s*[CF]|celsius\b|fahrenheit\b|km\/h\b|mph\b|km\b|kilomet(?:er|re)s?\b|miles?\b|met(?:er|re)s?\b|cm\b|mm\b|kg\b|mg\b|grams?\b|g\b|lbs?\b|pounds?\b|ms\b|milliseconds?\b|seconds?\b|minutes?\b|hours?\b|days?\b|years?\b|watts?\b|kWh\b|MW\b|GB\b|MB\b|bytes?\b|tokens?\b|vectors?\b|people\b|persons?\b|USD\b|EUR\b|GBP\b)/i
+
+function quantities(text: string): Quantity[] {
+  const result: Quantity[] = []
+  const pattern = /([+\-−]?)\s*([$€£]?)\s*([+\-−]?)((?:\d[\d,\u00a0\u202f]*)(?:\.\d+)?)/g
+  for (const match of text.matchAll(pattern)) {
+    let sign = match[1] || match[3]
+    // A hyphen between digits is a range/date separator, not a negative sign.
+    if (sign === '-' && /\d$/.test(text.slice(0, match.index).trimEnd())) sign = ''
+    const number = (sign === '−' ? '-' : sign) + match[4].replace(/[,\u00a0\u202f]/g, '')
+    let rest = text.slice(match.index! + match[0].length).trimStart()
+    const scaleMatch = rest.match(/^(thousand|million|billion|trillion|[kmbt])\b/i)
+    const scales: Record<string, string> = { k: 'thousand', m: 'million', b: 'billion', t: 'trillion' }
+    const rawScale = scaleMatch?.[0].toLowerCase() ?? ''
+    const scale = scales[rawScale] ?? rawScale
+    if (scaleMatch) rest = rest.slice(scaleMatch[0].length).trimStart()
+    let unit = rest.match(UNIT)?.[0].toLowerCase().replace(/\s+/g, '') ?? ''
+    const aliases: Record<string, string> = { percent: '%', celsius: '°c', fahrenheit: '°f', kilometres: 'km', kilometers: 'km', kilometre: 'km', kilometer: 'km', metres: 'm', meters: 'm', metre: 'm', meter: 'm' }
+    unit = aliases[unit] ?? unit.replace(/s$/, '')
+    if (unit && /^(?:tokens?|vectors?)$/.test(unit)) {
+      const rate = rest.match(/^(?:tokens?|vectors?)\s*(?:\/|per\s+)\s*(second|s|minute|hour)\b/i)
+      if (rate) unit += '/' + (rate[1].toLowerCase() === 'second' ? 's' : rate[1].toLowerCase())
+    }
+    result.push({ number, scale, unit, currency: match[2] })
+  }
+  return result
+}
+
+function quantityKey(quantity: Quantity): string {
+  return JSON.stringify([quantity.number, quantity.scale, quantity.unit, quantity.currency])
+}
+
+/** Rounding may drop a fraction, never a sign, magnitude, currency or unit. */
 export function knownNumbers(source: string): Set<string> {
   const known = new Set<string>()
-  for (const number of numbersIn(source)) {
-    known.add(number)
-    known.add(number.split('.')[0])
+  for (const quantity of quantities(source)) {
+    known.add(quantityKey(quantity))
+    known.add(quantityKey({ ...quantity, number: quantity.number.split('.')[0] }))
   }
   return known
 }
 
 export function grounded(text: string, known: Set<string>): boolean {
-  return numbersIn(text).every((number) => known.has(number))
+  return quantities(text).every((quantity) => known.has(quantityKey(quantity)))
 }
 
 /** Keeps only the sentences whose numbers all come from what is known. */
