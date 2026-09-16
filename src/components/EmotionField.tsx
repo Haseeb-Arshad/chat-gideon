@@ -184,6 +184,10 @@ export function EmotionField({ mood, active, levelRef }: EmotionFieldProps) {
     const canvas = canvasRef.current
     const wrap = wrapRef.current
     if (!canvas || !wrap) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      wrap.dataset.mode = 'css'
+      return
+    }
 
     const gl = canvas.getContext('webgl2', {
       alpha: false,

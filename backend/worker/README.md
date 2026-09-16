@@ -1,89 +1,81 @@
 # GIDEON Cloudflare Worker
 
-This folder contains the Cloudflare backend adapter. The root TanStack Start
-frontend is served by the same Worker through `src/server.ts`.
-
-The backend owns:
-
-- `/api/chat`, `/api/voice`, `/api/transcribe`, `/api/config`, `/api/account`,
-  and `/api/healthz`
-- `/api/realtime`, backed by one `GideonSession` Durable Object per owner: the
-  account when there is one, otherwise the browser's own id
-- accounts, through Better Auth on D1
-- OpenRouter and Exa secrets, which stay in Worker bindings
-- durable memory in Durable Object SQLite storage, with an optional Supabase
-  mirror for the production database
+The root TanStack Start frontend and HTTP APIs are served by one Worker.
+`GideonSession` provides WebSockets and a serialized memory authority per
+verified account. HTTP fallback uses that same authority.
 
 ## Local Worker run
 
-Copy `.dev.vars.example` to `.dev.vars`, put in the keys you want to test, and
-run from the repository root:
+Run from the repository root:
 
 ```powershell
+Copy-Item backend/worker/.dev.vars.example .dev.vars
+# Fill in OPENROUTER_API_KEY and a random BETTER_AUTH_SECRET (32+ characters).
 npx wrangler d1 migrations apply DB --local
 npm run dev:cloudflare
 ```
 
-The migration only needs running once, and again whenever a new one is added.
-
-Use the URL printed by Wrangler. The normal `npm run dev` remains the local
-Node server with the existing Vite WebSocket host.
+Wrangler loads `.dev.vars` beside the root `wrangler.jsonc`, not inside this
+backend folder. Leave optional Supabase values empty for local Durable Object
+storage. Apply migrations again whenever a new one is added.
 
 ## Deploy
 
-Authenticate once, then deploy the full-stack Worker from the repository root:
+Provision the database before the first deployment:
 
 ```powershell
 npx wrangler login
+npx wrangler d1 create chat-gideon
+```
+
+Copy the returned `database_id` into the `DB` binding in `wrangler.jsonc`.
+Configure production secrets with `wrangler secret put`, never in Git:
+
+- `BETTER_AUTH_SECRET`: random, at least 32 characters.
+- `OPENROUTER_API_KEY`.
+- Optional `EXA_API_KEY`, `MAPBOX_PUBLIC_TOKEN`, `MAPBOX_SERVER_TOKEN`.
+- Optional `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (both required).
+
+```powershell
 npm run deploy:cloudflare
 ```
 
-The deploy script applies D1 migrations after `wrangler deploy`. On the first
-deploy, Wrangler also creates the `chat-gideon` database and writes its id
-into `wrangler.jsonc`; commit that change.
+Deployment builds and typechecks, applies remote D1 migrations, and only then
+publishes the Worker. A migration failure prevents publication. Use additive,
+backward-compatible migrations because the old Worker remains live while
+migrations run. This change does not itself provision, migrate or deploy anything.
 
-Set production secrets with Wrangler. Do not put them in `wrangler.jsonc`:
+Set the complete HTTPS origins in `GIDEON_ALLOWED_ORIGINS`. Origin checking is a
+browser boundary, not authentication of scripts. Rate limits are per isolate,
+not a deployment-wide spending cap; use Cloudflare ingress controls/provider
+budgets for public deployments requiring a global ceiling.
 
-```powershell
-npx wrangler secret put BETTER_AUTH_SECRET
-npx wrangler secret put OPENROUTER_API_KEY
-npx wrangler secret put EXA_API_KEY
-npx wrangler secret put MAPBOX_PUBLIC_TOKEN
-npx wrangler secret put MAPBOX_SERVER_TOKEN
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-```
+## Accounts and memory
 
-`SUPABASE_URL` is not sensitive, but storing it as a Worker secret keeps the
-first deployment command sequence simple. It can instead be a plain `vars`
-entry in `wrangler.jsonc`.
+`POST /api/account` issues an anonymous Better Auth session without a signup
+screen. Cookies select the same `user/<id>` memory on HTTP and WebSockets.
+Account verification outages return a retryable 503 rather than silently
+changing the owner. Requests without a verified account use isolated ephemeral
+memory, never a shared `anonymous` corpus or a client-selected persistent ID.
 
-Non-secret model and URL values can be added to the `vars` section of
-`wrangler.jsonc` once the deployment URL is known.
+Anonymous sessions last a year. Clearing the cookie loses access; cross-device
+sign-in/account recovery is not implemented. Configure `DB` and
+`BETTER_AUTH_SECRET` to enable durable account memory.
 
-## Supabase memory table
+**Legacy memory is not automatically imported.** A browser-provided ID is not
+proof of ownership. Existing data is left intact; any migration needs separately
+verified ownership. This avoids copying another person's legacy facts into a
+new account. Account issuance no longer depends on an adoption copy succeeding.
 
-Apply `supabase/migrations/001_gideon_memories.sql` in the Supabase SQL editor.
-The Worker talks to it through the REST endpoint using the service-role key,
-which is server-only. RLS remains enabled so the public anon key cannot read
-the table.
+## Optional Supabase backend
 
-## Accounts
+Apply `supabase/migrations/001_gideon_memories.sql` before enabling both bindings.
+The service-role key stays server-side and RLS protects the table from anon-key
+access. Supabase is an **alternative backend, not a mirror**: switching it on or
+off does not copy existing data. Back up and explicitly migrate owner rows
+before switching; use a maintenance window to prevent concurrent writes.
 
-Memory belongs to an account, not a browser. On its first load a page calls
-`POST /api/account`, which gives the visitor an anonymous Better Auth account
-and a session cookie without asking them to sign up. The Worker checks that
-cookie on every socket and turn, and names the memory `user/<id>`. A browser's
-own id cannot contain a slash, so no browser can claim an account's memory.
-
-A new account takes over what the browser's id already remembered, so memory
-from before accounts is not lost. Only an account that remembers nothing yet
-takes anything, and the browser's id keeps its copy.
-
-Accounts need the `DB` binding and a `BETTER_AUTH_SECRET` of at least 32
-characters (`openssl rand -base64 32`). Without either, memory stays keyed by
-the browser's id, which is an opaque local identifier and not authentication.
-
-Anonymous sessions last a year from the last visit. There is no sign-in yet,
-so clearing site data still loses the account. Adding one is how memory will
-follow a person onto another device.
+All application writes go through the owner's Durable Object authority, including
+HTTP fallback. Failed reads never become writable empty memory, and failed
+writes are reported rather than claimed successful. External writers bypassing
+this authority are not supported.

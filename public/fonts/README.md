@@ -9,9 +9,9 @@ GIDEON is set in two faces:
 
 Both are licensed, so most of the files are **not** committed here — only the
 weights already dropped in are present. The `@font-face` rules in
-`src/styles.css` point at this directory and accept either `.woff2` or
-`.woff`; add a file with the exact name below and it takes over on the next
-page load. Nothing else needs changing.
+`src/styles.css` register only files that exist. When adding a licensed font,
+add its corresponding rule with the correct weight, style, and file format.
+Do not register placeholder URLs: they cause unnecessary requests and 404s.
 
 ```
 public/fonts/
@@ -43,10 +43,9 @@ chosen to sit in roughly the same place so the page never renders unstyled:
 - `--font-text`: Frances → **Manrope** → Segoe UI → system-ui
 
 Fraunces and Manrope are loaded from Google Fonts at the top of the stylesheet.
-For any weight whose file is still missing, the browser will log a 404 before
-falling back; that is expected, not a bug. Once every real file lands you can
-drop the Google Fonts `@import` if you want the page to stop reaching out to a
-third party.
+Missing licensed faces are not registered, so the browser uses the fallback
+without requesting nonexistent files. Once every real file lands you can
+drop the Google Fonts `@import` to stop loading those fonts from a third party.
 
 ## Converting from OTF/TTF
 

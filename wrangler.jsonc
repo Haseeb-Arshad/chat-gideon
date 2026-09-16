@@ -8,8 +8,8 @@
     "GIDEON_ALLOWED_ORIGINS": "https://chatgideon.com,https://www.chatgideon.com",
     "OPENROUTER_SITE_URL": "https://chatgideon.com"
   },
-  // Accounts. No database_id: the first `wrangler deploy` creates the database
-  // and writes its id back here.
+  // Provision once with `wrangler d1 create chat-gideon` and add database_id here.
+  // Migrations must succeed before code depending on them is deployed.
   "d1_databases": [
     {
       "binding": "DB",

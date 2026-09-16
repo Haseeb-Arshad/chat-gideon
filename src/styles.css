@@ -2,20 +2,10 @@
 @import './styles/cards.css';
 @import './styles/blocks.css';
 
-/*
- * GT Alpina (Grilli Type) and Frances are licensed faces, so most of the files
- * are not vendored here — only the two GT Alpina Condensed Light cuts that
- * have actually been dropped into `public/fonts/` so far. Each rule accepts
- * either .woff2 or .woff so whichever export you have works; add more weights
- * under the same `GT-Alpina-Condensed-<Weight>[-Italic]` naming and they take
- * over automatically. Frances still has no files in place, so that stack
- * falls through to Manrope until some arrive. See public/fonts/README.md.
- */
+/* Register only licensed files present in public/fonts; other faces use the fallback stacks. */
 @font-face {
   font-family: 'GT Alpina';
-  src:
-    url('/fonts/GT-Alpina-Condensed-Light.woff2') format('woff2'),
-    url('/fonts/GT-Alpina-Condensed-Light.woff') format('woff');
+  src: url('/fonts/GT-Alpina-Condensed-Light.woff') format('woff');
   font-weight: 300;
   font-style: normal;
   font-stretch: condensed;
@@ -24,64 +14,10 @@
 
 @font-face {
   font-family: 'GT Alpina';
-  src:
-    url('/fonts/GT-Alpina-Condensed-Light-Italic.woff2') format('woff2'),
-    url('/fonts/GT-Alpina-Condensed-Light-Italic.woff') format('woff');
+  src: url('/fonts/GT-Alpina-Condensed-Light-Italic.woff') format('woff');
   font-weight: 300;
   font-style: italic;
   font-stretch: condensed;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'GT Alpina';
-  src:
-    url('/fonts/GT-Alpina-Condensed-Regular.woff2') format('woff2'),
-    url('/fonts/GT-Alpina-Condensed-Regular.woff') format('woff');
-  font-weight: 400;
-  font-style: normal;
-  font-stretch: condensed;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'GT Alpina';
-  src:
-    url('/fonts/GT-Alpina-Condensed-Medium.woff2') format('woff2'),
-    url('/fonts/GT-Alpina-Condensed-Medium.woff') format('woff');
-  font-weight: 500;
-  font-style: normal;
-  font-stretch: condensed;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Frances';
-  src:
-    url('/fonts/Frances-Regular.woff2') format('woff2'),
-    url('/fonts/Frances-Regular.woff') format('woff');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Frances';
-  src:
-    url('/fonts/Frances-Medium.woff2') format('woff2'),
-    url('/fonts/Frances-Medium.woff') format('woff');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Frances';
-  src:
-    url('/fonts/Frances-Semibold.woff2') format('woff2'),
-    url('/fonts/Frances-Semibold.woff') format('woff');
-  font-weight: 600;
-  font-style: normal;
   font-display: swap;
 }
 
@@ -1692,7 +1628,20 @@ button:active:not(:disabled) {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .emotion-field, .emotion-field::before, .emotion-field::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .emotion-field::before, .emotion-field::after {
+    transform: translate(-50%, 20vh);
+  }
+}
+
 .stage-shelf {
+  max-height: 85vh;
+  overflow-y: auto;
+  overflow-x: clip;
   position: fixed;
   z-index: 11;
   top: 50%;

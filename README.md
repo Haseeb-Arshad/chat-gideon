@@ -159,7 +159,7 @@ Browser ────────────────────────
        ├─ server tools: clock · memory · research ──► research model ──► Exa
        └─ client tools: tool_request ──► browser ──► tool_reply
   memory: IDF-ranked facts, merged on restatement, evicted by usefulness
-          └─ Durable Object storage per account, optionally mirrored to Supabase
+          └─ owner-scoped Durable Object authority; optional Supabase backend
   guard: origin · per-caller token buckets
 ```
 
@@ -382,11 +382,14 @@ for a focused rerun. About ten cents a run; results in
 
 Conversation history stays in this browser's local storage. Memories are the
 only thing that leaves it, and only to the server you are running. The local
-Node server writes them to `GIDEON_MEMORY_PATH` (`.gideon/memory.json` by
-default, gitignored). The Cloudflare Worker gives each visitor an anonymous
-account, a session cookie with no sign-up, and keeps that account's memory in
-Durable Object storage, mirrored to Supabase when the Worker bindings are
-configured. See [`backend/worker/README.md`](backend/worker/README.md).
+Node server isolates them by a signed account cookie under `GIDEON_MEMORY_DIR`
+(default `.gideon/memories`, gitignored). Set a random `GIDEON_IDENTITY_SECRET`
+of at least 32 characters so those cookies survive process restarts. Without
+it the signing key lasts only for the process. The Cloudflare Worker gives
+each visitor an anonymous account and uses Durable Object storage, or Supabase
+as an alternative backend when configured. Both transports share the same
+owner's memory authority. Unverified requests get isolated ephemeral memory;
+legacy browser IDs are not automatically imported. See [`backend/worker/README.md`](backend/worker/README.md).
 
 Asked about the weather without a place, the Cloudflare deployment uses the
 city Cloudflare places the connection in. Its coordinates, rounded to about a
@@ -405,7 +408,7 @@ from Mapbox, which counts the load against the token. Nothing is stored.
 ## Verify
 
 ```bash
-npm test          # 267 tests, plus 2 live checks it skips
+npm test          # local regressions; paid live-provider checks are skipped
 npx tsc --noEmit
 npm run build
 npm run build:cloudflare
@@ -431,10 +434,11 @@ npm run deploy:cloudflare
 
 Put `BETTER_AUTH_SECRET`, `OPENROUTER_API_KEY`, `EXA_API_KEY`,
 `MAPBOX_PUBLIC_TOKEN`, `MAPBOX_SERVER_TOKEN` and `SUPABASE_SERVICE_ROLE_KEY` in
-Wrangler secrets. The deploy creates the D1 database for accounts on its first
-run and applies its migrations every time. Apply
+Wrangler secrets. Before the first deploy, run `npx wrangler d1 create chat-gideon`
+and add the returned `database_id` to the DB binding in `wrangler.jsonc`.
+The deploy script applies migrations before publishing dependent code. Apply
 [`001_gideon_memories.sql`](backend/worker/supabase/migrations/001_gideon_memories.sql)
-in Supabase before enabling the database mirror. Cloudflare and Supabase free
+in Supabase before enabling that alternative backend (it is not a mirror). Cloudflare and Supabase free
 tiers cover small personal demos within their quotas; OpenRouter model,
 transcription, voice, and Exa usage can still be billable or rate-limited.
 

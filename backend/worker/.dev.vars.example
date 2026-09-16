@@ -1,9 +1,9 @@
 OPENROUTER_API_KEY=replace_with_your_openrouter_key
 
-# Accounts. At least 32 characters: `openssl rand -base64 32`. Without it,
-# memory stays keyed by the browser's id. Apply the migration once first:
+# Accounts. At least 32 random characters: `openssl rand -base64 32`.
+# Without it, memory is ephemeral and isolated. Apply the migration first:
 # npx wrangler d1 migrations apply DB --local
-BETTER_AUTH_SECRET=replace_with_a_random_secret_of_32_or_more_characters
+BETTER_AUTH_SECRET=
 OPENROUTER_SITE_URL=http://localhost:5173
 OPENROUTER_CHAT_MODEL=openai/gpt-4.1-mini
 OPENROUTER_CHAT_FALLBACK_MODEL=minimax/minimax-m3:free
@@ -25,7 +25,7 @@ MAPBOX_SERVER_TOKEN=
 GIDEON_ALLOWED_ORIGINS=http://localhost:5173
 GIDEON_RATE_LIMIT=auto
 
-# Optional durable memory mirror. The Worker still uses DO storage if these
-# are absent, which keeps local development functional.
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=replace_with_service_role_key
+# Optional alternative memory backend, not a mirror. Leave both empty to use
+# Durable Object storage. Migrate existing data before switching backends.
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=

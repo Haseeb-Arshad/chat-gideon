@@ -11,7 +11,7 @@
     "dev:cloudflare": "vite dev --mode cloudflare",
     "build:cloudflare": "vite build --mode cloudflare && tsc --noEmit",
     "preview:cloudflare": "vite preview --mode cloudflare",
-    "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy && wrangler d1 migrations apply DB --remote",
+    "deploy:cloudflare": "npm run build:cloudflare && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "deploy": "npm run deploy:cloudflare",
     "cf:typegen": "wrangler types",
     "preview": "node server/serve.mjs",
