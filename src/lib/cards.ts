@@ -63,6 +63,14 @@ const LIMITS = {
   sources: 4,
 }
 
+/**
+ * A card asked for in full: everything the same, except the two limits that
+ * would otherwise cut a fuller brief back down to a glance. Each sentence and
+ * fact is still checked against the brief on its own, so this only raises how
+ * much grounded material a card may hold, never what counts as grounded.
+ */
+const DEEP_LIMITS = { ...LIMITS, summary: 900, facts: 8 }
+
 export interface CardContext {
   query: string
   /** The brief the card was drawn from, without its list of sources. */
@@ -83,11 +91,12 @@ export interface ParsedCard {
  * card with no title, or one with neither a summary, a figure, nor at least two
  * facts left after the grounding check.
  */
-export function parseCard(raw: unknown, context: CardContext): ParsedCard | null {
+export function parseCard(raw: unknown, context: CardContext, options: { deep?: boolean } = {}): ParsedCard | null {
   if (!raw || typeof raw !== 'object') return null
   const input = raw as Record<string, unknown>
   if (input.show === false) return null
 
+  const limits = options.deep ? DEEP_LIMITS : LIMITS
   const known = knownNumbers(context.brief)
   const keep = (text: string) => (text && grounded(text, known) ? text : '')
 
@@ -98,7 +107,7 @@ export function parseCard(raw: unknown, context: CardContext): ParsedCard | null
   const title = keep(cleanText(input.title, LIMITS.title))
   if (!title) return null
   const subtitle = keep(cleanText(input.subtitle, LIMITS.subtitle))
-  const summary = groundedSentences(cleanText(input.summary, LIMITS.summary), known)
+  const summary = groundedSentences(cleanText(input.summary, limits.summary), known)
 
   let figure: Card['figure'] = null
   if (kind === 'figure' && input.figure && typeof input.figure === 'object') {
@@ -122,7 +131,7 @@ export function parseCard(raw: unknown, context: CardContext): ParsedCard | null
     if (seen.has(key) || repeats.has(value.toLowerCase())) continue
     seen.add(key)
     facts.push({ label, value })
-    if (facts.length === LIMITS.facts) break
+    if (facts.length === limits.facts) break
   }
 
   if (!summary && !figure && facts.length < 2) return null

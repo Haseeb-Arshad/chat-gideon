@@ -133,6 +133,10 @@ async function route(routingCase: RoutingCase, turns: WeakMap<AbortSignal, Turn>
       // Each sentence starts from a person GIDEON knows nothing about: a memory one case keeps
       // must not answer another's question.
       memoryStore: new EphemeralMemoryStore(),
+      // The app always has a browser to ask where the user is; without one the model is told to
+      // ask the user instead, which is right there and wrong here. Only the call is measured, so
+      // the browser need not answer.
+      bridge: { call: async () => ({ ok: false, content: 'The browser did not say.' }) },
       ...(routingCase.screen ? { screen: ROUTING_SCREEN } : {}),
     })) {
       // Only the model's stream is read; the frames themselves are not needed.

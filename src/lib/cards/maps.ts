@@ -7,7 +7,7 @@
  * crow flies, which is worked out here and labelled so.
  */
 
-import type { Block, CardSource, CardV2, LngLat, MapBlock, MapPin } from './schema'
+import type { Block, CardSource, CardV2, LngLat, ListBlock, MapBlock, MapPin } from './schema'
 
 /** What a place is, as a person would call it. */
 export type PlaceKind = 'country' | 'region' | 'capital' | 'city' | 'town' | 'landmark' | 'address' | 'area'
@@ -139,10 +139,10 @@ export function zoomFor([west, south, east, north]: [number, number, number, num
 }
 
 /** The west, south, east and north that hold every point, a little wider. */
-export function boundsOf(points: LngLat[]): [number, number, number, number] {
+export function boundsOf(points: LngLat[], least = 0.01): [number, number, number, number] {
   const longitudes = points.map(([longitude]) => longitude)
   const latitudes = points.map(([, latitude]) => latitude)
-  const pad = (low: number, high: number) => Math.max((high - low) * 0.08, 0.01)
+  const pad = (low: number, high: number) => Math.max((high - low) * 0.08, least)
   const west = Math.min(...longitudes)
   const east = Math.max(...longitudes)
   const south = Math.min(...latitudes)
@@ -242,4 +242,51 @@ export function routeCard({ question, from, to, travel, route, publicToken }: Ro
   ]
   if (route?.steps.length && route.metres <= STEPS_WITHIN_METRES) blocks.push({ id: 'steps', slot: 'more', type: 'steps', items: route.steps.slice(0, 6) })
   return { schema: 2, recipe: 'route', size: 'wide', query: question, title: `${from.name} to ${to.name}`, blocks, sources: MAP_SOURCES, asOf: null, partial: false }
+}
+
+export interface NearbyPlace {
+  name: string
+  /** How far from the point asked about, in metres, as the source gave it. */
+  metres: number
+  /** "Kohsar Market, Islamabad", when the source gave more than the name. */
+  detail: string
+  at: LngLat
+}
+
+export interface NearbyCardInput {
+  question: string
+  /** The category as the user said it: "restaurants", "coffee shops". */
+  category: string
+  /** The name of the place searched around, for the headline. */
+  near: string
+  /** Nearest first. Already cut to what the card can hold. */
+  places: NearbyPlace[]
+  publicToken: string
+}
+
+/** A pin's letter, the same scheme the still and the live map use. */
+const letterOf = (index: number) => String.fromCharCode(65 + index)
+
+export function nearbyCard({ question, category, near, places, publicToken }: NearbyCardInput): CardV2 {
+  const pins: MapPin[] = places.map((place, index) => ({ id: `p${index}`, label: place.name, at: place.at }))
+  // Places a street apart need a street's margin, or a city's worth of map hides them in one clump.
+  const bounds = boundsOf(pins.map((pin) => pin.at), 0.0015)
+  const view = { center: [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2] as LngLat, zoom: 13, pins, bounds }
+  const list: ListBlock = {
+    id: 'list',
+    slot: 'more',
+    type: 'list',
+    ordered: false,
+    items: places.map((place, index) => ({
+      id: `p${index}`,
+      title: place.name,
+      meta: [letterOf(index), distance(place.metres), place.detail].filter(Boolean).join(' · '),
+    })),
+  }
+  const blocks: Block[] = [
+    { id: 'headline', slot: 'head', type: 'headline', kicker: `Near ${near}`, title: category },
+    { id: 'map', slot: 'data', type: 'map', view: 'pins', ...view, token: publicToken, still: stillUrl(view, publicToken) },
+    list,
+  ]
+  return { schema: 2, recipe: 'nearby', size: 'wide', query: question, title: `${category} near ${near}`, blocks, sources: MAP_SOURCES, asOf: null, partial: false }
 }

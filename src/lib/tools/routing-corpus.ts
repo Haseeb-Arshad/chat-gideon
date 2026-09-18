@@ -110,6 +110,10 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('how long does it take to drive from Paris to Lyon', 'show_map'),
   plain('directions to the Natural History Museum', 'show_map'),
   plain('how long would it take me to cycle to Greenwich', 'show_map'),
+  plain('are there any coffee shops near me', 'show_map'),
+  plain('find pharmacies near Edinburgh', 'show_map'),
+  plain('is there a petrol station nearby', 'show_map'),
+  plain('show me restaurants near the Eiffel Tower', 'show_map'),
 
   // -- weather ----------------------------------------------------------------------
   plain('is it going to rain in Manchester tomorrow', 'weather'),
@@ -195,6 +199,8 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   boundary('how long is the flight from London to Tokyo', 'research', 'a flight, which no road answers'),
   boundary('how many people live in Porto', 'research', 'a fact about a place, not where it is'),
   boundary('show me Porto on a map', 'show_map', 'asked for a map, not pictures'),
+  boundary('which is the best pizza place in Rome', 'research', 'an opinion about which is best, not a search by category'),
+  boundary('where can I get a good coffee nearby', 'show_map', 'a category of place nearby'),
   boundary('how far away is the Moon', 'research', 'not a place on a map'),
   boundary("what's Lisbon like in spring", 'research', 'what a place is like in a season'),
   boundary('what was the weather like in Rome last week', 'research', 'a day that has passed'),

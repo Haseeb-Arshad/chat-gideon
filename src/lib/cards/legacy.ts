@@ -9,7 +9,7 @@
 
 import type { Card, CardKind } from '../cards'
 import { preferredSize } from './recipes'
-import type { Block, CardV2, RecipeId } from './schema'
+import type { Block, CardSize, CardV2, RecipeId } from './schema'
 
 const RECIPE_FOR: Record<CardKind, RecipeId> = {
   entity: 'profile',
@@ -19,7 +19,8 @@ const RECIPE_FOR: Record<CardKind, RecipeId> = {
   gallery: 'gallery',
 }
 
-export function fromLegacy(card: Card): CardV2 {
+/** `size` overrides the recipe's own preference, for a card asked for in full and given more room to say it in. */
+export function fromLegacy(card: Card, size?: CardSize): CardV2 {
   const recipe = RECIPE_FOR[card.kind] ?? 'answer'
   const blocks: Block[] = []
 
@@ -46,7 +47,7 @@ export function fromLegacy(card: Card): CardV2 {
   return {
     schema: 2,
     recipe,
-    size: preferredSize(recipe),
+    size: size ?? preferredSize(recipe),
     query: card.query,
     title: card.title,
     blocks,

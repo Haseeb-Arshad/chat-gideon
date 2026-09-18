@@ -29,6 +29,8 @@ export const CARD_MODEL = 'openai/gpt-4.1-mini'
 
 /** Past this the answer it illustrates has usually finished being spoken. */
 const EXTRACT_TIMEOUT_MS = 12_000
+/** A card asked for in full writes more, and needs longer to. */
+const EXTRACT_TIMEOUT_DEEP_MS = 20_000
 const IMAGE_TIMEOUT_MS = 3_000
 /** Wide enough for the card's portrait at twice the pixel density. */
 const IMAGE_WIDTH = 800
@@ -70,6 +72,32 @@ subject: only for an entity, the exact title of its English Wikipedia article, s
 
 Plain text in every field. No markdown, no URLs, no sources.`
 
+/**
+ * The same card, asked for in full. The brief it is drawn from is already
+ * longer, because the desk was told to go deep too; this only widens the two
+ * fields that would otherwise cut that back down to a glance.
+ */
+const CARD_PROMPT_DEEP = `You lay out one information card for a screen, from a research brief that a voice assistant is about to read aloud. The user asked to go deep on this, so the card carries more than a glance: the spoken answer stays short, and the card is where the rest of it lives.
+
+Use only what the brief states. Never add a fact, name, number or date that is not in it, and copy numbers exactly as the brief writes them.
+
+Reply with one JSON object and nothing else:
+{"show": boolean, "kind": "entity" | "figure" | "news" | "answer", "title": string, "subtitle": string, "summary": string, "figure": {"value": string, "label": string} | null, "kicker": string, "facts": [{"label": string, "value": string}], "subject": string | null}
+
+show is false when the brief says the answer could not be found, when the answer is a bare yes or no, or when there are not at least two real facts to show.
+
+kind is entity for a person, place, organisation, creature, work or thing; figure when the answer is one number, such as a price, a score, a temperature or a count; news for a recent event; answer for anything else.
+
+title: the name of the thing for an entity, the headline for news, otherwise a short noun phrase for what was asked, such as "Bitcoin price" or "Weather in London". At most six words.
+subtitle: at most eight words, such as what the entity is ("Theoretical physicist"). Empty when there is nothing to add.
+summary: two to four sentences, in a short paragraph, covering what it is or what happened, how it works or what led to it, and why it matters, in that order, with the brief's own numbers, names and dates.
+figure: only for kind figure. value is the number with its unit exactly as the brief writes it, such as "$67,420" or "17°C"; label says what it measures in at most five words. Otherwise null.
+kicker: only for news, the date of the event as the brief gives it. Otherwise empty.
+facts: five to eight, covering more of what the brief states than a glance would. label is one to three words in Title Case, such as "Born" or "Known for"; value is at most ten words. Never repeat the title, the summary or the figure.
+subject: only for an entity, the exact title of its English Wikipedia article, such as "Albert Einstein". Otherwise null.
+
+Plain text in every field. No markdown, no URLs, no sources.`
+
 /** The brief without its closing list of sources, which a card does not need. */
 export function briefBody(brief: string): string {
   const at = brief.search(/(^|\n)\s*Sources?:/i)
@@ -92,6 +120,7 @@ async function extract(
   body: string,
   deps: CardDeps,
   signal: AbortSignal,
+  deep = false,
 ): Promise<unknown> {
   if (!deps.openrouterHeaders) return null
   const response = await deps.fetch(OPENROUTER_URL, {
@@ -100,7 +129,7 @@ async function extract(
     body: JSON.stringify({
       model: deps.model,
       messages: [
-        { role: 'system', content: CARD_PROMPT },
+        { role: 'system', content: deep ? CARD_PROMPT_DEEP : CARD_PROMPT },
         { role: 'user', content: `Question: ${question}\n\nBrief:\n${body}` },
       ],
       response_format: { type: 'json_object' },
@@ -110,8 +139,9 @@ async function extract(
       provider: { sort: 'throughput', allow_fallbacks: true },
       temperature: 0,
       // A bound on a JSON object, not on anything spoken: a card that runs
-      // past this is malformed and is dropped either way.
-      max_tokens: 700,
+      // past this is malformed and is dropped either way. Wider for a card
+      // asked for in full, which is asked to write more into it.
+      max_tokens: deep ? 1_400 : 700,
     }),
     signal,
   })
@@ -210,12 +240,12 @@ export async function wikipediaImage(
   }
 }
 
-async function draw(question: string, result: ResearchResult, deps: CardDeps): Promise<Card | null> {
-  const signal = AbortSignal.timeout(EXTRACT_TIMEOUT_MS)
+async function draw(question: string, result: ResearchResult, deps: CardDeps, deep = false): Promise<Card | null> {
+  const signal = AbortSignal.timeout(deep ? EXTRACT_TIMEOUT_DEEP_MS : EXTRACT_TIMEOUT_MS)
   try {
     const body = briefBody(result.brief)
-    const raw = await extract(question, body, deps, signal)
-    const parsed = parseCard(raw, { query: question, brief: body, sources: result.sources })
+    const raw = await extract(question, body, deps, signal, deep)
+    const parsed = parseCard(raw, { query: question, brief: body, sources: result.sources }, { deep })
     if (!parsed) return null
 
     const { card, subject } = parsed
@@ -267,12 +297,13 @@ export function buildCard(
   result: ResearchResult,
   deps: CardDeps,
   signal: AbortSignal,
+  deep = false,
 ): Promise<Card | null> {
   if (!result.ok || !result.brief.trim() || !deps.openrouterHeaders) return Promise.resolve(null)
 
   let pending = drawn.get(result.brief)
   if (!pending) {
-    pending = draw(question, result, deps)
+    pending = draw(question, result, deps, deep)
     drawn.set(result.brief, pending)
     if (drawn.size > CACHE_LIMIT) drawn.delete(drawn.keys().next().value as string)
     const key = result.brief

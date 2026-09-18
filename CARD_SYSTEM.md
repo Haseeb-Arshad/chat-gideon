@@ -871,8 +871,8 @@ Mapbox's free monthly allowances are 50,000 web map loads, 100,000 temporary
 geocoding requests, 100,000 directions requests and 50,000 static images. The
 one-map pool keeps a session to one load.
 
-**As built (15 September 2026): place and route.** Nearby is not built yet.
-What differs from the sketch:
+**As built (15 September 2026): place and route. Nearby followed on 18
+September.** What differs from the sketch:
 
 - **Finding the place** uses three sources at once, not the geocoder alone:
   Open-Meteo's places for how many people live in a town, Mapbox's geocoder for
@@ -895,6 +895,18 @@ What differs from the sketch:
   six turns; a drive of hours shows the time, the distance and the map.
 - **"Show me Lisbon" is pictures**, as planned, and needed saying twice in the
   speaking model's rules before it held.
+- **Nearby asks Mapbox, never the model.** Before it, "restaurants near me" went
+  to picture search and the speaking model named places from memory. Now
+  `show_map` with `mode: 'nearby'` maps about eighty everyday phrases to Search
+  Box canonical categories (coffee asks both `cafe` and `coffee_shop`), searches
+  around `near` or the user's position, merges and sorts by distance, and draws
+  up to eight lettered pins with the same letters in a list under the map. An
+  unknown kind of place is refused rather than guessed.
+- **Nearby means within 15 km**, or 50 km for hospitals, airports, stations,
+  museums and sights. Mapbox's places are thin in some countries: on 18
+  September it knew no restaurant within 15 km of Islamabad or Lahore, while
+  Dubai filled eight pins. When nothing is near, GIDEON says so and how far the
+  nearest one is, and names none from memory.
 
 ## Video
 
@@ -1011,6 +1023,18 @@ rest. **The voice stays short; the card goes deep.**
 The feature holds a hero picture, a headline and deck, two short paragraphs with
 a drop cap, one pull quote that must be verbatim, a facts sidebar, and a timeline
 strip along the bottom.
+
+**As built (18 September 2026): depth, not yet the feature layout.** `research`
+takes `depth: 'deep'` only when the user asks to go deep, or asks to hear more
+about one story or entry already on screen (the speaking model then passes its
+full headline as the question). A deep run allows six rounds instead of four,
+is told to read the primary source itself (the paper, the filing, the
+announcement), writes a brief of up to 450 words instead of 180, gets 1.8 times
+the time, and is cached apart from a quick run of the same question. Its card
+is wide, with a summary of two to four sentences (what it is, how it works or
+what led to it, why it matters) and five to eight facts, all through the same
+grounding: a number the brief never stated is still dropped. The hero picture,
+drop cap, pull quote and timeline strip are still to come.
 
 ## Weather and markets
 

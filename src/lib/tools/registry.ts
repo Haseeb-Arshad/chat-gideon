@@ -137,6 +137,12 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           description:
             'The full question, self-contained, including names, places, and dates the user mentioned.',
         },
+        depth: {
+          type: 'string',
+          enum: ['deep'],
+          description:
+            'Only when the user explicitly asked to go deep: "tell me everything", "explain it fully", "the full paper", "in detail", or to go past what a card on screen already shows. Leave it out otherwise.',
+        },
       },
       required: ['question'],
     },
@@ -191,8 +197,8 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       properties: {
         mode: {
           type: 'string',
-          enum: ['place', 'route'],
-          description: "'place' for where somewhere is; 'route' for the way from one place to another, how long it takes or how far it is.",
+          enum: ['place', 'route', 'nearby'],
+          description: "'place' for where somewhere is; 'route' for the way from one place to another, how long it takes or how far it is; 'nearby' for real places of a kind around a point, found and put on the map, never named from memory.",
         },
         place: {
           type: 'string',
@@ -207,6 +213,14 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           type: 'string',
           enum: ['driving', 'walking', 'cycling'],
           description: "For 'route': only when the user said how they are going; by car otherwise.",
+        },
+        category: {
+          type: 'string',
+          description: "For 'nearby': the common kind of place the user wants, in a word or two, such as \"restaurants\", \"coffee shops\", \"pharmacies\" or \"petrol stations\".",
+        },
+        near: {
+          type: 'string',
+          description: "For 'nearby': the place to search around, as the user said it. Leave it out to search near them.",
         },
       },
       required: ['mode'],
@@ -410,9 +424,10 @@ async function runResearch(
 ): Promise<ToolOutcome> {
   const question = text(args, 'question') || text(args, 'query')
   if (!question) return { ok: false, content: 'No question was given to research.' }
+  const deep = args.depth === 'deep'
 
   const deps = defaultDeps(context.env)
-  const result = await research(question, { signal: context.signal, timezone: context.timezone }, deps)
+  const result = await research(question, { signal: context.signal, timezone: context.timezone, ...(deep ? { depth: 'deep' as const } : {}) }, deps)
   if (!result.ok) {
     return {
       ok: false,
@@ -446,8 +461,14 @@ async function runResearch(
   }
   const drawn = cardFromMaterials(question, result.materials, Date.now())
   if (!drawn) {
-    const written = buildCard(question, result, cards, context.signal).then((card) => (card ? mapped(fromLegacy(card)) : null))
-    return { ok: true, content: result.brief, summary: how, links: result.sources, card: written }
+    const written = buildCard(question, result, cards, context.signal, deep).then((card) => (card ? mapped(fromLegacy(card, deep ? 'wide' : undefined)) : null))
+    // A deep brief is long so the card can be full, not so the voice can read it all.
+    const content = deep
+      ? `${result.brief}
+
+All of this is going onto a card on the user's screen. Say only the heart of it, in under sixty words, and leave the detail to the card.`
+      : result.brief
+    return { ok: true, content, summary: how, links: result.sources, card: written }
   }
   const content = `${result.brief}\n\nOn the user's screen now: ${describeCard(drawn)}. Refer to it rather than reading it out.`
 
@@ -455,7 +476,7 @@ async function runResearch(
   if (!drawn.partial) {
     return { ok: true, content, summary: how, links: result.sources, card: mapped(drawn) }
   }
-  const written = buildCard(question, result, cards, context.signal).then((card) => (card ? fromLegacy(card) : null))
+  const written = buildCard(question, result, cards, context.signal, deep).then((card) => (card ? fromLegacy(card) : null))
 
   // Drawn from the desk's data, the card is ready as soon as the brief is; the
   // model's card, a few seconds behind, adds its sentence to it as a patch.

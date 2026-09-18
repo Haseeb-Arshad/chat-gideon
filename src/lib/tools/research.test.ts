@@ -282,6 +282,60 @@ describe('research', () => {
   })
 })
 
+describe('depth', () => {
+  /** A tool-call round asking for one more search, so a script can simulate a model that keeps wanting to look further. */
+  const askAgain = (n: number) => toolCallTurn([{ name: 'search', args: { query: `part ${n}` } }])
+  const finish = (n: number) =>
+    textTurn(`It comes to forty-two.\nSources: Result for part ${n} https://example.org/part%20${n}`)
+
+  it('gets six rounds rather than four when the user explicitly asked to go deep, and no more than that', async () => {
+    const quick = scripted({ model: [askAgain(1), askAgain(2), askAgain(3), askAgain(4), askAgain(5), finish(4)], search: searchFixture })
+    const quickResult = await research('what is it', { signal: new AbortController().signal }, deps(quick.fetch), null)
+    // Only the first four rounds ever had a tool to call; the rest is the model being told to write from what it has.
+    expect(quickResult.searches).toBe(4)
+
+    const deep = scripted({
+      model: [askAgain(1), askAgain(2), askAgain(3), askAgain(4), askAgain(5), askAgain(6), askAgain(7), finish(6)],
+      search: searchFixture,
+    })
+    const deepResult = await research('what is it', { signal: new AbortController().signal, depth: 'deep' }, deps(deep.fetch), null)
+    expect(deepResult.searches).toBe(6)
+  })
+
+  const systemPrompt = (calls: Array<{ url: string; body: Json }>) => {
+    const call = calls.find((each) => each.url.includes('openrouter.ai'))
+    return String((call?.body.messages as Json[] | undefined)?.[0]?.content)
+  }
+
+  it("tells the desk it was asked to go deep, and to read the primary source rather than a page about it", async () => {
+    const { fetch, calls } = scripted({ model: [askAgain(1), finish(1)], search: searchFixture })
+    await research('what is it', { signal: new AbortController().signal, depth: 'deep' }, deps(fetch), null)
+    const system = systemPrompt(calls)
+    expect(system).toContain('explicitly asked to go deep')
+    expect(system).toContain('read the primary source itself')
+    expect(system).toContain('Under 450 words')
+
+    const quiet = scripted({ model: [askAgain(1), finish(1)], search: searchFixture })
+    await research('what is it', { signal: new AbortController().signal }, deps(quiet.fetch), null)
+    const quickSystem = systemPrompt(quiet.calls)
+    expect(quickSystem).not.toContain('explicitly asked to go deep')
+    expect(quickSystem).toContain('Under 180 words')
+  })
+
+  it('never lets a deep answer stand in for the quick one, or the other way round, even for the same words', async () => {
+    const cache = new ResearchCache(() => 0)
+    const quick = scripted({ model: [askAgain(1), finish(1)], search: searchFixture })
+    const quickResult = await research('the same question', { signal: new AbortController().signal }, deps(quick.fetch), cache)
+    expect(quickResult.via).toBe('agent')
+
+    const deep = scripted({ model: [askAgain(1), finish(1)], search: searchFixture })
+    const deepResult = await research('the same question', { signal: new AbortController().signal, depth: 'deep' }, deps(deep.fetch), cache)
+    // Had the deep run reused the quick one's cache entry, this would never have reached the network.
+    expect(deep.calls.length).toBeGreaterThan(0)
+    expect(deepResult.via).toBe('agent')
+  })
+})
+
 describe('figures and records', () => {
   const population = [
     { page: 1, pages: 1, per_page: 1000, total: 3 },

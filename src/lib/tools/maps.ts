@@ -14,7 +14,7 @@
  * a request needs is refused, and the public one is tried in its place.
  */
 
-import { MAP_SOURCES, STEPS_WITHIN_METRES, ZOOM, stillUrl, zoomFor, coordinates, crowFlies, distance, duration, placeCard, routeCard, thinLine, type MapPlace, type PlaceKind, type Travel } from '../cards/maps'
+import { MAP_SOURCES, STEPS_WITHIN_METRES, ZOOM, stillUrl, zoomFor, coordinates, crowFlies, distance, duration, nearbyCard, placeCard, routeCard, thinLine, type MapPlace, type NearbyPlace, type PlaceKind, type Travel } from '../cards/maps'
 import { blockOf, type CardV2, type LngLat, type MapBlock } from '../cards/schema'
 import type { Material, RecordMaterial } from '../cards/materials'
 import { conditionOf, degrees, placeName } from '../cards/weather'
@@ -393,6 +393,176 @@ async function weatherNow(pinned: MapPlace, weather: WeatherProvider, context: M
   return `${degrees(material.current.temperature)}${unit === '°F' ? 'F' : 'C'}, ${conditionOf(material.current.code, material.current.isDay).text.toLowerCase()}`
 }
 
+// -- What is nearby -----------------------------------------------------------------------
+
+/**
+ * What a person says, to the canonical ids Mapbox's category search takes.
+ * Curated rather than exhaustive: asking which common kind of place they mean
+ * is better than guessing at one of Mapbox's five hundred categories and
+ * bringing back nothing, or the wrong thing, for one no one says aloud.
+ */
+const CATEGORIES: Record<string, string[]> = {
+  restaurant: ['restaurant'],
+  restaurants: ['restaurant'],
+  food: ['restaurant', 'fast_food'],
+  'fast food': ['fast_food'],
+  cafe: ['cafe', 'coffee_shop'],
+  cafes: ['cafe', 'coffee_shop'],
+  coffee: ['coffee_shop', 'cafe'],
+  'coffee shop': ['coffee_shop'],
+  'coffee shops': ['coffee_shop'],
+  bar: ['bar'],
+  bars: ['bar'],
+  pub: ['pub'],
+  pubs: ['pub'],
+  nightclub: ['nightclub'],
+  nightclubs: ['nightclub'],
+  pizza: ['pizza_restaurant'],
+  burger: ['burger_restaurant', 'fast_food'],
+  sushi: ['sushi_restaurant', 'japanese_restaurant'],
+  ramen: ['ramen_restaurant', 'noodle_restaurant'],
+  noodle: ['noodle_restaurant'],
+  chinese: ['chinese_restaurant'],
+  indian: ['indian_restaurant'],
+  italian: ['italian_restaurant'],
+  japanese: ['japanese_restaurant'],
+  mexican: ['mexican_restaurant'],
+  thai: ['thai_restaurant'],
+  seafood: ['seafood_restaurant'],
+  steak: ['steakhouse'],
+  steakhouse: ['steakhouse'],
+  breakfast: ['breakfast_restaurant', 'cafe'],
+  sandwich: ['sandwich_shop'],
+  dessert: ['dessert_shop', 'ice_cream'],
+  'bubble tea': ['bubble_tea'],
+  'juice bar': ['juice_bar'],
+  tea: ['teahouse'],
+  bakery: ['bakery'],
+  bakeries: ['bakery'],
+  'ice cream': ['ice_cream'],
+  hotel: ['hotel'],
+  hotels: ['hotel'],
+  pharmacy: ['pharmacy'],
+  pharmacies: ['pharmacy'],
+  chemist: ['pharmacy'],
+  chemists: ['pharmacy'],
+  hospital: ['hospital'],
+  hospitals: ['hospital'],
+  clinic: ['medical_clinic', 'medical_practice'],
+  clinics: ['medical_clinic', 'medical_practice'],
+  dentist: ['dentist'],
+  dentists: ['dentist'],
+  vet: ['veterinarian'],
+  vets: ['veterinarian'],
+  veterinarian: ['veterinarian'],
+  atm: ['atm'],
+  atms: ['atm'],
+  'cash machine': ['atm'],
+  bank: ['bank'],
+  banks: ['bank'],
+  'gas station': ['gas_station'],
+  'petrol station': ['gas_station'],
+  'petrol pump': ['gas_station'],
+  fuel: ['gas_station'],
+  'charging station': ['charging_station'],
+  'ev charging': ['charging_station'],
+  supermarket: ['supermarket'],
+  supermarkets: ['supermarket'],
+  grocery: ['grocery', 'supermarket'],
+  groceries: ['grocery', 'supermarket'],
+  'convenience store': ['convenience_store'],
+  park: ['park'],
+  parks: ['park'],
+  gym: ['fitness_center'],
+  gyms: ['fitness_center'],
+  parking: ['parking_lot'],
+  'car park': ['parking_lot'],
+  'parking lot': ['parking_lot'],
+  school: ['school'],
+  schools: ['school'],
+  library: ['library'],
+  libraries: ['library'],
+  cinema: ['cinema', 'theatre'],
+  'movie theater': ['cinema'],
+  'movie theatre': ['cinema'],
+  bookstore: ['book_store'],
+  bookshop: ['book_store'],
+  'shopping mall': ['shopping_mall'],
+  mall: ['shopping_mall'],
+  laundry: ['laundry', 'dry_cleaners'],
+  'dry cleaner': ['dry_cleaners'],
+  'dry cleaners': ['dry_cleaners'],
+  'post office': ['post_office'],
+  'police station': ['police_station'],
+  'fire station': ['fire_station'],
+  'bus stop': ['bus_station'],
+  'bus station': ['bus_station'],
+  'train station': ['railway_station'],
+  'railway station': ['railway_station'],
+  airport: ['airport'],
+  museum: ['museum'],
+  museums: ['museum'],
+  'tourist attraction': ['tourist_attraction'],
+  'liquor store': ['liquor_store'],
+  'off licence': ['liquor_store'],
+  'off license': ['liquor_store'],
+  'hardware store': ['hardware_store'],
+}
+
+/** Where "nearby" reasonably reaches: a shop or a meal within a short walk or ride; transit and the like, farther. */
+const LOCAL_CAP_METRES = 15_000
+const REGIONAL_CAP_METRES = 50_000
+const REGIONAL = new Set(['hospital', 'airport', 'railway_station', 'bus_station', 'tourist_attraction', 'museum'])
+
+/** The canonical ids a said category maps to, or null for one not in the table: asked about, never guessed at. */
+function canonicalCategories(said: string): string[] | null {
+  const key = said.trim().toLowerCase().replace(/\s+/g, ' ')
+  // "Pizza places", "sushi spots" and "Italian restaurants" name the same kind as "pizza".
+  const kind = key.replace(/ (places?|spots?|joints?|restaurants?|shops?)$/, '')
+  for (const each of [key, key.replace(/s$/, ''), kind, kind.replace(/s$/, '')]) {
+    if (CATEGORIES[each]) return CATEGORIES[each]
+  }
+  return null
+}
+
+function readNearby(body: unknown): NearbyPlace[] {
+  const features = (body as { features?: Array<{ properties?: Record<string, unknown>; geometry?: { coordinates?: unknown } }> }).features ?? []
+  return features.flatMap((feature) => {
+    const properties = feature.properties ?? {}
+    const coordinates = feature.geometry?.coordinates
+    if (typeof properties.name !== 'string' || !Array.isArray(coordinates) || coordinates.length < 2) return []
+    const [longitude, latitude] = coordinates
+    const metres = properties.distance
+    if (typeof longitude !== 'number' || typeof latitude !== 'number' || typeof metres !== 'number') return []
+    const detail = typeof properties.place_formatted === 'string' ? properties.place_formatted : ''
+    return [{ name: properties.name, detail, metres, at: [longitude, latitude] as LngLat }]
+  })
+}
+
+/**
+ * Real places by category around a point, nearest first, none farther than a
+ * category's own idea of "nearby". Several canonical ids are searched at once
+ * ("cafe" is both `cafe` and `coffee_shop`) and merged, because Mapbox's
+ * categories are narrower than the words a person uses for them.
+ */
+async function searchNearby(canonical: string[], near: LngLat, deps: MapsDeps, signal: AbortSignal): Promise<{ within: NearbyPlace[]; closest: NearbyPlace | null }> {
+  const params = new URLSearchParams({ proximity: `${near[0]},${near[1]}`, limit: '25', language: 'en' })
+  const lists = await Promise.all(
+    canonical.map((id) =>
+      mapboxJson(deps, `https://api.mapbox.com/search/searchbox/v1/category/${id}?${params}`, signal)
+        .then(readNearby)
+        .catch(() => [] as NearbyPlace[]),
+    ),
+  )
+  const seen = new Set<string>()
+  const all = lists
+    .flat()
+    .filter((place) => (seen.has(`${place.name}|${place.at.join(',')}`) ? false : (seen.add(`${place.name}|${place.at.join(',')}`), true)))
+    .sort((a, b) => a.metres - b.metres)
+  const cap = canonical.some((id) => REGIONAL.has(id)) ? REGIONAL_CAP_METRES : LOCAL_CAP_METRES
+  return { within: all.filter((place) => place.metres <= cap), closest: all[0] ?? null }
+}
+
 // -- The tool ---------------------------------------------------------------------------
 
 const PROFILES: Record<Travel, string> = { driving: 'driving-traffic', walking: 'walking', cycling: 'cycling' }
@@ -490,6 +660,48 @@ async function drawMap(args: Record<string, unknown>, context: MapsContext, deps
         ok: true,
         content,
         summary: route ? `${from.name} to ${dest.name}: ${duration(route.seconds)}` : `No route from ${from.name} to ${dest.name}`,
+        links: MAP_SOURCES.map((source) => ({ title: source.title, url: source.url })),
+        card: Promise.resolve(card),
+      }
+    } catch (error) {
+      return failed(error)
+    }
+  }
+
+  if (args.mode === 'nearby') {
+    const said = text('category')
+    if (!said) return { ok: false, content: 'No kind of place was given. Ask the user what they are looking for, such as restaurants, cafes or pharmacies.' }
+    const canonical = canonicalCategories(said)
+    if (!canonical) {
+      return {
+        ok: false,
+        content: `${said} is not a kind of place this can search for. Ask the user to name a common kind, such as restaurants, cafes, pharmacies, hotels, banks or petrol stations, and never answer with places named from memory.`,
+      }
+    }
+    const nearName = text('near')
+    try {
+      const found: Found = nearName
+        ? await findPlace(nearName, deps, weather, context)
+        : context.location
+          ? { place: { name: context.location.city, detail: [context.location.region, context.location.country].filter(Boolean).join(', '), kind: 'city', at: [context.location.longitude, context.location.latitude], timezone: context.location.timezone } }
+          : { ask: 'No place was given to search around, and where the user is is not known. Ask them where, or leave it to search near them.' }
+      if ('ask' in found) return { ok: false, content: found.ask }
+      if ('none' in found) return { ok: false, content: found.none, summary: `Place not found: ${nearName}` }
+      const { place } = found
+      const { within, closest } = await searchNearby(canonical, place.at, deps, context.signal)
+      if (!within.length) {
+        const guessed = !nearName && context.location ? `No place was given, so this searched ${whereWords(context.location)}.\n` : ''
+        const far = closest ? ` The nearest Mapbox knows of is ${distance(closest.metres)} away, which is too far to call nearby.` : ''
+        return { ok: false, content: `${guessed}No ${said} could be found near ${place.name}.${far} Say so plainly, and do not name any from memory.`, summary: `No ${said} found` }
+      }
+      const chosen = within.slice(0, 8)
+      const guessed = !nearName && context.location ? `No place was given, so this searched ${whereWords(context.location)}.\n` : ''
+      const names = chosen.slice(0, 3).map((each) => each.name).join(', ')
+      const card = nearbyCard({ question: said, category: said, near: place.name, places: chosen, publicToken: deps.publicToken })
+      return {
+        ok: true,
+        content: `${guessed}${chosen.length} ${said} near ${place.name}, nearest first: ${names}${chosen.length > 3 ? ', and more on screen' : ''}.\n${onScreen(`a map of ${chosen.length} ${said} near ${place.name}, lettered and listed nearest first`)} Name the first two or three, in one short sentence, and do not read out distances or coordinates.`,
+        summary: `${chosen.length} ${said} near ${place.name}`,
         links: MAP_SOURCES.map((source) => ({ title: source.title, url: source.url })),
         card: Promise.resolve(card),
       }

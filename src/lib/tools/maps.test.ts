@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WeatherMaterial } from '../cards/materials'
 import type { CardV2, MapBlock } from '../cards/schema'
+import type { CoarseLocation } from '../location'
 import { findPlace, forgetMaps, runMap, withCardMap, type MapsDeps } from './maps'
 import type { RecordMaterial } from '../cards/materials'
 import type { Place, WeatherProvider } from './weather'
@@ -335,5 +336,90 @@ describe('a research card about a place', () => {
     expect(mapOf(await withCardMap(profile('Faisal Mosque'), 'who built the Faisal Mosque', [], deps(), weather, context))?.center).toEqual([73.0372, 33.7297])
     expect(mapOf(await withCardMap(profile('Ada Lovelace'), 'who was Ada Lovelace', [], deps(), weather, context))).toBeUndefined()
     expect(mapOf(await withCardMap(profile('Faisal Mosque'), 'Where is the Faisal Mosque?', [], { ...deps(), publicToken: '' }, weather, context))).toBeUndefined()
+  })
+})
+
+describe('what is nearby', () => {
+  interface Listing {
+    name: string
+    detail: string
+    metres: number
+    at: [number, number]
+  }
+
+  /** Category ids answered from a fixture, everything else (finding "near") from the ordinary deps. */
+  function withCategories(byId: Record<string, Listing[]>): MapsDeps {
+    const base = deps()
+    return {
+      ...base,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input))
+        const match = url.pathname.match(/\/search\/searchbox\/v1\/category\/([\w]+)$/)
+        if (!match) return base.fetch(input, init)
+        const items = byId[match[1]] ?? []
+        return Response.json({
+          type: 'FeatureCollection',
+          features: items.map((item) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: item.at },
+            properties: { name: item.name, place_formatted: item.detail, distance: item.metres },
+          })),
+        })
+      }) as typeof fetch,
+    }
+  }
+
+  const islamabad: CoarseLocation = { city: 'Islamabad', region: 'Islamabad Capital Territory', country: 'Pakistan', latitude: 33.7, longitude: 73.05, timezone: 'Asia/Karachi' }
+
+  it('asks for a common kind of place, and never guesses at one it does not know', async () => {
+    const outcome = await runMap({ mode: 'nearby', category: 'haunted houses', near: 'Lisbon' }, context, deps(), weather)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.content).toContain('not a kind of place this can search for')
+    expect(outcome.card).toBeUndefined()
+  })
+
+  it('finds the place first, then searches every canonical id the category means, merges and sorts them', async () => {
+    const nearby = withCategories({
+      cafe: [{ name: 'Copenhagen Coffee', detail: 'Chiado', metres: 900, at: [-9.14, 38.71] }],
+      coffee_shop: [{ name: 'Fabrica Coffee Roasters', detail: 'Baixa', metres: 300, at: [-9.139, 38.709] }],
+    })
+    const outcome = await runMap({ mode: 'nearby', category: 'cafes', near: 'Lisbon' }, context, nearby, weather)
+    expect(outcome.ok).toBe(true)
+    expect(outcome.content).toContain('Fabrica Coffee Roasters, Copenhagen Coffee')
+    const card = await outcome.card
+    expect(card?.recipe).toBe('nearby')
+    const map = card?.blocks.find((block) => block.type === 'map') as MapBlock
+    // Nearest first: the second query's result outranks the first's.
+    expect(map.pins.map((pin) => pin.label)).toEqual(['Fabrica Coffee Roasters', 'Copenhagen Coffee'])
+  })
+
+  it('knows a kind of food by how people say it', async () => {
+    const nearby = withCategories({ pizza_restaurant: [{ name: 'Da Michele', detail: 'Trastevere', metres: 700, at: [12.47, 41.89] }] })
+    const outcome = await runMap({ mode: 'nearby', category: 'pizza places', near: 'Lisbon' }, context, nearby, weather)
+    expect(outcome.ok).toBe(true)
+    expect(outcome.content).toContain('Da Michele')
+  })
+
+  it('says plainly when nothing is close enough to call nearby, and names how far the nearest actually is', async () => {
+    const farAway = withCategories({ restaurant: [{ name: 'Quality Restaurant', detail: 'Poonch', metres: 98_000, at: [74.3, 33.7] }] })
+    const outcome = await runMap({ mode: 'nearby', category: 'restaurants', near: 'Lisbon' }, context, farAway, weather)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.content).toContain('98 km away')
+    expect(outcome.content).toContain('do not name any from memory')
+    expect(outcome.card).toBeUndefined()
+  })
+
+  it('searches around the user when no place was given, and says so', async () => {
+    const nearby = withCategories({ pharmacy: [{ name: 'Al Shifa Pharmacy', detail: 'F-7 Markaz', metres: 500, at: [73.06, 33.71] }] })
+    const outcome = await runMap({ mode: 'nearby', category: 'pharmacies' }, { ...context, location: islamabad }, nearby, weather)
+    expect(outcome.ok).toBe(true)
+    expect(outcome.content).toContain("where the user's connection places them")
+    expect(outcome.content).toContain('Al Shifa Pharmacy')
+  })
+
+  it('asks where to search when no place was given and where the user is is not known', async () => {
+    const outcome = await runMap({ mode: 'nearby', category: 'restaurants' }, context, deps(), weather)
+    expect(outcome.ok).toBe(false)
+    expect(outcome.content).toContain('where the user is is not known')
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { digestOf } from './digest'
-import { boundsOf, coordinates, crowFlies, distance, duration, encodePolyline, placeCard, routeCard, stillUrl, thinLine, zoomFor, type MapPlace } from './maps'
+import { boundsOf, coordinates, crowFlies, distance, duration, encodePolyline, nearbyCard, placeCard, routeCard, stillUrl, thinLine, zoomFor, type MapPlace, type NearbyPlace } from './maps'
 import { hear, saidPins } from './mentions'
 import { readCard } from './read'
 import type { LngLat, MapBlock } from './schema'
@@ -117,11 +117,57 @@ describe('the cards', () => {
   })
 })
 
+describe('nearby places', () => {
+  const found: NearbyPlace[] = [
+    { name: 'Tuscany Courtyard', metres: 320, detail: 'Kohsar Market, Islamabad', at: [73.045, 33.72] },
+    { name: 'Monal', metres: 4_800, detail: 'Imarat Downtown', at: [73.07, 33.7] },
+  ]
+
+  it('pins each real place, lettered and lists them nearest first, with the letter and the distance in its line', () => {
+    const card = nearbyCard({ question: 'restaurants near me', category: 'restaurants', near: 'Islamabad', places: found, publicToken: PUBLIC })
+    expect(card.recipe).toBe('nearby')
+    expect(card.blocks.map((block) => block.type)).toEqual(['headline', 'map', 'list'])
+    const map = mapOf(card)
+    expect(map.view).toBe('pins')
+    expect(map.pins).toEqual([
+      { id: 'p0', label: 'Tuscany Courtyard', at: found[0].at },
+      { id: 'p1', label: 'Monal', at: found[1].at },
+    ])
+    const list = card.blocks.find((block) => block.type === 'list')
+    expect(list).toMatchObject({
+      ordered: false,
+      items: [
+        { id: 'p0', title: 'Tuscany Courtyard', meta: 'A · 320 m · Kohsar Market, Islamabad' },
+        { id: 'p1', title: 'Monal', meta: 'B · 4.8 km · Imarat Downtown' },
+      ],
+    })
+    // Every figure is the source's own: nothing here is a business or a distance made up by a model.
+    expect(digestOf(card)).toContain('Tuscany Courtyard')
+  })
+
+  it('never draws a made-up place, only what it was given', () => {
+    const card = nearbyCard({ question: 'pharmacies near me', category: 'pharmacies', near: 'Lahore', places: [found[0]], publicToken: PUBLIC })
+    expect(mapOf(card).pins).toHaveLength(1)
+    expect(card.blocks.find((block) => block.type === 'list')).toMatchObject({ items: [{ title: 'Tuscany Courtyard' }] })
+  })
+})
+
 describe('reading a map block back', () => {
   const card = placeCard({ question: 'where is Lisbon', place: lisbon, publicToken: PUBLIC, now: 0 })
 
   it('keeps a card it drew exactly', () => {
     expect(readCard(JSON.parse(JSON.stringify(card)))).toEqual(card)
+  })
+
+  it('keeps a nearby card exactly too, pins and list alike', () => {
+    const nearby = nearbyCard({
+      question: 'cafes near me',
+      category: 'cafes',
+      near: 'Lisbon',
+      places: [{ name: 'Copenhagen Coffee', metres: 150, detail: 'Chiado', at: [-9.14, 38.71] }],
+      publicToken: PUBLIC,
+    })
+    expect(readCard(JSON.parse(JSON.stringify(nearby)))).toEqual(nearby)
   })
 
   it('drops a map with a secret token, or a still from anywhere but Mapbox', () => {
@@ -137,5 +183,19 @@ describe('lighting pins', () => {
   it('lights the pin whose place was named', () => {
     const card = routeCard({ question: 'Lisbon to Porto', from: lisbon, to: porto, travel: 'driving', route: null, publicToken: PUBLIC })
     expect([...saidPins(mapOf(card), hear('Porto is about three hours north'))]).toEqual(['to'])
+  })
+
+  it('lights the nearby pin whose name was said', () => {
+    const card = nearbyCard({
+      question: 'cafes near me',
+      category: 'cafes',
+      near: 'Islamabad',
+      places: [
+        { name: 'Copenhagen Coffee', metres: 150, detail: 'F-7', at: [73.05, 33.72] },
+        { name: 'Monal', metres: 3_000, detail: 'F-5', at: [73.06, 33.71] },
+      ],
+      publicToken: PUBLIC,
+    })
+    expect([...saidPins(mapOf(card), hear('Monal is a bit further out'))]).toEqual(['p1'])
   })
 })

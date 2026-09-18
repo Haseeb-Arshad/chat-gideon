@@ -138,3 +138,27 @@ describe('parseCard', () => {
     expect(parsed?.subject).toBe('')
   })
 })
+
+describe('deep cards', () => {
+  const long =
+    'Albert Einstein was a theoretical physicist born in Ulm in 1879. He developed the theory of relativity, which changed how physics understands space and time. He won the 1921 Nobel Prize in Physics for explaining the photoelectric effect. He died in Princeton in 1955, having spent his last years on a unified field theory.'
+
+  it('keeps a longer summary and more facts only when asked to go deep', () => {
+    const facts = Array.from({ length: 8 }, (_, index) => ({ label: `Fact ${index + 1}`, value: 'Born in Ulm' }))
+    const raw = { kind: 'answer', title: 'Albert Einstein', summary: long, facts }
+    const quick = parseCard(raw, context)!.card
+    const deep = parseCard(raw, context, { deep: true })!.card
+    expect(deep.summary.length).toBeGreaterThan(quick.summary.length)
+    expect(deep.summary).toContain('unified field theory')
+    expect(deep.facts.length).toBeGreaterThan(quick.facts.length)
+  })
+
+  it('still drops a number the brief never stated', () => {
+    const deep = parseCard(
+      { kind: 'answer', title: 'Albert Einstein', summary: `${long} He held 37 patents.` },
+      context,
+      { deep: true },
+    )!.card
+    expect(deep.summary).not.toContain('37 patents')
+  })
+})

@@ -62,11 +62,25 @@ export type ResearchEffort = 'none' | 'low' | 'medium' | 'high'
 export const RESEARCH_EFFORT: ResearchEffort = 'low'
 
 /**
+ * How thoroughly the desk answers, asked for per question rather than set once
+ * for the deployment. `quick` is every ordinary question. `deep` is for "tell
+ * me everything", "explain it fully", "the full paper" and the like, and for
+ * going past what a card already shows: it reads the primary source rather
+ * than a page about it, gets more rounds and more time before the hedge can
+ * cut it off, and both the brief and the card it draws are allowed to run
+ * longer. The voice still says the direct answer first; the extra length is
+ * for the card and for whatever the user asks next.
+ */
+export type ResearchDepth = 'quick' | 'deep'
+
+/**
  * Four rounds is search, search again on what the first round showed, read a
  * page, write. Anything longer is a model that has lost the thread while a
- * person sits in silence.
+ * person sits in silence. `deep` is asked for on purpose, so it gets two more:
+ * read the primary source, then search again on what it turned up.
  */
 const MAX_ROUNDS = 4
+const MAX_ROUNDS_DEEP = 6
 /**
  * Eight rather than five: a question like "papers from August" is answered by
  * the breadth of one search, and the researcher was throwing away the tail of
@@ -152,6 +166,8 @@ export interface ResearchOptions {
   signal: AbortSignal
   /** So "this week" means the user's week. */
   timezone?: string
+  /** `quick` unless the user asked to go deeper. */
+  depth?: ResearchDepth
 }
 
 /** Reads one configuration value from whatever the host provides. */
@@ -438,7 +454,7 @@ const RESEARCH_TOOLS = [
   },
 ]
 
-function researcherPrompt(now: number, timezone: string) {
+function researcherPrompt(now: number, timezone: string, depth: ResearchDepth = 'quick') {
   let today: string
   try {
     today = new Date(now).toLocaleDateString('en-GB', {
@@ -452,17 +468,28 @@ function researcherPrompt(now: number, timezone: string) {
     today = new Date(now).toISOString().slice(0, 10)
   }
 
+  const deep = depth === 'deep'
+  const primarySource = deep
+    ? ' The user explicitly asked to go deep on this, so read the primary source itself whenever there is one to read, not only what a search result says about it: an arXiv result’s /abs/ page gives you the abstract and its /pdf/ link gives you the paper, a filing’s own page gives you the filing.'
+    : ' When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result’s /abs/ page gives you the abstract and its /pdf/ link gives you the paper.'
+  const stopRule = deep
+    ? ' This was asked for in full, so read enough to cover what it is, how it works or what led to it, and what it found or changed, before you stop; still, every extra round is silence for a person who is waiting, so stop once those are covered rather than reading everything that exists.'
+    : ' Stop as soon as you are sure; every round is silence for a person who is waiting.'
+  const briefLength = deep
+    ? 'Under 450 words: the direct answer first, in one or two sentences, then what it is or what happened, how it works or what led to it, its key figures or findings with their dates, and why it matters, each claim grounded in what you read.'
+    : 'Under 180 words for a question with one answer; up to 260 when the user asked for several things, such as papers, releases, events or names, in which case give each one its actual title and date rather than describing the group of them. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters.'
+
   return `You are the research desk for a spoken assistant. Today is ${today}. Your job is to find out the answer to a question about the world, accurately, and hand back a brief that another model will read aloud.
 
-Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous. When the question is about one particular paper, filing or document, read that document itself rather than answering from what a search result says about it: reading handles PDFs, so an arXiv result's /abs/ page gives you the abstract and its /pdf/ link gives you the paper. Never read an arxiv.org/html/ link. Stop as soon as you are sure; every round is silence for a person who is waiting.
+Method. Search before you answer, always, even when you think you know: you are here because the answer might have changed. Run several searches in one go when the question has parts or when one source is not enough to trust. Check publication dates when the question is about anything current, and prefer the primary source over a page that repeats it. Mind the calendar: anything dated before today has already happened, so it is never the next or upcoming one, and for the latest or newest of anything the most recently dated source wins over older pages that say otherwise. Read a page when a passage leaves the answer ambiguous.${primarySource} Never read an arxiv.org/html/ link.${stopRule}
 
 Data. Three tools return exact figures, records and stories, and what they return is drawn on the user's screen. Use country_data whenever the question is about one of its measures for a country or the world, above all over time or between countries, and search as well for anything newer than its latest year. Use entity_facts whenever the question is about a particular named person, country, place, organisation or work, or compares a few of them. Use top_stories when the user asks for the news, the headlines, or what is happening today, in general or in a topic; brief the top two or three stories from it, and search only if a story needs checking. Call any of them in the same round as your first searches, never in a round of its own. Their numbers and dates are exact: use them as given, and prefer them to a passage that disagrees unless the passage is newer.
 
-One round of searching is usually the whole job. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
+One round of searching is usually the whole job${deep ? ', though this one was asked for in full and may fairly take a few more' : ''}. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
 
 When they do not, never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
 
-Brief. Plain text, no markdown. Under 180 words for a question with one answer; up to 260 when the user asked for several things, such as papers, releases, events or names, in which case give each one its actual title and date rather than describing the group of them. First, the direct answer in one or two sentences, with the exact numbers, names and dates. Then only the further facts that matter, each with its date if currency matters. If sources disagree, say which says what. Never pad a thin result with hedging: say the specific thing you found, however little it is. Only if every search truly failed do you say so plainly rather than guessing, and then say what you did find and what you tried. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
+Brief. Plain text, no markdown. ${briefLength} If sources disagree, say which says what. Never pad a thin result with hedging: say the specific thing you found, however little it is. Only if every search truly failed do you say so plainly rather than guessing, and then say what you did find and what you tried. End with a line beginning "Sources:" listing each source you relied on as its title followed by its URL. Never cite a page you did not see in a result.`
 }
 
 // -- The loop --------------------------------------------------------------
@@ -560,8 +587,9 @@ async function runAgent(
 ): Promise<AgentBrief> {
   if (!deps.openrouterHeaders) throw new Error('openrouter not configured')
 
+  const maxRounds = options.depth === 'deep' ? MAX_ROUNDS_DEEP : MAX_ROUNDS
   const history: ChatMessage[] = [
-    { role: 'system', content: researcherPrompt(deps.now(), options.timezone ?? 'UTC') },
+    { role: 'system', content: researcherPrompt(deps.now(), options.timezone ?? 'UTC', options.depth) },
     { role: 'user', content: question },
   ]
   const seen = new Map<string, ResearchSource>()
@@ -570,8 +598,8 @@ async function runAgent(
   let writing = false
 
   // One round past the cap, for a model that has to be told to write.
-  for (let round = 0; round <= MAX_ROUNDS + 1; round += 1) {
-    const last = writing || round >= MAX_ROUNDS
+  for (let round = 0; round <= maxRounds + 1; round += 1) {
+    const last = writing || round >= maxRounds
     const response = await deps.fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: deps.openrouterHeaders,
@@ -751,6 +779,13 @@ const never = new Promise<never>(() => undefined)
  * were already slow. It still cannot win before `hedgeAfterMs`: on the same
  * questions it was graded below the research model, 7.1 against 7.4.
  */
+/**
+ * How much longer "deep" is allowed before the hedge or the budget cuts it
+ * off. Asked for on purpose, so the person waiting knows why: reading a paper
+ * itself takes longer than reading what a search result says about it.
+ */
+const DEEP_TIMING_SCALE = 1.8
+
 async function hedgedRun(
   question: string,
   options: ResearchOptions,
@@ -759,7 +794,11 @@ async function hedgedRun(
 ): Promise<ResearchResult> {
   const startedAt = deps.now()
   const finish = (outcome: Outcome): ResearchResult => ({ ...outcome, ms: deps.now() - startedAt })
-  const { hedgeAfterMs, budgetMs, answerTimeoutMs } = deps.timing
+  const timing =
+    options.depth === 'deep'
+      ? { ...deps.timing, hedgeAfterMs: Math.round(deps.timing.hedgeAfterMs * DEEP_TIMING_SCALE), budgetMs: Math.round(deps.timing.budgetMs * DEEP_TIMING_SCALE) }
+      : deps.timing
+  const { hedgeAfterMs, budgetMs, answerTimeoutMs } = timing
 
   const agentStop = new AbortController()
   const hedgeStop = new AbortController()
@@ -1007,7 +1046,10 @@ export async function research(
     }
   }
 
-  const existing = cache?.lookup(trimmed)
+  // Keyed apart from the ordinary question: a deep run answers differently, and
+  // neither should ever hand its brief to the other.
+  const cacheKey = options.depth === 'deep' ? `deep: ${trimmed}` : trimmed
+  const existing = cache?.lookup(cacheKey)
   if (existing) {
     const joined = await existing.join(options.signal)
     if (!joined) return cancelled()
@@ -1020,7 +1062,7 @@ export async function research(
     (signal) => hedgedRun(trimmed, options, deps, signal),
     deps.timing.orphanGraceMs,
   )
-  cache?.store(trimmed, run)
+  cache?.store(cacheKey, run)
   const result = await run.join(options.signal)
   return result ? { ...result, ms: elapsed() } : cancelled()
 }

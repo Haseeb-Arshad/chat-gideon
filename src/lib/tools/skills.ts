@@ -106,18 +106,20 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
       'anything current or anything you would otherwise be guessing at: news, prices, scores, releases, what is true today',
       'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
       'a comparison of particular things, such as two languages, products or cities',
+      'a specific story or entry already on screen, such as one on a front page, when the user asks to hear more about it, have it opened, or go past what its headline and deck already say: pass its full headline as the question, with depth deep, even though it is already on screen',
       'whenever the user tells you to search, look something up or check',
     ],
     neverFor: [
       { when: 'the forecast, or the weather now, for a place', use: 'weather' },
       { when: 'where a place is, or how far or how long it is by road, on foot or by bike from one place to another', use: 'show_map' },
+      { when: 'restaurants, cafes, pharmacies or any other kind of place nearby or around somewhere, by category rather than by name', use: 'show_map' },
       { when: 'pictures, photos, or what something looks like', use: 'show_images' },
       { when: 'something the user told you about themselves', use: 'recall' },
-      { when: 'a question about a card already on screen that what it shows answers', use: null },
+      { when: 'a question about a card already on screen that what it already shows answers, with nothing more asked for', use: null },
       { when: 'small talk, opinions, jokes, advice, sums, or the conversation itself', use: null },
     ],
     voice:
-      'Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so.',
+      'Pass the whole question in plain words with every detail the user gave. Relay the brief faithfully: keep its numbers and dates exactly, never add facts it does not contain, and if it says something could not be found, say so. Add depth: "deep" only when the user explicitly asked to go deep, such as "tell me everything", "explain it fully", "the full paper", "in detail", or to hear more about something already on screen than its card shows; leave it out otherwise, since it takes longer and says more than most questions want.',
     examples: ['who founded Patagonia', 'is the Elizabeth line running today', 'how much is a pint of milk in the UK now'],
     counterExamples: [
       { text: 'show me the mountains of Patagonia', use: 'show_images' },
@@ -171,23 +173,27 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
   },
   show_map: {
     tool: 'show_map',
-    job: "Put a map on the user's screen: where a place, a landmark or an address is, or the way from one place to another with how long it takes and how far it is by car, on foot or by bike.",
+    job: "Put a map on the user's screen: where a place, a landmark or an address is; the way from one place to another with how long it takes and how far it is by car, on foot or by bike; or real places of a kind around a point, found and pinned.",
     useWhen: [
       'where a place, a landmark or an address is',
       'how far one place is from another, or how long it takes to get there by car, on foot or by bike',
       'directions or the way to somewhere, starting from where the user is when they do not say',
+      'restaurants, cafes, pharmacies, petrol stations or any other kind of place nearby or around somewhere, by category rather than by name, when the user wants what is there rather than which is best',
     ],
     neverFor: [
       { when: 'anything else about a place, such as its history, its size or how many people live there', use: 'research' },
       { when: 'a flight or a train: how long it takes, or what it costs', use: 'research' },
+      { when: 'which restaurant, cafe or other place is best, top-rated or worth going to, which is a judgement from reviews rather than a search of what is near', use: 'research' },
       { when: 'what a place looks like, or being shown a place without a map being asked for, such as "show me Rome"', use: 'show_images' },
       { when: 'mapping out or planning something that is not a place, such as a week or an essay', use: null },
     ],
-    voice: 'The map shows the details: say where it is, or how long and how far, in one sentence, and never read out coordinates.',
-    examples: ['where is Timbuktu', 'how far is Oxford from Cambridge', 'how long would it take to walk to Hyde Park'],
+    voice:
+      'The map shows the details: say where it is, or how long and how far, in one sentence, and never read out coordinates. For places nearby, name the first two or three the tool found and let the map and its list show the rest: never add a place, an address or a distance you were not given, and never answer a search for nearby places from memory, even when the tool finds nothing.',
+    examples: ['where is Timbuktu', 'how far is Oxford from Cambridge', 'how long would it take to walk to Hyde Park', 'coffee shops near me', 'is there a pharmacy nearby'],
     counterExamples: [
       { text: 'how many people live in Timbuktu', use: 'research' },
       { text: 'show me Oxford', use: 'show_images' },
+      { text: 'what is the best restaurant in Paris', use: 'research' },
     ],
     sideEffects: false,
   },
