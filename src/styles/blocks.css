@@ -1887,3 +1887,5 @@ div.card-figure strong {
     transition: none;
   }
 }
+.card-chart-controls input { width: 130px; max-width: 100%; min-width: 0; color: inherit; background: #101722; border: 1px solid #46536a; border-radius: 4px; padding: 4px 6px; }
+.card-chart-legend label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }

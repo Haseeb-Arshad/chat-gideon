@@ -16,6 +16,7 @@ import { useWidth } from './useWidth'
 import { isAdvancedForm } from '../../../lib/cards/advanced-types'
 import { advancedHeight, advancedTableOf } from '../../../lib/cards/advanced-layout'
 import { AdvancedPlot } from './AdvancedPlot'
+import { compatibleForms, filterCategories, filterableCategories } from '../../../lib/cards/chart-exploration'
 
 /**
  * A chart in a well.
@@ -60,12 +61,16 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
   const [asTable, setAsTable] = useState(false)
   const [focus, setFocus] = useState<number | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [exploration, setExploration] = useState<{ source: ChartBlock; form: ChartBlock['form']; query: string; hidden: string[] } | null>(null)
+  const controls = exploration?.source === sourceBlock ? exploration : { source: sourceBlock, form: sourceBlock.form, query: '', hidden: [] }
+  const updateControls = (patch: Partial<typeof controls>) => { setFocus(null); setExploration({ ...controls, ...patch }) }
+  const forms = compatibleForms(sourceBlock)
   const [selection, setSelection] = useState<{ source: ChartBlock; from: number; to: number } | null>(null)
   const canSelectDates = ['line', 'area', 'band', 'small-multiples', 'editorial', 'calendar'].includes(sourceBlock.form) && Boolean(sourceBlock.positions) && sourceBlock.x.length > 2 && sourceBlock.x.every((label) => /^\d{4}(?:-\d{2}-\d{2})?$/.test(label))
   const from = selection?.source === sourceBlock ? selection.from : 0
   const to = selection?.source === sourceBlock ? selection.to : sourceBlock.x.length - 1
   const filtered = canSelectDates && (from !== 0 || to !== sourceBlock.x.length - 1)
-  const block = useMemo(() => filtered ? {
+  const dateBlock = useMemo(() => filtered ? {
     ...sourceBlock,
     x: sourceBlock.x.slice(from, to + 1),
     positions: sourceBlock.positions?.slice(from, to + 1),
@@ -74,6 +79,9 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
     analysis: sourceBlock.analysis ? { ...sourceBlock.analysis, ...(sourceBlock.analysis.annotations ? { annotations: sourceBlock.analysis.annotations.slice(from, to + 1) } : {}) } : undefined,
     summary: undefined,
   } : sourceBlock, [sourceBlock, filtered, from, to])
+  const block = filterCategories({ ...dateBlock, form: controls.form }, controls.query)
+  const canHide = ['line', 'column'].includes(block.form) && block.series.length > 1
+  const plotBlock = canHide && controls.hidden.length ? { ...block, summary: undefined, series: block.series.map(s => controls.hidden.includes(s.key) ? { ...s, values: s.values.map(() => null) } : s) } : block
   const visibleSaid = filtered && said ? new Set([...said].filter((index) => index >= from && index <= to).map((index) => index - from)) : said
   const focusCount = block.form === 'heatmap' ? block.x.length * block.series.length : block.x.length
   const activeFocus = focus !== null && focus < focusCount ? focus : null
@@ -82,7 +90,7 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
     setSelection({ source: sourceBlock, from: nextFrom, to: nextTo })
   }
   const hasValues = block.series.some((series) => series.values.some((value) => value !== null))
-  const summary = hasValues ? block.summary || summarizeChart(block) : 'No observations are available in the selected period.'
+  const summary = hasValues ? plotBlock.summary || summarizeChart(plotBlock) : 'No observations match the current selection.'
   const legend = block.series.length > 1 && block.form !== 'range' && block.form !== 'heatmap' && !isAdvancedForm(block.form)
 
   return (
@@ -95,6 +103,14 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
         {block.asOf ? <small className="card-chart-asof">{block.asOf}</small> : null}
         {!details && front ? <button type="button" className="card-chart-view" onClick={() => setExpanded(true)}>Expand chart</button> : null}
       </figcaption>
+
+      {front && (forms.length > 1 || filterableCategories(sourceBlock)) ? <div className="card-chart-controls">
+        {forms.length > 1 ? <label>View <select aria-label="Chart type" value={controls.form} onChange={e => updateControls({ form: e.target.value as ChartBlock['form'], hidden: [] })}>{forms.map(form => <option key={form} value={form}>{form.replaceAll('-', ' ')}</option>)}</select></label> : null}
+        {filterableCategories(sourceBlock) ? <label>Find category <input aria-label="Filter chart categories" value={controls.query} onChange={e => updateControls({ query: e.target.value })} /></label> : null}
+        {controls.form !== sourceBlock.form || controls.query || controls.hidden.length ? <button type="button" className="card-chart-view" onClick={() => { setFocus(null); setExploration(null) }}>Reset view</button> : null}
+      </div> : null}
+      {controls.query ? <p role="status" className="card-chart-summary">Showing {block.x.length} of {dateBlock.x.length} categories. The original source table retains every row.</p> : null}
+      {canHide && controls.hidden.length ? <p className="card-chart-summary">Showing {block.series.length - controls.hidden.length} of {block.series.length} measures. Table values remain available for every measure.</p> : null}
 
       {canSelectDates ? <div className="card-chart-controls">
         <label>From <select aria-label="Start date" value={from} onChange={(event) => selectDates(Number(event.target.value), to)}>
@@ -112,7 +128,7 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
           {block.series.map((series, index) => (
             <li key={series.key}>
               <i data-key={block.form === 'column' ? 'box' : 'line'} style={{ background: SERIES[index] }} />
-              {series.label}
+              {canHide && front ? <label><input type="checkbox" checked={!controls.hidden.includes(series.key)} disabled={!controls.hidden.includes(series.key) && controls.hidden.length === block.series.length - 1} onChange={() => updateControls({ hidden: controls.hidden.includes(series.key) ? controls.hidden.filter(key => key !== series.key) : [...controls.hidden, series.key] })} />{series.label}</label> : series.label}
             </li>
           ))}
         </ul>
@@ -123,7 +139,7 @@ export function Chart({ block: sourceBlock, start, size, front, shared = false, 
       ) : (
         <div className="card-well card-chart-well" style={{ minHeight: plotHeight(block, size, shared) + 4 }}>
           {!hasValues ? <p className="card-chart-summary" role="status">No values to plot. Choose another period or inspect the table.</p> : width === null ? null : (
-            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={activeFocus} onFocus={setFocus} summary={summary} said={visibleSaid} />
+            <Plot block={plotBlock} width={width} height={plotHeight(block, size, shared)} front={front} focus={activeFocus} onFocus={setFocus} summary={summary} said={controls.query ? undefined : visibleSaid} />
           )}
         </div>
       )}

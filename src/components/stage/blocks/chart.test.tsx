@@ -32,6 +32,30 @@ function stage(chart: Omit<ChartBlock, 'id' | 'slot'>) {
 
 const years = ['2018', '2019', '2020', '2021', '2022']
 
+describe('local chart exploration', () => {
+  it('switches compatible views, filters categories and resets without mutating values', () => {
+    const chart = { type: 'chart' as const, form: 'bar' as const, title: 'Counts', x: ['Alpha', 'Beta'], series: [{ key: 'v', label: 'Count', values: [4, 9] }] }
+    const view = stage(chart)
+    fireEvent.change(view.getByRole('combobox', { name: 'Chart type' }), { target: { value: 'dot' } })
+    expect(view.container.querySelector('figure')?.getAttribute('data-form')).toBe('dot')
+    fireEvent.change(view.getByRole('textbox', { name: 'Filter chart categories' }), { target: { value: 'Beta' } })
+    fireEvent.click(view.getByRole('button', { name: 'Show as table' }))
+    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(view.container.querySelector('tbody')?.textContent).toContain('9')
+    fireEvent.click(view.getByRole('button', { name: 'Reset view' }))
+    expect(view.container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(chart.series[0].values).toEqual([4, 9])
+  })
+  it('hides a measure without changing its table values or remaining palette identity', () => {
+    const view = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021'], positions: [2020, 2021], series: [{ key: 'a', label: 'First', values: [4, 6] }, { key: 'b', label: 'Second', values: [8, 9] }] })
+    fireEvent.click(view.getByRole('checkbox', { name: 'First' }))
+    expect(view.getByRole('checkbox', { name: 'Second' })).toHaveProperty('disabled', true)
+    fireEvent.click(view.getByRole('button', { name: 'Show as table' }))
+    expect(view.container.querySelector('tbody')?.textContent).toContain('4')
+    expect(view.container.querySelector('tbody')?.textContent).toContain('8')
+  })
+})
+
 describe('irregular time and touch inspection', () => {
   it('expands the selected period and dismisses details while preserving the original selection', () => {
     const { getByRole, queryByRole } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021', '2025'], positions: [2020, 2021, 2025], series: [{ key: 'v', label: 'Count', values: [2, 4, 9] }] })
