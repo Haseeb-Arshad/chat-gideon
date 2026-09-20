@@ -19,12 +19,13 @@ export function sourceNumber(raw: string, header = '', format: NumberFormat = 'p
   const match = text.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(?:(thousand|million|billion|trillion)\s*)?([\p{L}%°µ/$²³0-9 -]{0,32})$/u)
   if (!match) return null
   const parens = header.match(/\(([^)]+)\)/)?.[1]?.trim() ?? ''
-  const headerScale = header.match(/\b(thousand|million|billion|trillion)\b/i)?.[1]?.toLowerCase()
+  const headerScale = header.match(/\b(thousand|million|billion|trillion)s?\b/i)?.[1]?.toLowerCase()
   const knownHeaderUnit = header.match(/\b(USD|EUR|GBP|PKR|ms|km|kg|hours|days|years)\b|%|°[CF]/)?.[0]
-  const headerUnit = knownHeaderUnit ?? (/^[\p{L}%°µ/$²³ -]+$/u.test(parens) ? parens.replace(/\b(thousand|million|billion|trillion)\b/gi, '').trim() : '')
+  const headerUnit = knownHeaderUnit ?? (/^[\p{L}%°µ/$²³ -]+$/u.test(parens) ? parens.replace(/\b(thousand|million|billion|trillion)s?\b/gi, '').trim() : '')
   const cellUnit = match[3].trim()
   if (cellUnit && headerUnit && cellUnit !== headerUnit) return null
   const scale = match[2] || headerScale
+  if (match[2] && headerScale && match[2] !== headerScale) return null
   const value = Number(match[1]) * (scale ? SCALES[scale] : 1)
   if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) return null
   return { value, unit: cellUnit || headerUnit, ...(scale ? { transform: `Converted ${scale} to base units (×${SCALES[scale]}).` } : {}) }

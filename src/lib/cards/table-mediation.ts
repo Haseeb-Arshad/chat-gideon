@@ -2,8 +2,9 @@ import type { SourceRef } from './materials'
 import type { VisualizationSkill, VisualizationTrace, VisualizationReason } from './visualization-skills'
 import { VISUALIZATION_IDS } from './visualization-skills'
 import { ADVANCED_SKILLS, compileAdvanced, type CompiledVisual } from './advanced-mediation'
+import { structuredRows } from './structured-table'
 
-export const TABLE_LIMITS = { bytes: 100_000, tables: 4, rows: 50, columns: 8, cell: 120 } as const
+export const TABLE_LIMITS = { bytes: 100_000, tables: 4, rows: 400, columns: 16, cell: 1000 } as const
 
 export interface CapturedTable {
   id: string
@@ -22,7 +23,7 @@ export interface TableMaterial {
   reason: VisualizationReason
 }
 
-/** Strict pipe tables only. No OCR guesses, model-written rows, or silent truncation. */
+/** Bounded Markdown and flat CSV/TSV/JSON exports. No OCR guesses or model-written rows. */
 export function captureTables(text: string, source: SourceRef, prefix: string): CapturedTable[] {
   if (new TextEncoder().encode(text).byteLength > TABLE_LIMITS.bytes) return []
   try { if (!['http:', 'https:'].includes(new URL(source.url).protocol)) return [] } catch { return [] }
@@ -45,7 +46,13 @@ export function captureTables(text: string, source: SourceRef, prefix: string): 
     i--
     if (valid && rows.length > 0 && rows.length <= TABLE_LIMITS.rows) found.push({ id: `${prefix}-${found.length + 1}`, headers, rows, source })
   }
-  return found
+  if (found.length) return found
+  const structured = structuredRows(text)
+  if (!structured) return []
+  const [head, ...body] = structured
+  if (head.cells.length < 2 || head.cells.length > TABLE_LIMITS.columns || new Set(head.cells).size !== head.cells.length || head.cells.some(h => !h || h.length > 60) || body.length > TABLE_LIMITS.rows || body.some(r => r.cells.length !== head.cells.length || r.cells.some(c => c.length > TABLE_LIMITS.cell))) return []
+  const json = text.trim().startsWith('[')
+  return [{ id: `${prefix}-1`, headers: head.cells, rows: body.map((r, i) => ({ id: json ? `record-${i + 1}` : `r${r.line}`, line: r.line, cells: r.cells })), source }]
 }
 
 /** Years and full ISO dates only; don't let Date.parse repair impossible dates. */

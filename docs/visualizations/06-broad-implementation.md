@@ -19,3 +19,7 @@ User brief: implement broad, high-quality coverage across all 22 families in the
 4. Build the complete synthetic family gallery, verify integration, and publish a final code coverage matrix here.
 
 In progress. No family is considered complete solely because it is named in a union or tool definition.
+
+First increment: 26 advanced selection modes and 21 advanced chart forms added to the existing renderer, with 26 source fixtures. Offline suite: 75 files / 881 tests; production build and TypeScript passed. Committed as `56d209a` and pushed.
+
+Structured capture now accepts Markdown pipe tables, quoted CSV, TSV and flat JSON object arrays within 100 KB, 400 rows and 16 columns. JSON retains numeric lexemes and actual object-start line numbers; record IDs distinguish objects sharing a minified line. Nested JSON, malformed quotes, duplicate headers/keys and excess sizes are refused. HTML tables, OCR and automatic joins remain unsupported. Explicit numeric locale selection supports en-US, de-DE and fr-FR; magnitude conversions are disclosed and conflicting scales refused.

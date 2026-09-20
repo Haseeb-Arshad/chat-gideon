@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureTables, mediateTable, datePosition } from './table-mediation'
+import { captureTables, mediateTable, datePosition, TABLE_LIMITS } from './table-mediation'
 import { cardFromMaterials } from './from-materials'
 import { readCard } from './read'
 import { blockOf } from './schema'
@@ -20,7 +20,7 @@ describe('source-table mediation', () => {
   })
   it('rejects malformed and oversized tables rather than silently clipping', () => {
     expect(captureTables('| A | B |\n|---|---|\n| one | two | three |', source, 'p')).toEqual([])
-    expect(captureTables(`| A | B |\n|---|---|\n${Array.from({ length: 51 }, (_, i) => `| ${i} | 1 |`).join('\n')}`, source, 'p')).toEqual([])
+    expect(captureTables(`| A | B |\n|---|---|\n${Array.from({ length: TABLE_LIMITS.rows + 1 }, (_, i) => `| ${i} | 1 |`).join('\n')}`, source, 'p')).toEqual([])
     expect(captureTables('x'.repeat(100_001), source, 'p')).toEqual([])
     expect(captureTables('| A | B |\n|---|---|\n| one | 2 |', { ...source, url: 'javascript:alert(1)' }, 'p')).toEqual([])
   })

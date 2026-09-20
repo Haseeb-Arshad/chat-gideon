@@ -142,6 +142,7 @@ function readChange(value: unknown): StatChange | null {
  */
 function readTable(input: Input, sources: number): TableBlock | null {
   const columns: TableColumn[] = []
+  const sourced = Boolean(readEvidence(input.evidence))
   if (!Array.isArray(input.columns) || input.columns.length > 16 || !Array.isArray(input.rows) || input.rows.length > 400) return null
   for (const item of list(input.columns, 16)) {
     if (!isObject(item)) continue
@@ -155,13 +156,14 @@ function readTable(input: Input, sources: number): TableBlock | null {
 
   const rows: TableRow[] = []
   for (const item of list(input.rows, 400)) {
+    if (sourced && (!isObject(item) || !Array.isArray(item.cells) || item.cells.length !== columns.length || item.cells.some((cell) => !isObject(cell) || typeof cell.text !== 'string' || cell.text.length > 1000))) return null
     if (!isObject(item) || !Array.isArray(item.cells) || item.cells.length !== columns.length) continue
     const cells: TableCell[] = item.cells.map((cell) => {
       const cellInput: Input = isObject(cell) ? cell : { text: cell }
-      const shown = typeof cellInput.text === 'number' ? String(cellInput.text) : text(cellInput.text, 1000)
+      const shown = sourced && typeof cellInput.text === 'string' ? cellInput.text : typeof cellInput.text === 'number' ? String(cellInput.text) : text(cellInput.text, 1000)
       return Number.isFinite(cellInput.value) ? { text: shown, value: cellInput.value as number } : { text: shown }
     })
-    if (cells.every((cell) => !cell.text)) continue
+    if (!sourced && cells.every((cell) => !cell.text)) continue
     const id = text(item.id, 64) || `r${rows.length}`
     if (rows.some((row) => row.id === id)) continue
     const cite = readCite(item.cite, sources)

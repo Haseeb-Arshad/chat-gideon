@@ -68,6 +68,8 @@ export function tableCard(question: string, material: TableMaterial): CardV2 {
       return { text, ...(value != null ? { value } : {}) }
     }), cite: [0] })),
   } satisfies TableBlock)
+  const evidence = (blocks.at(-1) as TableBlock).evidence
+  for (const block of blocks) if (block.type === 'chart' && !block.evidence) block.evidence = evidence
   if (material.reason !== 'ready') blocks.push({ id: 'visual-note', slot: 'summary', type: 'note', tone: 'info', text: `${REASONS[material.reason] ?? 'A reliable chart could not be prepared.'} The source table is shown instead.` })
   return {
     schema: 2, recipe: view.skill === 'trend' ? 'trend' : view.skill === 'ranking' ? 'ranking' : view.skill === 'timeline' ? 'timeline' : 'compare',
