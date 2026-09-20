@@ -13,7 +13,7 @@
  */
 
 import { formatNumber, withUnit } from './chart-math'
-import { tableCard } from './table-card'
+import { tableCards } from './table-card'
 import { UV_BANDS, conditionOf, dayCode, degrees, placeName } from './weather'
 import {
   isRecord,
@@ -492,8 +492,8 @@ function weatherCard(question: string, material: WeatherMaterial): CardV2 {
  */
 export function cardFromMaterials(question: string, materials: Material[], now: number): CardV2 | null {
   // An explicit desk selection wins over incidental entity/provider lookups.
-  const selected = materials.filter((material) => material.kind === 'table').at(-1)
-  if (selected) return tableCard(question, selected)
+  const selected = materials.filter((material) => material.kind === 'table')
+  if (selected.length) return tableCards(question, selected)
   const weather = materials.find(isWeather)
   if (weather) return weatherCard(question, weather)
 

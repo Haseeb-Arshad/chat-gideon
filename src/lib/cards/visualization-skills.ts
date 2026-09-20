@@ -55,6 +55,7 @@ export const VISUALIZATION_TOOL = {
       type: 'object',
       properties: {
         table_id: { type: 'string', description: 'Exact captured table ID returned by read.' },
+        replace_existing: { type: 'boolean', description: 'Defaults false: retain up to four selected views together. Set true only to deliberately replace all previous selected views.' },
         skill: { type: 'string', enum: VISUALIZATION_IDS },
         label_column: { type: 'integer', description: 'Zero-based column for category labels or dates.' },
         value_column: { type: 'integer', description: 'Zero-based numeric measure, or event text for timeline.' },

@@ -78,3 +78,23 @@ export function tableCard(question: string, material: TableMaterial): CardV2 {
     asOf: null, partial: false,
   }
 }
+
+/** Retain source/view pairs in sequence; each source index is remapped independently. */
+export function tableCards(question: string, materials: TableMaterial[]): CardV2 {
+  if (materials.length === 1) return tableCard(question, materials[0])
+  const cards = materials.map(m => tableCard(question, m))
+  const sources: CardV2['sources'] = []
+  const blocks: Block[] = []
+  cards.forEach((card, view) => {
+    const source = card.sources[0]
+    let index = sources.findIndex(s => s.url === source.url)
+    if (index < 0) { index = sources.length; sources.push(source) }
+    for (const block of card.blocks) {
+      const common = { ...block, id: `view${view}:${block.id}`, slot: 'body', cite: [index] }
+      if (common.type === 'table') blocks.push({ ...common, rows: common.rows.map(row => ({ ...row, cite: [index] })) })
+      else if (common.type === 'timeline') blocks.push({ ...common, events: common.events.map(event => ({ ...event, cite: [index] })) })
+      else blocks.push(common)
+    }
+  })
+  return { ...cards[0], title: `${cards.length} source visualizations`, size: 'feature', blocks, sources }
+}

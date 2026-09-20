@@ -3,6 +3,7 @@ import type { VisualizationSkill, VisualizationTrace, VisualizationReason } from
 import { VISUALIZATION_IDS } from './visualization-skills'
 import { ADVANCED_SKILLS, compileAdvanced, type CompiledVisual } from './advanced-mediation'
 import { structuredRows } from './structured-table'
+import { datasetVersion } from './data-values'
 
 export const TABLE_LIMITS = { bytes: 100_000, tables: 4, rows: 400, columns: 16, cell: 1000 } as const
 
@@ -77,7 +78,7 @@ export function mediateTable(table: CapturedTable | undefined, args: Record<stri
   if (!table) return { trace: { stage: 'selection', outcome: 'unavailable', reason: 'no_table', rows: 0, ...(skill ? { skill } : {}) }, message: 'No captured table has that ID. Use an ID returned by read; do not supply values.' }
   const labelColumn = Number.isInteger(args.label_column) ? args.label_column as number : -1
   const valueColumn = Number.isInteger(args.value_column) ? args.value_column as number : -1
-  const material: TableMaterial = { id: `visual-${table.id}`, kind: 'table', source: table.source, table, view: { skill: 'table', labelColumn: 0, valueColumn: 1 }, reason: 'ready' }
+  const material: TableMaterial = { id: `visual-${table.id}-${datasetVersion(Object.entries(args).filter(([key]) => key !== 'replace_existing').sort(([a], [b]) => a.localeCompare(b)))}`, kind: 'table', source: table.source, table, view: { skill: 'table', labelColumn: 0, valueColumn: 1 }, reason: 'ready' }
   const finish = (reason: VisualizationReason) => {
     material.reason = reason
     if (reason !== 'ready') material.view = { skill: 'table', labelColumn: Math.max(0, Math.min(table.headers.length - 1, labelColumn)), valueColumn: Math.max(0, Math.min(table.headers.length - 1, valueColumn)) }

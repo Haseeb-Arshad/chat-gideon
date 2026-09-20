@@ -120,7 +120,7 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
       size={card.size}
       shared={shared}
       sources={card.sources}
-      sourceTable={card.blocks.find((item): item is TableBlock => item.type === 'table' && item.id === 'source-table')}
+      sourceTable={card.blocks.find((item): item is TableBlock => item.type === 'table' && item.id === (block.id.startsWith('view') && block.id.includes(':') ? `${block.id.split(':')[0]}:source-table` : 'source-table'))}
       heard={heard}
       onAsk={onAsk}
     />

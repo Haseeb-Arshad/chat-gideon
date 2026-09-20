@@ -697,10 +697,13 @@ async function runAgent(
           }
           if (call.function.name === 'visualize_table') {
             const result = mediateTable(tables.get(typeof args.table_id === 'string' ? args.table_id : ''), args)
+            if (result.material && args.replace_existing !== true && !materials.has(result.material.id) && [...materials.values()].filter(m => m.kind === 'table').length >= 4) {
+              track({ ...result.trace, outcome: 'unavailable', reason: 'too_many_rows' })
+              return 'Four selected visualizations are already retained. This selection was not added. Use replace_existing=true only to deliberately replace the existing selection.'
+            }
             track(result.trace)
             if (result.material && !signal.aborted) {
-              // One selected visual per research answer; a later choice replaces it.
-              for (const [id, material] of materials) if (material.kind === 'table') materials.delete(id)
+              if (args.replace_existing === true) for (const [id, material] of materials) if (material.kind === 'table') materials.delete(id)
               materials.set(result.material.id, result.material)
               seen.set(result.material.source.url, { title: result.material.source.title, url: result.material.source.url })
             }

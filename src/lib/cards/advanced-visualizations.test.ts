@@ -5,7 +5,16 @@ import { mediateTable } from './table-mediation'
 import { tableCard } from './table-card'
 import { readCard } from './read'
 import { readAdvancedChart } from './advanced-validation'
+import { cardFromMaterials } from './from-materials'
 describe('advanced source visualization families', () => {
+  it('retains multiple source/view pairs with unique blocks and correct citations', () => {
+    const materials = ADVANCED_EXAMPLES.slice(0, 4).map(e => mediateTable(exampleTable(e), { skill: e.skill, label_column: 0, value_column: 1, ...e.args }).material!)
+    const card = readCard(cardFromMaterials('Explore all', materials, 0))!
+    expect(card.blocks.filter(b => b.type === 'table')).toHaveLength(4)
+    expect(new Set(card.blocks.map(b => b.id)).size).toBe(card.blocks.length)
+    expect(card.blocks.every(b => b.cite?.[0] === 0)).toBe(true)
+    expect(card.blocks.filter(b => b.type === 'chart')).toHaveLength(3)
+  })
   it('covers every runtime skill', () => expect(ADVANCED_EXAMPLES.map(e => e.skill).sort()).toEqual([...ADVANCED_SKILLS].sort()))
   it.each(ADVANCED_EXAMPLES)('$skill validates and round-trips with source evidence', e => {
     const table = exampleTable(e), args = { skill: e.skill, label_column: 0, value_column: 1, ...e.args }

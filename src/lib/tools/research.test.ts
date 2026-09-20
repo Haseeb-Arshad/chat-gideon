@@ -116,7 +116,7 @@ describe('visualization skills in the research loop', () => {
       model: [
         toolCallTurn([{ name: 'search', args: { query: 'fixture statistics' } }]),
         toolCallTurn([{ name: 'read', args: { url } }]),
-        toolCallTurn([{ name: 'visualize_table', args: { table_id: 'page1-1', skill: 'ranking', label_column: 0, value_column: 1 } }]),
+        toolCallTurn([{ name: 'visualize_table', args: { table_id: 'page1-1', skill: 'ranking', label_column: 0, value_column: 1 } }, { name: 'visualize_table', args: { table_id: 'page1-1', skill: 'dot-ranking', label_column: 0, value_column: 1 } }]),
         textTurn(`Beta has 9 passengers, Alpha 4. Sources: Statistics ${url}`),
       ],
       search: () => ({ results: [{ title: 'Statistics', url, highlights: ['Passenger counts.'] }] }),
@@ -125,9 +125,11 @@ describe('visualization skills in the research loop', () => {
     const result = await research('Rank fixture passenger counts', { signal: new AbortController().signal }, deps(web.fetch))
     expect(result.ok).toBe(true)
     expect(result.materials.find((material) => material.kind === 'table')).toMatchObject({ view: { skill: 'ranking', values: [4, 9] } })
+    expect(result.materials.filter(material => material.kind === 'table')).toHaveLength(2)
     expect(result.visualizations).toEqual([
       { stage: 'capture', outcome: 'ready', reason: 'ready', rows: 2 },
       { stage: 'selection', skill: 'ranking', outcome: 'ready', reason: 'ready', rows: 2 },
+      { stage: 'selection', skill: 'dot-ranking', outcome: 'ready', reason: 'ready', rows: 2 },
     ])
     expect(web.calls.filter((call) => call.url.endsWith('/contents'))).toHaveLength(1)
     expect(web.calls.filter((call) => call.url.endsWith('/search'))).toHaveLength(1)
