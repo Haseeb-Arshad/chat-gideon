@@ -46,10 +46,11 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
   },
   remember: {
     tool: 'remember',
-    job: 'Store one durable fact about the user so it survives into later sessions: a preference, a name, an ongoing plan.',
+    job: 'Store one durable fact or dated plan about the user so it survives into later sessions: a preference, a name, an ongoing plan or a calendar event.',
     useWhen: [
       'a lasting fact about themselves the user mentions, even in passing: an allergy, a diet, their work, the name of someone close to them, an ongoing plan',
       'anything about them the user asks you to remember or keep in mind',
+      'a plan on a day or date that they ask not to forget, even when that date could be converted into a number of days from now',
       'a fact about them that has changed, with replaces naming the old one so it is not kept too',
     ],
     neverFor: [
@@ -69,14 +70,14 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     tool: 'recall',
     job: 'Search what you already know about the user.',
     useWhen: [
-      'any question about the user themselves, such as their allergies, their plans, their work or the people close to them, that the things you were already told about them do not answer',
+      'every unanswered question about the user themselves, including their preferences, loyalties, allergies, plans, work or the people close to them',
       'an answer that depends on something the user told you before',
     ],
     neverFor: [
       { when: 'a new fact the user is telling you', use: 'remember' },
       { when: 'facts about the world', use: 'research' },
     ],
-    voice: 'Never tell the user you do not know something about them without calling this first.',
+    voice: 'Call this before answering an unanswered personal question. Never tell the user you do not know something about them without calling it first.',
     examples: ['what did I say my favourite film was', 'do you know where I work', 'which day is my dentist appointment'],
     counterExamples: [
       { text: 'my favourite film is Alien', use: 'remember' },
@@ -105,7 +106,8 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     useWhen: [
       'anything current or anything you would otherwise be guessing at: news, prices, scores, releases, what is true today',
       'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
-      'a comparison of particular things, such as two languages, products or cities',
+      'a comparison of particular named things, such as two languages, products or cities, even when you could compare them from memory',
+      'a judgement about which named or local place is best, top-rated, recommended, good or worth visiting, even when the question also says nearby',
       'a specific story or entry already on screen, such as one on a front page, when the user asks to hear more about it, have it opened, or go past what its headline and deck already say: pass its full headline as the question, with depth deep, even though it is already on screen',
       'whenever the user tells you to search, look something up or check',
     ],
@@ -138,7 +140,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     neverFor: [
       { when: 'facts about the thing, such as who made it or how big it is', use: 'research' },
       { when: 'where a place is', use: 'show_map' },
-      { when: 'a scene the user asks you to picture or imagine, which is talk, not a request to see', use: null },
+      { when: 'a narrative invitation to picture, imagine or visualise a scene without explicitly asking to see images, which is talk', use: null },
       { when: 'bringing back a card that is already on screen', use: null },
     ],
     voice:
@@ -183,7 +185,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     neverFor: [
       { when: 'anything else about a place, such as its history, its size or how many people live there', use: 'research' },
       { when: 'a flight or a train: how long it takes, or what it costs', use: 'research' },
-      { when: 'which restaurant, cafe or other place is best, top-rated or worth going to, which is a judgement from reviews rather than a search of what is near', use: 'research' },
+      { when: 'which restaurant, cafe or other local place is best, top-rated, recommended, good or worth going to, even when the question says nearby: this is a judgement rather than an unranked category search', use: 'research' },
       { when: 'what a place looks like, or being shown a place without a map being asked for, such as "show me Rome"', use: 'show_images' },
       { when: 'mapping out or planning something that is not a place, such as a week or an essay', use: null },
     ],
@@ -199,10 +201,10 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
   },
   set_timer: {
     tool: 'set_timer',
-    job: 'Set a timer that alerts the user when it finishes.',
-    useWhen: ['a timer, or a reminder a length of time from now, such as "remind me in ten minutes"'],
+    job: 'Set a countdown that alerts the user after an explicit length of time.',
+    useWhen: ['a timer, or a reminder an explicit length of time from now, such as "remind me in ten minutes"'],
     neverFor: [
-      { when: 'a day or a date, such as "next Monday", which is a plan to keep rather than a timer', use: 'remember' },
+      { when: 'a day, date or calendar event, such as "next Monday", which is a plan to keep rather than a countdown; never calculate its distance from today', use: 'remember' },
       { when: 'a fact to keep with no length of time on it', use: 'remember' },
       { when: 'a figure of speech such as "give me a minute"', use: null },
     ],

@@ -313,6 +313,29 @@ change: "where" 5 of 5, "how far" 3 of 3, "how long" 4 of 4, the flight 3 of 3,
 "map" 4 of 4 twice, "tell me" 3 of 3. The whole corpus was not run again after
 these fixes, to keep the remaining OpenRouter credit.
 
+The nearby and deep-research change grew the corpus to 164 turns and recorded
+159 of 164. On 20 September a fresh run of that branch gave 158 of 164 (96.3%).
+It reproduced five actionable misses: a named comparison and a measurement were
+answered from memory instead of sent to research; a request for the best local
+place went to the unranked nearby map search; a plan on a named day became a
+timer; and an unanswered question about the user skipped recall. A sixth,
+"picture this", was a probabilistic image false positive in that sample.
+
+The ordered rules and skill descriptions now make those boundaries explicit:
+known-looking facts and comparisons still require research; recommendation
+words take precedence over nearby category search; dates are memories rather
+than countdowns; unanswered personal questions require recall; and an imagined
+scene is not an image request. All six failed sentences then passed focused live
+reruns. A first full regression improved to 160 of 164 but exposed four other
+probabilistic must-call misses, so the existing weather/research, exact-location,
+remember and forget rules were made explicit too; those four passed focused
+reruns. The final full live run, through `openai/gpt-4.1-mini`, passed every gate
+at 162 of 164 (98.8%) in 250 seconds: research recall was 94.3%, every measured
+precision was 100%, map recall was 100%, memory, recall and forget were all 100%,
+and there were no unasked side effects. The two remaining misses were the Moon's
+distance answered from memory and next month's Paris weather sent to `weather`;
+neither took a side effect nor pushed a gate below its threshold.
+
 ## The weather
 
 A forecast is data with a source, so it has its own tool rather than a trip to
