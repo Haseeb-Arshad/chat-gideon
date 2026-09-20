@@ -15,6 +15,8 @@
  * Shared by the server, which makes cards, and the browser, which draws them.
  */
 
+import type { AdvancedForm, AnalysisContext, ChartEvidence } from './advanced-types'
+
 export const CARD_SCHEMA = 2
 
 /**
@@ -117,6 +119,7 @@ export interface StatBlock extends BlockBase {
 }
 
 export interface TableColumn {
+  visual?: 'bar'
   /** Unique within its table. */
   key: string
   label: string
@@ -134,6 +137,7 @@ export interface TableCell {
 }
 
 export interface TableRow {
+  sourceLine?: number
   id: string
   /** One per column, in the columns' order. */
   cells: TableCell[]
@@ -141,6 +145,7 @@ export interface TableRow {
 }
 
 export interface TableBlock extends BlockBase {
+  evidence?: ChartEvidence
   type: 'table'
   caption?: string
   columns: TableColumn[]
@@ -300,9 +305,11 @@ export interface MapBlock extends BlockBase {
  * `line`: how values moved, up to five series. `area`: one series, filled to
  * zero. `column`: values side by side, up to three series. `bar`: one series
  * ranked, the largest at the top. `range`: a low and a high at each point, such
- * as a day's temperatures.
+ * as a day's temperatures. `scatter`: paired numeric observations without lines.
+ * `histogram`: observation counts in numeric bins. `heatmap`: one measure across
+ * two categorical dimensions, with missing cells kept distinct from zero.
  */
-export type ChartForm = 'line' | 'area' | 'column' | 'bar' | 'range'
+export type ChartForm = 'line' | 'area' | 'column' | 'bar' | 'range' | 'scatter' | 'histogram' | 'heatmap' | AdvancedForm
 
 export interface ChartSeries {
   key: string
@@ -312,6 +319,8 @@ export interface ChartSeries {
 }
 
 export interface ChartBlock extends BlockBase {
+  analysis?: AnalysisContext
+  evidence?: ChartEvidence
   type: 'chart'
   form: ChartForm
   /** What is measured: "Passengers a year". */
@@ -320,8 +329,13 @@ export interface ChartBlock extends BlockBase {
   unit?: string
   /** What the x positions are: "Year", "Hour", "Route". */
   xLabel?: string
+  /** The second categorical dimension of a heatmap, or the vertical scatter measure. */
+  yLabel?: string
+  xUnit?: string
   /** The x positions as they are shown, in order. */
   x: string[]
+  /** Increasing time positions, or nondecreasing scatter coordinates; labels remain in x. */
+  positions?: number[]
   series: ChartSeries[]
   /** Points worth naming on the chart: the peak, the low, an event. */
   marks?: Array<{ at: number; series?: string; label: string }>

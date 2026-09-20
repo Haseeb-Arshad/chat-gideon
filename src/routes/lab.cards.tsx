@@ -29,6 +29,7 @@ const STAGES = {
 type StageName = keyof typeof STAGES
 
 function CardLab() {
+  const { visualizations } = Route.useSearch()
   const [mood, setMood] = useState<EyeEmotion>('neutral')
   const [size, setSize] = useState<CardSize | 'recipe'>('recipe')
   const [stage, setStage] = useState<StageName>('1280 × 720')
@@ -57,8 +58,8 @@ function CardLab() {
         </header>
 
         <div className="lab-cases">
-          <ManyCards stage={dimensions} stripes={stripes} />
-          {FIXTURES.map((fixture) => {
+          {!visualizations ? <ManyCards stage={dimensions} stripes={stripes} /> : null}
+          {FIXTURES.filter((fixture) => !visualizations || fixture.id.startsWith('lab:visual-')).map((fixture) => {
             const card = size === 'recipe' ? fixture.card : { ...fixture.card, size }
             return (
               <section className="lab-case" key={fixture.id}>
@@ -153,6 +154,7 @@ function Choice<T extends string>({
 }
 
 export const Route = createFileRoute('/lab/cards')({
+  validateSearch: (search: Record<string, unknown>) => ({ visualizations: search.visualizations === '1' || search.visualizations === 1 || search.visualizations === true || search.visualizations === 'true' }),
   component: CardLab,
   head: () => ({ meta: [{ title: 'Card lab · GIDEON' }, { name: 'robots', content: 'noindex' }] }),
 })

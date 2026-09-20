@@ -108,6 +108,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
       'a fact about a particular person, place, creature, thing, organisation, work or event (who or what it is, when it happened, how big or old it is), even one you know well: what it finds is shown on screen as a card, and the card is part of the answer',
       'a comparison of particular named things, such as two languages, products or cities, even when you could compare them from memory',
       'a judgement about which named or local place is best, top-rated, recommended, good or worth visiting, even when the question also says nearby',
+      'graphs, charts, rankings, timelines or data visualizations of sourced facts: pass the requested visual and comparison criteria to the research desk',
       'a specific story or entry already on screen, such as one on a front page, when the user asks to hear more about it, have it opened, or go past what its headline and deck already say: pass its full headline as the question, with depth deep, even though it is already on screen',
       'whenever the user tells you to search, look something up or check',
     ],
@@ -139,6 +140,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     ],
     neverFor: [
       { when: 'facts about the thing, such as who made it or how big it is', use: 'research' },
+      { when: 'charts, graphs, data comparisons or timelines, which need sourced values rather than image search results', use: 'research' },
       { when: 'where a place is', use: 'show_map' },
       { when: 'a narrative invitation to picture, imagine or visualise a scene without explicitly asking to see images, which is talk', use: null },
       { when: 'bringing back a card that is already on screen', use: null },

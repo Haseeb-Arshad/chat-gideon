@@ -8,6 +8,9 @@
  * does, computed from the values rather than written by anyone.
  */
 
+import type { ChartForm } from './schema'
+import { isAdvancedForm } from './advanced-types'
+
 export interface Scale {
   min: number
   max: number
@@ -26,8 +29,9 @@ export function niceStep(span: number, intervals: number): number {
 }
 
 function decimalsOf(step: number): number {
-  const [, fraction = ''] = step.toPrecision(12).replace(/0+$/, '').split('.')
-  return fraction.length
+  const [coefficient, exponent] = step.toExponential(11).split('e')
+  const fraction = (coefficient.split('.')[1] ?? '').replace(/0+$/, '')
+  return Math.min(20, Math.max(0, fraction.length - Number(exponent)))
 }
 
 /**
@@ -50,7 +54,10 @@ export function niceScale(low: number, high: number, { zero = false, maxTicks = 
     const lo = Math.floor(min / step + 1e-9) * step
     const hi = Math.ceil(max / step - 1e-9) * step
     const ticks: number[] = []
-    for (let value = lo; value <= hi + step / 2; value += step) ticks.push(Number(value.toFixed(decimals)))
+    for (let index = 0; index <= Math.round((hi - lo) / step); index++) {
+      const value = lo + index * step
+      ticks.push(Number(step < 1e-20 ? value.toPrecision(15) : value.toFixed(decimals)))
+    }
     if (ticks.length <= maxTicks || intervals === 1) {
       return { min: ticks[0], max: ticks[ticks.length - 1], ticks, decimals }
     }
@@ -66,6 +73,9 @@ export function niceScale(low: number, high: number, { zero = false, maxTicks = 
  */
 export function formatNumber(value: number, decimals = 0): string {
   const magnitude = Math.abs(value)
+  // A small non-zero observation must not become a displayed zero when a
+  // compact label asks for fewer decimal places than the source contains.
+  if (magnitude > 0 && magnitude < 10 ** -decimals) return value.toPrecision(3).replace(/(\.\d*?)0+(e|$)/, '$1$2').replace(/\.(e|$)/, '$1')
   // One place, dropped when it is a zero: an axis reads "100M", a sentence "123.4M".
   const compact = (divisor: number, letter: string) => `${(value / divisor).toFixed(1).replace(/\.0$/, '')}${letter}`
   if (magnitude >= 1e12) return compact(1e12, 'T')
@@ -156,7 +166,7 @@ export function summarize(x: string[], values: Array<number | null>, unit = '', 
 }
 
 export interface ChartSummaryInput {
-  form: 'line' | 'area' | 'column' | 'bar' | 'range'
+  form: ChartForm
   x: string[]
   series: Array<{ label: string; values: Array<number | null> }>
   unit?: string
@@ -172,6 +182,10 @@ export interface ChartSummaryInput {
 export function summarizeChart({ form, x, series, unit = '', xLabel = '' }: ChartSummaryInput): string {
   const first = series[0]
   if (!first) return ''
+  if (isAdvancedForm(form)) return `${form.replaceAll('-', ' ')}: ${x.length} source entries across ${series.length} measure${series.length === 1 ? '' : 's'}. Exact values and source evidence are available in the table and expanded details.`
+  if (form === 'scatter') return `${x.length} paired observations. Association does not establish causation.`
+  if (form === 'histogram') return `${first.values.reduce<number>((total, value) => total + (value ?? 0), 0)} observations across ${x.length} bins.`
+  if (form === 'heatmap') return `${series.length} rows by ${x.length} columns. Missing cells are shown as a dash, not zero.`
   if ((form === 'line' || form === 'area') && series.length > 1) return compareAtEnd(x, series, unit, xLabel)
   if (form === 'line' || form === 'area') return summarize(x, first.values, unit, xLabel)
 

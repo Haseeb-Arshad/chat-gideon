@@ -159,15 +159,20 @@ describe('chart', () => {
     expect(blocksOf({ id: 'c', type: 'chart', form: 'range', x: years, series: [{ values: [1, 2, 3, 4] }] })).toEqual([])
   })
 
-  it('never gives a line more series than it has colours for', () => {
-    const [chart] = blocksOf({
+  it('rejects excessive series instead of silently omitting evidence', () => {
+    const charts = blocksOf({
       id: 'c',
       type: 'chart',
       form: 'line',
       x: years,
       series: Array.from({ length: 8 }, (_, index) => ({ key: `s${index}`, values: [1, 2, 3, index] })),
     })
-    expect(chart.type === 'chart' && chart.series).toHaveLength(5)
+    expect(charts).toEqual([])
+  })
+  it('rejects reversed and unpaired range bounds', () => {
+    for (const high of [[0, 3, 4, 5], [null, 3, 4, 5]]) {
+      expect(blocksOf({ id: 'c', type: 'chart', form: 'range', x: years, series: [{ key: 'low', values: [1, 2, 3, 4] }, { key: 'high', values: high }] })).toEqual([])
+    }
   })
 })
 

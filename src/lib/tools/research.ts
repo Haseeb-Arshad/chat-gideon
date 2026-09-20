@@ -24,6 +24,8 @@
  */
 
 import type { Material } from '../cards/materials'
+import { captureTables, mediateTable, type CapturedTable } from '../cards/table-mediation'
+import { VISUALIZATION_TOOL, VISUALIZATION_IDS, type VisualizationTrace } from '../cards/visualization-skills'
 import { topStories } from './desk/news'
 import { entityFacts, MAX_TITLES } from './desk/wikidata'
 import { countryData, INDICATOR_KEYS, MAX_COUNTRIES, type DeskLookup } from './desk/world-bank'
@@ -156,6 +158,8 @@ export interface ResearchResult {
    * series and records a card copies its numbers and dates from.
    */
   materials: Material[]
+  /** Bounded, content-free diagnostics; selection success is not browser-render proof. */
+  visualizations?: VisualizationTrace[]
   via: ResearchPath
   model: string
   searches: number
@@ -361,6 +365,7 @@ function hostname(url: string) {
 // -- The researcher's tools, as the research model sees them ---------------
 
 const RESEARCH_TOOLS = [
+  VISUALIZATION_TOOL,
   {
     type: 'function' as const,
     function: {
@@ -485,6 +490,8 @@ Method. Search before you answer, always, even when you think you know: you are 
 
 Data. Three tools return exact figures, records and stories, and what they return is drawn on the user's screen. Use country_data whenever the question is about one of its measures for a country or the world, above all over time or between countries, and search as well for anything newer than its latest year. Use entity_facts whenever the question is about a particular named person, country, place, organisation or work, or compares a few of them. Use top_stories when the user asks for the news, the headlines, or what is happening today, in general or in a topic; brief the top two or three stories from it, and search only if a story needs checking. Call any of them in the same round as your first searches, never in a round of its own. Their numbers and dates are exact: use them as given, and prefer them to a passage that disagrees unless the passage is newer.
 
+Visualization. When read returns captured table IDs and the question asks for statistics, a comparison, a trend or a timeline, use visualize_table to select the relevant table and columns before the brief. Its skills are ${VISUALIZATION_IDS.join(', ')}. The tool copies source cells; never send it invented values. First check the source's periods, units, definitions and footnotes for comparability. Select table for mixed or qualitative data. A fallback is a table, not a chart. This reuses the page already read and makes no network request. Do not search again merely to decorate an answer, and do not use show_images for data graphs. Only currently supported skills are available; do not promise a specialized visual that was not returned.
+
 One round of searching is usually the whole job${deep ? ', though this one was asked for in full and may fairly take a few more' : ''}. When what came back answers the question, write the brief from it and stop: a second round costs a person several seconds of silence and almost never changes the answer. Search again only when the results genuinely do not answer what was asked, or disagree with each other about something that matters.
 
 When they do not, never come back empty-handed from one wording. A search that returns nothing means that phrasing was wrong, not that the answer does not exist, so try again with different words before you conclude anything: the words the sources would use rather than the words the user used, the proper name of the thing, a wider or narrower date, the plain noun instead of the jargon. Go where that kind of answer actually lives, with a site: query when you know the place. Research papers and preprints are on arxiv.org, openreview.net, semanticscholar.org, pubmed.ncbi.nlm.nih.gov, biorxiv.org and the publishers; filings and statistics are on the agency's own site; releases and specifications are on the maker's. A question about a named month or year is a date range to bound the search with, not a phrase to search for. Only after several genuinely different attempts have all come back with nothing may you say that nothing was found, and even then say what you did find and how you looked.
@@ -554,6 +561,7 @@ interface AgentBrief {
   materials: Material[]
   searches: number
   model: string
+  visualizations?: VisualizationTrace[]
 }
 
 /** The desk's data sources, whose answers are materials a card is drawn from. */
@@ -561,6 +569,7 @@ const DATA_TOOLS = new Set(['country_data', 'entity_facts', 'top_stories'])
 
 /** The pages a material should be cited by: its source, or every story's own page. */
 function citations(material: Material): Array<[url: string, title: string]> {
+  if (material.kind === 'table') return [[material.source.url, material.source.title]]
   if (material.kind === 'stories') return material.items.map((story) => [story.url, `${story.headline} (${story.host})`])
   if (material.kind === 'series') return [[material.source.url, `${material.source.title}: ${material.name}`]]
   if (material.kind === 'weather') return [[material.source.url, `${material.source.title}: ${material.place.name}`]]
@@ -584,6 +593,7 @@ async function runAgent(
    * does not finish.
    */
   materials: Map<string, Material> = new Map(),
+  visualizations: VisualizationTrace[] = [],
 ): Promise<AgentBrief> {
   if (!deps.openrouterHeaders) throw new Error('openrouter not configured')
 
@@ -593,6 +603,9 @@ async function runAgent(
     { role: 'user', content: question },
   ]
   const seen = new Map<string, ResearchSource>()
+  const tables = new Map<string, CapturedTable>()
+  let pagesRead = 0
+  const track = (trace: VisualizationTrace) => { if (visualizations.length < 16) visualizations.push(trace) }
   let searches = 0
   let modelUsed = deps.model
   let writing = false
@@ -636,6 +649,7 @@ async function runAgent(
           brief: content,
           sources: citedSources(content, seen),
           materials: [...materials.values()],
+          ...(visualizations.length ? { visualizations: [...visualizations] } : {}),
           searches,
           model: modelUsed,
         }
@@ -674,7 +688,23 @@ async function runAgent(
             const page = await exaRead(deps, url, signal)
             if (!page?.text) return 'The page could not be read.'
             for (const source of toSources([page])) seen.set(source.url, source)
-            return `${page.title ?? hostname(url)}\n${page.text}`
+            const captured = captureTables(page.text, { title: page.title ?? hostname(url), url: page.url || url, fetchedAt: new Date(deps.now()).toISOString() }, `page${++pagesRead}`)
+            const accepted = captured.slice(0, Math.max(0, 8 - tables.size))
+            for (const table of accepted) tables.set(table.id, table)
+            track({ stage: 'capture', outcome: accepted.length ? 'ready' : 'unavailable', reason: accepted.length ? 'ready' : 'no_table', rows: accepted.reduce((count, table) => count + table.rows.length, 0) })
+            const catalog = accepted.map((table) => `${table.id}: ${table.rows.length} rows; ${table.headers.map((header, index) => `${index}=${header}`).join(', ')}`).join('\n')
+            return `${page.title ?? hostname(url)}\n${page.text}${catalog ? `\nCaptured source tables (use visualize_table without another fetch):\n${catalog}` : ''}`
+          }
+          if (call.function.name === 'visualize_table') {
+            const result = mediateTable(tables.get(typeof args.table_id === 'string' ? args.table_id : ''), args)
+            track(result.trace)
+            if (result.material && !signal.aborted) {
+              // One selected visual per research answer; a later choice replaces it.
+              for (const [id, material] of materials) if (material.kind === 'table') materials.delete(id)
+              materials.set(result.material.id, result.material)
+              seen.set(result.material.source.url, { title: result.material.source.title, url: result.material.source.url })
+            }
+            return result.message
           }
           if (DATA_TOOLS.has(call.function.name)) {
             const lookup: DeskLookup<Material> =
@@ -816,12 +846,14 @@ async function hedgedRun(
   // What the research model's data lookups returned, kept even if its run
   // loses: the figures came from the source, whoever writes the brief.
   const collected = new Map<string, Material>()
+  const visualizationTrace: VisualizationTrace[] = []
   const agent = runAgent(
     question,
     options,
     deps,
     AbortSignal.any([signal, agentStop.signal, AbortSignal.timeout(budgetMs)]),
     collected,
+    visualizationTrace,
   ).then(
     (brief): Outcome => ({ ok: true, via: 'agent', ...brief }),
     () => null,
@@ -836,7 +868,7 @@ async function hedgedRun(
    * where a chart was ready.
    */
   const withCollected = (outcome: Outcome): Outcome =>
-    outcome.ok && collected.size ? { ...outcome, materials: [...collected.values()] } : outcome
+    outcome.ok ? { ...outcome, ...(collected.size ? { materials: [...collected.values()] } : {}), ...(visualizationTrace.length ? { visualizations: [...visualizationTrace] } : {}) } : outcome
 
   try {
     const first = await Promise.race([agent, hedgeWin])

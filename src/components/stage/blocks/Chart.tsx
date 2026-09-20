@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   formatNumber,
   labelIndices,
@@ -8,10 +9,13 @@ import {
   type Scale,
 } from '../../../lib/cards/chart-math'
 import { SERIES } from '../../../lib/cards/palette'
-import type { CardSize, ChartBlock, ChartSeries, TableBlock } from '../../../lib/cards/schema'
+import type { CardSize, CardSource, ChartBlock, ChartSeries, TableBlock } from '../../../lib/cards/schema'
 import { rise } from '../stagger'
 import { Table } from './Table'
 import { useWidth } from './useWidth'
+import { isAdvancedForm } from '../../../lib/cards/advanced-types'
+import { advancedHeight, advancedTableOf } from '../../../lib/cards/advanced-layout'
+import { AdvancedPlot } from './AdvancedPlot'
 
 /**
  * A chart in a well.
@@ -46,14 +50,40 @@ interface ChartProps {
   shared?: boolean
   /** Positions on the axis GIDEON has just mentioned, which light up. */
   said?: Set<number>
+  sources?: CardSource[]
+  sourceTable?: TableBlock
+  details?: boolean
 }
 
-export function Chart({ block, start, size, front, shared = false, said }: ChartProps) {
+export function Chart({ block: sourceBlock, start, size, front, shared = false, said, sources = [], sourceTable, details = false }: ChartProps) {
   const [figure, width] = useWidth(FALLBACK_WIDTH)
   const [asTable, setAsTable] = useState(false)
   const [focus, setFocus] = useState<number | null>(null)
-  const summary = block.summary || summarizeChart(block)
-  const legend = block.series.length > 1 && block.form !== 'range'
+  const [expanded, setExpanded] = useState(false)
+  const [selection, setSelection] = useState<{ source: ChartBlock; from: number; to: number } | null>(null)
+  const canSelectDates = ['line', 'area', 'band', 'small-multiples', 'editorial', 'calendar'].includes(sourceBlock.form) && Boolean(sourceBlock.positions) && sourceBlock.x.length > 2 && sourceBlock.x.every((label) => /^\d{4}(?:-\d{2}-\d{2})?$/.test(label))
+  const from = selection?.source === sourceBlock ? selection.from : 0
+  const to = selection?.source === sourceBlock ? selection.to : sourceBlock.x.length - 1
+  const filtered = canSelectDates && (from !== 0 || to !== sourceBlock.x.length - 1)
+  const block = useMemo(() => filtered ? {
+    ...sourceBlock,
+    x: sourceBlock.x.slice(from, to + 1),
+    positions: sourceBlock.positions?.slice(from, to + 1),
+    series: sourceBlock.series.map((series) => ({ ...series, values: series.values.slice(from, to + 1) })),
+    marks: sourceBlock.marks?.filter((mark) => mark.at >= from && mark.at <= to).map((mark) => ({ ...mark, at: mark.at - from })),
+    analysis: sourceBlock.analysis ? { ...sourceBlock.analysis, ...(sourceBlock.analysis.annotations ? { annotations: sourceBlock.analysis.annotations.slice(from, to + 1) } : {}) } : undefined,
+    summary: undefined,
+  } : sourceBlock, [sourceBlock, filtered, from, to])
+  const visibleSaid = filtered && said ? new Set([...said].filter((index) => index >= from && index <= to).map((index) => index - from)) : said
+  const focusCount = block.form === 'heatmap' ? block.x.length * block.series.length : block.x.length
+  const activeFocus = focus !== null && focus < focusCount ? focus : null
+  const selectDates = (nextFrom: number, nextTo: number) => {
+    setFocus(null)
+    setSelection({ source: sourceBlock, from: nextFrom, to: nextTo })
+  }
+  const hasValues = block.series.some((series) => series.values.some((value) => value !== null))
+  const summary = hasValues ? block.summary || summarizeChart(block) : 'No observations are available in the selected period.'
+  const legend = block.series.length > 1 && block.form !== 'range' && block.form !== 'heatmap' && !isAdvancedForm(block.form)
 
   return (
     <figure className="card-chart" data-form={block.form} style={rise(start)} ref={figure}>
@@ -63,7 +93,19 @@ export function Chart({ block, start, size, front, shared = false, said }: Chart
           {block.unit ? <small>{block.unit}</small> : null}
         </span>
         {block.asOf ? <small className="card-chart-asof">{block.asOf}</small> : null}
+        {!details && front ? <button type="button" className="card-chart-view" onClick={() => setExpanded(true)}>Expand chart</button> : null}
       </figcaption>
+
+      {canSelectDates ? <div className="card-chart-controls">
+        <label>From <select aria-label="Start date" value={from} onChange={(event) => selectDates(Number(event.target.value), to)}>
+          {sourceBlock.x.slice(0, to).map((label, index) => <option key={index} value={index}>{label}</option>)}
+        </select></label>
+        <label>To <select aria-label="End date" value={to} onChange={(event) => selectDates(from, Number(event.target.value))}>
+          {sourceBlock.x.map((label, index) => index > from ? <option key={index} value={index}>{label}</option> : null)}
+        </select></label>
+        {filtered ? <button type="button" className="card-chart-view" onClick={() => selectDates(0, sourceBlock.x.length - 1)}>Reset dates</button> : null}
+      </div> : null}
+      {filtered ? <p className="card-chart-summary" role="status">Showing {block.x.length} of {sourceBlock.x.length} captured observations: {block.x[0]} to {block.x[block.x.length - 1]}. Source data is unchanged.</p> : null}
 
       {legend ? (
         <ul className="card-chart-legend">
@@ -80,8 +122,8 @@ export function Chart({ block, start, size, front, shared = false, said }: Chart
         <Table block={tableOf(block)} start={0} />
       ) : (
         <div className="card-well card-chart-well" style={{ minHeight: plotHeight(block, size, shared) + 4 }}>
-          {width === null ? null : (
-            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={focus} onFocus={setFocus} summary={summary} said={said} />
+          {!hasValues ? <p className="card-chart-summary" role="status">No values to plot. Choose another period or inspect the table.</p> : width === null ? null : (
+            <Plot block={block} width={width} height={plotHeight(block, size, shared)} front={front} focus={activeFocus} onFocus={setFocus} summary={summary} said={visibleSaid} />
           )}
         </div>
       )}
@@ -92,18 +134,44 @@ export function Chart({ block, start, size, front, shared = false, said }: Chart
           {asTable ? 'Show as chart' : 'Show as table'}
         </button>
       </div>
+      {expanded && front ? <ChartDetails block={block} sources={sources} sourceTable={sourceTable} onClose={() => setExpanded(false)} /> : null}
     </figure>
   )
 }
 
+/** A native modal supplies focus containment and Escape; the same captured values render larger. */
+function ChartDetails({ block, sources, sourceTable, onClose }: { block: ChartBlock; sources: CardSource[]; sourceTable?: TableBlock; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
+  useEffect(() => {
+    const element = dialog.current!
+    const previous = document.activeElement as HTMLElement | null
+    if (typeof element.showModal === 'function') element.showModal()
+    else element.setAttribute('open', '')
+    return () => {
+      if (typeof element.close === 'function' && element.open) element.close()
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
+  return createPortal(<dialog ref={dialog} className="chart-details" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose() }}>
+    <header><h2 id={titleId}>{block.title}</h2><button type="button" className="card-chart-view" onClick={onClose} autoFocus>Close details</button></header>
+    <Chart block={block} start={0} size="feature" front details />
+    {sourceTable ? <section><h3>Original source table</h3><Table block={sourceTable} start={0} /></section> : null}
+    {sources.length ? <section><h3>Sources</h3><ul>{sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a></li>)}</ul></section> : null}
+  </dialog>, document.body)
+}
+
 /** Ranked bars take a row each; everything else is as tall as its card's size allows. */
 function plotHeight(block: ChartBlock, size: CardSize, shared: boolean): number {
+  if (isAdvancedForm(block.form)) return advancedHeight(block)
   if (block.form === 'bar') return BAR_TOP * 2 + block.x.length * BAR_ROW
+  if (block.form === 'heatmap') return 48 + block.series.length * 34
   return shared ? Math.round(HEIGHT[size] * 0.7) : HEIGHT[size]
 }
 
 /** The chart's values as a table: the same numbers, reachable without a pointer. */
 function tableOf(block: ChartBlock): TableBlock {
+  if (isAdvancedForm(block.form)) return advancedTableOf(block)
   const isRange = block.form === 'range'
   return {
     id: 'chart-table',
@@ -125,7 +193,7 @@ function tableOf(block: ChartBlock): TableBlock {
         { text: label },
         ...block.series.map((series) => {
           const value = series.values[index]
-          return value === null ? { text: '' } : { text: formatNumber(value, decimalsOf(series)), value }
+          return value === null ? { text: '' } : { text: String(value), value }
         }),
       ],
     })),
@@ -153,35 +221,81 @@ interface PlotProps {
 }
 
 function Plot(props: PlotProps) {
+  if (isAdvancedForm(props.block.form)) return <AdvancedPlot {...props} />
+  if (props.block.form === 'heatmap') return <HeatmapPlot {...props} />
   return props.block.form === 'bar' ? <BarPlot {...props} /> : <AxisPlot {...props} />
+}
+
+function HeatmapPlot({ block, front, focus, onFocus }: PlotProps) {
+  const values = block.series.flatMap((series) => series.values.filter((value): value is number => value !== null))
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  return (
+    <div className="chart-heatmap">
+      <table aria-label={`${block.title}: ${block.yLabel ?? 'rows'} by ${block.xLabel ?? 'columns'}`}>
+        <thead><tr><th scope="col">{block.yLabel ?? ''} / {block.xLabel ?? ''}</th>{block.x.map((label, index) => <th key={index} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{block.series.map((series, row) => <tr key={series.key}>
+          <th scope="row">{series.label}</th>
+          {series.values.map((value, column) => {
+            const index = row * block.x.length + column
+            const label = `${series.label}, ${block.x[column]}: ${value === null ? 'no value' : withUnit(String(value), block.unit)}`
+            const alpha = value === null ? 0 : high === low ? 0.45 : 0.12 + 0.53 * (value - low) / (high - low)
+            return <td key={column}><button type="button" tabIndex={front ? 0 : -1} aria-label={label} aria-pressed={focus === index} onFocus={() => onFocus(index)} onClick={() => onFocus(index)} style={{ background: `rgba(57,135,229,${alpha})` }}>{value === null ? '—' : String(value)}</button></td>
+          })}
+        </tr>)}</tbody>
+      </table>
+      <p className="chart-heatmap-scale">Light to dark: {withUnit(String(low), block.unit)} to {withUnit(String(high), block.unit)}. — no value.</p>
+      {focus !== null ? <p className="chart-heatmap-selection" aria-live="polite">{block.series[Math.floor(focus / block.x.length)]?.label} · {block.x[focus % block.x.length]}: {block.series[Math.floor(focus / block.x.length)]?.values[focus % block.x.length] == null ? 'no value' : withUnit(String(block.series[Math.floor(focus / block.x.length)].values[focus % block.x.length]), block.unit)}</p> : null}
+    </div>
+  )
 }
 
 /** Lines, an area, columns or ranges over x positions, against a y-axis. */
 function AxisPlot({ block, width, height, front, focus, onFocus, summary, said }: PlotProps) {
   const { form, x, series } = block
+  const columns = form === 'column' || form === 'histogram'
   const values = series.flatMap((each) => each.values.filter((value): value is number => value !== null))
-  const scale = niceScale(Math.min(...values), Math.max(...values), { zero: form === 'area' || form === 'column' })
+  const scale = niceScale(Math.min(...values), Math.max(...values), { zero: form === 'area' || columns })
   const tickText = scale.ticks.map((tick) => formatNumber(tick, scale.decimals))
 
-  const endLabels = form === 'line' && series.length > 1 && series.length <= 4
+  const endLabels = form === 'line' && series.length > 1 && series.length <= 4 && width >= 500 && series.every((each) => each.label.length <= 24)
   const left = Math.ceil(Math.max(...tickText.map((label) => label.length)) * CHAR) + 14
   const right = endLabels ? Math.ceil(Math.max(...series.map((each) => each.label.length)) * 6.6) + 22 : 18
   const top = 16
   // A label set under its mark needs a line of room above the day or year labels.
   const labelsBelow =
-    (form === 'range' && rangeLabelled(block)) || (form === 'column' && columnLabelled(block) && values.some((value) => value < 0))
-  const bottom = labelsBelow ? 42 : 26
+    (form === 'range' && rangeLabelled(block)) || (columns && columnLabelled(block) && values.some((value) => value < 0))
+  const bottom = form === 'scatter' ? 46 : labelsBelow ? 42 : 26
   const plotWidth = Math.max(40, width - left - right)
   const plotHeight = Math.max(40, height - top - bottom)
-  const banded = form === 'column' || form === 'range'
+  const banded = columns || form === 'range'
   const band = plotWidth / x.length
+  const positions = block.positions
+  const xScale = form === 'scatter' && positions ? niceScale(Math.min(...positions), Math.max(...positions), { maxTicks: width < 400 ? 3 : 5 }) : null
   const xAt = (index: number) =>
-    banded ? left + band * (index + 0.5) : left + (x.length === 1 ? plotWidth / 2 : (index / (x.length - 1)) * plotWidth)
+    xScale && positions ? left + ((positions[index] - xScale.min) / (xScale.max - xScale.min || 1)) * plotWidth : banded ? left + band * (index + 0.5) : positions
+      ? left + ((positions[index] - positions[0]) / (positions[positions.length - 1] - positions[0])) * plotWidth
+      : left + (x.length === 1 ? plotWidth / 2 : (index / (x.length - 1)) * plotWidth)
   const yAt = (value: number) => top + (1 - (value - scale.min) / (scale.max - scale.min || 1)) * plotHeight
-  const shownLabels = labelIndices(x, plotWidth)
+  const candidates = labelIndices(x, plotWidth)
+  // Irregular dates can be close together despite being far apart in the array.
+  const shownLabels = positions && form !== 'scatter' ? candidates.filter((index, slot) => {
+    if (slot === 0 || slot === candidates.length - 1) return true
+    const previous = candidates[slot - 1]
+    const next = candidates[slot + 1]
+    const room = (other: number) => (x[index].length + x[other].length) * CHAR / 2 + 14
+    return xAt(index) - xAt(previous) >= room(previous) && xAt(next) - xAt(index) >= room(next)
+  }) : candidates
 
-  const nearest = (clientX: number, box: DOMRect) => {
-    const local = clientX - box.left - left
+  const nearest = (clientX: number, box: DOMRect, clientY: number) => {
+    const local = (clientX - box.left) * (box.width ? width / box.width : 1) - left
+    if (form === 'scatter') {
+      const px = (clientX - box.left) * (box.width ? width / box.width : 1)
+      const py = (clientY - box.top) * (box.height ? height / box.height : 1)
+      const distance = (index: number) => (xAt(index) - px) ** 2 + (yAt(series[0].values[index]!) - py) ** 2
+      return x.reduce((best, _, index) => distance(index) < distance(best) ? index : best, 0)
+    }
+    if (positions) return positions.reduce((best, _, index) => Math.abs(xAt(index) - left - local) < Math.abs(xAt(best) - left - local) ? index : best, 0)
     const index = banded ? Math.floor(local / band) : Math.round((local / plotWidth) * (x.length - 1))
     return Math.max(0, Math.min(x.length - 1, index))
   }
@@ -209,7 +323,9 @@ function AxisPlot({ block, width, height, front, focus, onFocus, summary, said }
 
       {form === 'line' || form === 'area' ? (
         <Lines block={block} xAt={xAt} yAt={yAt} baseline={yAt(Math.max(scale.min, Math.min(0, scale.max)))} endLabels={endLabels} focus={focus} />
-      ) : form === 'column' ? (
+      ) : form === 'scatter' ? (
+        <g>{series[0].values.map((value, index) => value === null ? null : <circle key={index} className="chart-scatter-point" cx={xAt(index)} cy={yAt(value)} r={focus === index ? 6 : 4} fill={SERIES[0]} stroke={RING} strokeWidth={1.5} />)}</g>
+      ) : columns ? (
         <Columns block={block} xAt={xAt} yAt={yAt} band={band} zero={yAt(0)} />
       ) : (
         <Ranges block={block} xAt={xAt} yAt={yAt} band={band} />
@@ -219,17 +335,18 @@ function AxisPlot({ block, width, height, front, focus, onFocus, summary, said }
 
       {said?.size ? <Said block={block} said={said} xAt={xAt} yAt={yAt} top={top} height={plotHeight} band={band} banded={banded} /> : null}
 
-      {shownLabels.map((index) => (
+      {xScale ? xScale.ticks.map((tick, index) => <text key={tick} className="chart-x" x={left + (tick - xScale.min) / (xScale.max - xScale.min || 1) * plotWidth} y={height - 25} textAnchor={index === 0 ? 'start' : index === xScale.ticks.length - 1 ? 'end' : 'middle'}>{formatNumber(tick, xScale.decimals)}</text>) : shownLabels.map((index) => (
         <text key={index} className="chart-x" x={xAt(index)} y={height - 8} textAnchor={xAnchor(index, x.length, banded)}>
           {x[index]}
         </text>
       ))}
+      {form === 'scatter' ? <text className="chart-x" x={left + plotWidth / 2} y={height - 6} textAnchor="middle">{block.xLabel}{block.xUnit && !block.xLabel?.includes(block.xUnit) ? ` (${block.xUnit})` : ''}</text> : null}
     </Interactive>
   )
 }
 
 function xAnchor(index: number, count: number, banded: boolean): 'start' | 'middle' | 'end' {
-  if (banded || count < 3) return 'middle'
+  if (banded || count === 1) return 'middle'
   return index === 0 ? 'start' : index === count - 1 ? 'end' : 'middle'
 }
 
@@ -283,9 +400,10 @@ function Lines({
   endLabels: boolean
   focus: number | null
 }) {
-  const ends = block.series.map((series) => {
+  const ends = block.series.flatMap((series, seriesIndex) => {
+    if (series.values.every((value) => value === null)) return []
     const last = lastValueAt(series.values)
-    return { series, index: last, y: yAt(series.values[last] as number) }
+    return [{ series, seriesIndex, index: last, y: yAt(series.values[last] as number) }]
   })
   // End labels only when they would not run into each other; the legend carries them otherwise.
   const sortedY = ends.map((end) => end.y).sort((a, b) => a - b)
@@ -323,7 +441,7 @@ function Lines({
           </g>
         )
       })}
-      {ends.map(({ series, index, y }, seriesIndex) => (
+      {ends.map(({ series, seriesIndex, index, y }) => (
         <g key={series.key}>
           <circle className="chart-end" cx={xAt(index)} cy={y} r={4} fill={SERIES[seriesIndex]} stroke={RING} strokeWidth={2} />
           {labelsFit ? (
@@ -372,7 +490,7 @@ function Columns({
 }) {
   const count = block.series.length
   const gap = 2
-  const barWidth = Math.max(2, Math.min(24, (band * 0.72 - (count - 1) * gap) / count))
+  const barWidth = block.form === 'histogram' ? Math.max(2, band - 1) : Math.max(2, Math.min(24, (band * 0.72 - (count - 1) * gap) / count))
   const group = count * barWidth + (count - 1) * gap
   const labelled = columnLabelled(block)
   return (
@@ -532,8 +650,11 @@ function BarPlot({ block, width, front, focus, onFocus, summary, said }: PlotPro
   const barLeft = labelWidth
   const barRoom = Math.max(30, width - barLeft - valueWidth - 10)
   const defined = series.values.filter((value): value is number => value !== null)
-  const scale = niceScale(0, Math.max(...defined, 0), { zero: true })
-  const length = (value: number) => (Math.max(0, value) / (scale.max || 1)) * barRoom
+  const scale = niceScale(Math.min(...defined, 0), Math.max(...defined, 0), { zero: true })
+  const valueAt = (value: number) => barLeft + (value - scale.min) / (scale.max - scale.min || 1) * barRoom
+  const zero = valueAt(0)
+  const length = (value: number) => Math.abs(valueAt(value) - zero)
+  const labelChars = Math.max(3, Math.floor((labelWidth - 18) / 6.8))
 
   return (
     <Interactive
@@ -546,9 +667,9 @@ function BarPlot({ block, width, front, focus, onFocus, summary, said }: PlotPro
       onFocus={onFocus}
       vertical
       locate={(_, box, clientY) => Math.max(0, Math.min(block.x.length - 1, Math.floor((clientY - box.top - top) / rowHeight)))}
-      readout={null}
+      readout={focus === null ? null : <Readout block={block} index={focus} x={width / 2} width={width} />}
     >
-      <line className="chart-baseline" x1={barLeft} x2={barLeft} y1={top} y2={height - top} />
+      <line className="chart-baseline" x1={zero} x2={zero} y1={top} y2={height - top} />
       {block.x.map((label, index) => {
         const value = series.values[index]
         const y = top + index * rowHeight
@@ -556,17 +677,17 @@ function BarPlot({ block, width, front, focus, onFocus, summary, said }: PlotPro
           <g key={index} data-focus={focus === index ? 'true' : undefined} data-said={said?.has(index) ? 'true' : undefined}>
             {focus === index ? <rect className="chart-band" x={0} y={y} width={width} height={rowHeight} /> : null}
             <text className="chart-category" x={barLeft - 10} y={y + rowHeight / 2 + 4} textAnchor="end">
-              {label}
+              {label.length > labelChars ? `${label.slice(0, labelChars - 1)}…` : label}
             </text>
             {value === null ? null : (
               <>
                 <path
                   className="chart-bar chart-bar-across"
-                  d={barAcross(barLeft, y + (rowHeight - 16) / 2, length(value), 16)}
+                  d={barAcross(Math.min(zero, valueAt(value)), y + (rowHeight - 16) / 2, length(value), 16)}
                   fill={SERIES[0]}
                   style={{ '--k': index } as CSSProperties}
                 />
-                <text className="chart-value" x={barLeft + length(value) + 8} y={y + rowHeight / 2 + 4}>
+                <text className="chart-value" x={barLeft + barRoom + 8} y={y + rowHeight / 2 + 4}>
                   {valueText[index]}
                 </text>
               </>
@@ -633,7 +754,10 @@ function Interactive({ width, height, front, label, count, focus, onFocus, locat
         aria-label={label}
         tabIndex={front ? 0 : -1}
         onPointerMove={move}
-        onPointerLeave={() => onFocus(null)}
+        onPointerDown={(event) => {
+          if (front && event.pointerType === 'touch') onFocus(locate(event.clientX, event.currentTarget.getBoundingClientRect(), event.clientY))
+        }}
+        onPointerLeave={(event) => { if (event.pointerType !== 'touch') onFocus(null) }}
         onKeyDown={step}
         onBlur={() => onFocus(null)}
       >
@@ -655,7 +779,7 @@ function Readout({ block, index, x, width }: { block: ChartBlock; index: number;
           return {
             key: series.key,
             label: block.series.length > 1 ? series.label : '',
-            text: value === null ? 'no value' : withUnit(formatNumber(value, decimalsOf(series)), block.unit),
+            text: value === null ? 'no value' : withUnit(String(value), block.unit),
             color: SERIES[seriesIndex],
           }
         })
@@ -682,7 +806,7 @@ function rangeText(block: ChartBlock, index: number): string {
   const high = highs.values[index]
   if (low === null || high === null) return 'no value'
   return withUnit(
-    `${formatNumber(Math.min(low, high), decimalsOf(lows))} to ${formatNumber(Math.max(low, high), decimalsOf(highs))}`,
+    `${String(low)} to ${String(high)}`,
     block.unit,
   )
 }

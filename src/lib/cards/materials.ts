@@ -133,7 +133,7 @@ export interface WeatherMaterial {
   source: SourceRef
 }
 
-export type Material = SeriesMaterial | RecordMaterial | StoriesMaterial | WeatherMaterial
+export type Material = SeriesMaterial | RecordMaterial | StoriesMaterial | WeatherMaterial | import('./table-mediation').TableMaterial
 
 export function isSeries(material: Material): material is SeriesMaterial {
   return material.kind === 'series'

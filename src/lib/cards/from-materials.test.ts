@@ -87,6 +87,7 @@ describe('a series', () => {
       form: 'line',
       title: 'Population',
       x: ['1960', '1990', '2010', '2025'],
+      positions: [1960, 1990, 2010, 2025],
       series: [{ label: 'Japan', values: [93216000, 123478000, 128070000, 123366734] }],
       // The peak is in the middle, so it is worth pointing at.
       marks: [{ at: 2, label: 'Peak' }],

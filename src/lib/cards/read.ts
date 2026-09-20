@@ -15,6 +15,8 @@
 import { CARD_KINDS, type Card, type CardKind } from '../cards'
 import { hostOf, isImageUrl, isWebUrl } from './ground'
 import { fromLegacy } from './legacy'
+import { isAdvancedForm } from './advanced-types'
+import { readAdvancedChart, readEvidence } from './advanced-validation'
 import { isRecipeId, preferredSize } from './recipes'
 import {
   BLOCK_TYPES,
@@ -140,29 +142,30 @@ function readChange(value: unknown): StatChange | null {
  */
 function readTable(input: Input, sources: number): TableBlock | null {
   const columns: TableColumn[] = []
-  for (const item of list(input.columns, 8)) {
+  if (!Array.isArray(input.columns) || input.columns.length > 16 || !Array.isArray(input.rows) || input.rows.length > 400) return null
+  for (const item of list(input.columns, 16)) {
     if (!isObject(item)) continue
     const key = text(item.key, 40) || `c${columns.length}`
     const label = text(item.label, 60)
     if (!label || columns.some((column) => column.key === key)) continue
     const unit = text(item.unit, 20)
-    columns.push({ key, label, kind: item.kind === 'number' ? 'number' : 'text', ...(unit ? { unit } : {}) })
+    columns.push({ key, label, kind: item.kind === 'number' ? 'number' : 'text', ...(unit ? { unit } : {}), ...(item.visual === 'bar' && item.kind === 'number' ? { visual: 'bar' as const } : {}) })
   }
   if (!columns.length) return null
 
   const rows: TableRow[] = []
-  for (const item of list(input.rows, 50)) {
+  for (const item of list(input.rows, 400)) {
     if (!isObject(item) || !Array.isArray(item.cells) || item.cells.length !== columns.length) continue
     const cells: TableCell[] = item.cells.map((cell) => {
       const cellInput: Input = isObject(cell) ? cell : { text: cell }
-      const shown = typeof cellInput.text === 'number' ? String(cellInput.text) : text(cellInput.text, 120)
+      const shown = typeof cellInput.text === 'number' ? String(cellInput.text) : text(cellInput.text, 1000)
       return Number.isFinite(cellInput.value) ? { text: shown, value: cellInput.value as number } : { text: shown }
     })
     if (cells.every((cell) => !cell.text)) continue
     const id = text(item.id, 64) || `r${rows.length}`
     if (rows.some((row) => row.id === id)) continue
     const cite = readCite(item.cite, sources)
-    rows.push({ id, cells, ...(cite ? { cite } : {}) })
+    rows.push({ id, cells, ...(cite ? { cite } : {}), ...(Number.isInteger(item.sourceLine) && Number(item.sourceLine) > 0 ? { sourceLine: Number(item.sourceLine) } : {}) })
   }
   if (!rows.length) return null
 
@@ -171,18 +174,22 @@ function readTable(input: Input, sources: number): TableBlock | null {
     type: 'table',
     columns,
     rows,
+    ...(readEvidence(input.evidence) ? { evidence: readEvidence(input.evidence) } : {}),
     ...(caption ? { caption } : {}),
     ...(input.rowHeaders === true ? { rowHeaders: true } : {}),
   } as TableBlock
 }
 
 /** How many series each form can carry, and how many x positions. */
-const CHART_LIMITS: Record<ChartForm, { series: number; x: number; exactSeries?: number }> = {
+const CHART_LIMITS: Partial<Record<ChartForm, { series: number; x: number; exactSeries?: number }>> = {
   line: { series: 5, x: 400 },
   area: { series: 1, x: 400 },
   column: { series: 3, x: 24 },
   bar: { series: 1, x: 15 },
   range: { series: 2, x: 31, exactSeries: 2 },
+  scatter: { series: 1, x: 50, exactSeries: 1 },
+  histogram: { series: 1, x: 8, exactSeries: 1 },
+  heatmap: { series: 8, x: 12 },
 }
 
 /**
@@ -192,24 +199,45 @@ const CHART_LIMITS: Record<ChartForm, { series: number; x: number; exactSeries?:
  * labels.
  */
 function readChart(input: Input): ChartBlock | null {
+  if (isAdvancedForm(input.form)) return readAdvancedChart(input)
   const form = input.form as ChartForm
   const limits = CHART_LIMITS[form]
   if (!limits || !Object.hasOwn(CHART_LIMITS, form)) return null
+  // Reject over-cap data instead of silently presenting a partial comparison.
+  if (!Array.isArray(input.series) || input.series.length > limits.series) return null
 
   const x = list(input.x, limits.x + 1).map((label) => (typeof label === 'number' ? String(label) : text(label, 40)))
-  if (x.length < 2 || x.length > limits.x || x.some((label) => !label)) return null
+  if (x.length < (form === 'histogram' || form === 'heatmap' ? 1 : 2) || x.length > limits.x || x.some((label) => !label)) return null
+
+  let positions: number[] | undefined
+  if (input.positions !== undefined) {
+    if (!['line', 'area', 'scatter'].includes(form) || !Array.isArray(input.positions) || input.positions.length !== x.length) return null
+    if (!input.positions.every((value, index, all) => typeof value === 'number' && Number.isFinite(value) && (index === 0 || (form === 'scatter' ? value >= all[index - 1] : value > all[index - 1])))) return null
+    positions = input.positions as number[]
+  }
+  if (form === 'scatter' && !positions) return null
 
   const series: ChartSeries[] = []
+  if (['scatter', 'histogram', 'heatmap'].includes(form) && (!Array.isArray(input.series) || input.series.some((item) => !isObject(item) || !Array.isArray(item.values) || item.values.length !== x.length))) return null
   for (const item of list(input.series, 8)) {
     if (!isObject(item) || !Array.isArray(item.values) || item.values.length !== x.length) continue
     const key = text(item.key, 40) || `s${series.length}`
     if (series.some((existing) => existing.key === key)) continue
     const values = item.values.map((value) => (typeof value === 'number' && Number.isFinite(value) ? value : null))
-    if (values.every((value) => value === null)) continue
+    if (values.every((value) => value === null) && form !== 'heatmap') continue
+    if (form === 'scatter' && values.some((value) => value === null)) return null
+    if (form === 'histogram' && values.some((value) => value === null || !Number.isSafeInteger(value) || value < 0)) return null
     series.push({ key, label: text(item.label, 60) || key, values })
   }
   if (!series.length) return null
+  if (['scatter', 'histogram', 'heatmap'].includes(form) && Array.isArray(input.series) && series.length !== input.series.length) return null
+  if (!series.some((item) => item.values.some((value) => value !== null))) return null
+  if (['scatter', 'histogram', 'heatmap'].includes(form) && Array.isArray(input.series) && input.series.length > limits.series) return null
   if (limits.exactSeries && series.length !== limits.exactSeries) return null
+  if (form === 'range' && series[0].values.some((low, index) => {
+    const high = series[1].values[index]
+    return (low === null) !== (high === null) || (low !== null && high !== null && low > high)
+  })) return null
   // A ninth line is never given a new colour; past the limit, series are left off.
   series.splice(limits.series)
 
@@ -225,6 +253,8 @@ function readChart(input: Input): ChartBlock | null {
   const title = text(input.title, 120)
   const unit = text(input.unit, 16)
   const xLabel = text(input.xLabel, 40)
+  const yLabel = text(input.yLabel, 60)
+  const xUnit = text(input.xUnit, 16)
   const summary = text(input.summary, 300)
   const asOf = text(input.asOf, 40)
   return {
@@ -232,9 +262,13 @@ function readChart(input: Input): ChartBlock | null {
     form,
     title,
     x,
+    ...(readEvidence(input.evidence) ? { evidence: readEvidence(input.evidence) } : {}),
+    ...(positions ? { positions } : {}),
     series,
     ...(unit ? { unit } : {}),
     ...(xLabel ? { xLabel } : {}),
+    ...(yLabel ? { yLabel } : {}),
+    ...(xUnit ? { xUnit } : {}),
     ...(marks.length ? { marks } : {}),
     ...(summary ? { summary } : {}),
     ...(asOf ? { asOf } : {}),

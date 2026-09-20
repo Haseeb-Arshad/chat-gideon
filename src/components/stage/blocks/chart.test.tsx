@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CardV2, ChartBlock } from '../../../lib/cards/schema'
 import { Stage } from '../Stage'
@@ -31,6 +31,115 @@ function stage(chart: Omit<ChartBlock, 'id' | 'slot'>) {
 }
 
 const years = ['2018', '2019', '2020', '2021', '2022']
+
+describe('irregular time and touch inspection', () => {
+  it('expands the selected period and dismisses details while preserving the original selection', () => {
+    const { getByRole, queryByRole } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021', '2025'], positions: [2020, 2021, 2025], series: [{ key: 'v', label: 'Count', values: [2, 4, 9] }] })
+    fireEvent.change(getByRole('combobox', { name: 'Start date' }), { target: { value: '1' } })
+    fireEvent.click(getByRole('button', { name: 'Expand chart' }))
+    const dialog = getByRole('dialog', { name: 'Counts' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show as table' }))
+    expect(within(dialog).getAllByRole('row')).toHaveLength(3)
+    expect(within(dialog).queryByText('2020')).toBeNull()
+    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }))
+    expect(queryByRole('dialog')).toBeNull()
+    expect(getByRole('combobox', { name: 'Start date' })).toHaveProperty('value', '1')
+  })
+  it('filters dates and table values together and resets without mutating captured data', () => {
+    const chart: Omit<ChartBlock, 'id' | 'slot'> = { type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021', '2025'], positions: [2020, 2021, 2025], series: [{ key: 'v', label: 'Count', values: [2, 4, 9] }], marks: [{ at: 2, label: 'Latest' }] }
+    const { container, getByRole } = stage(chart)
+    fireEvent.change(getByRole('combobox', { name: 'Start date' }), { target: { value: '1' } })
+    expect(getByRole('status').textContent).toContain('Showing 2 of 3')
+    expect(container.querySelector('.chart-mark-label')?.textContent).toBe('Latest')
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelectorAll('.card-table tbody tr')).toHaveLength(2)
+    expect(container.querySelector('.card-table tbody')?.textContent).not.toContain('2020')
+    fireEvent.click(getByRole('button', { name: 'Reset dates' }))
+    expect(container.querySelectorAll('.card-table tbody tr')).toHaveLength(3)
+    expect(chart.series[0].values).toEqual([2, 4, 9])
+  })
+  it('handles a selected period with only missing observations without drawing invented endpoints', () => {
+    const { container, getByRole, getByText } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021', '2022', '2025'], positions: [2020, 2021, 2022, 2025], series: [{ key: 'v', label: 'Count', values: [null, null, 2, 4] }] })
+    fireEvent.change(getByRole('combobox', { name: 'End date' }), { target: { value: '1' } })
+    expect(getByText('No values to plot. Choose another period or inspect the table.')).toBeDefined()
+    expect(container.querySelector('.card-chart-svg')).toBeNull()
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelectorAll('.card-table tbody tr')).toHaveLength(2)
+  })
+  it('keeps a touch selection after the finger leaves the surface', () => {
+    const { container } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['A', 'B'], series: [{ key: 'v', label: 'Count', values: [2, 4] }] })
+    for (const type of ['pointerdown', 'pointerout']) {
+      const event = new Event(type, { bubbles: true })
+      Object.assign(event, { pointerType: 'touch', clientX: 40, clientY: 30 })
+      fireEvent(container.querySelector('.card-chart-svg')!, event)
+    }
+    expect(container.querySelector('.card-chart-readout')).not.toBeNull()
+  })
+  it('does not round range endpoints during exact inspection', () => {
+    const { container, getByRole } = stage({ type: 'chart', form: 'range', title: 'Bounds', x: ['A', 'B'], series: [{ key: 'low', label: 'Low', values: [1.23456, 2] }, { key: 'high', label: 'High', values: [1234567, 4] }] })
+    fireEvent.keyDown(container.querySelector('svg')!, { key: 'Home' })
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('1.23456 to 1234567')
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelector('.card-table')?.textContent).toContain('1.23456')
+  })
+  it('draws negative ranked values to the left of zero and exposes their exact readout', () => {
+    const { container } = stage({ type: 'chart', form: 'bar', title: 'Change', x: ['Gain', 'Loss'], series: [{ key: 'v', label: 'Change', values: [10, -12.3456] }] })
+    const zero = Number(container.querySelector('.chart-baseline')!.getAttribute('x1'))
+    const path = container.querySelectorAll('.chart-bar-across')[1].getAttribute('d')!
+    expect(Number(path.match(/^M([\d.]+)/)![1])).toBeLessThan(zero)
+    fireEvent.keyDown(container.querySelector('svg')!, { key: 'End' })
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('-12.3456')
+  })
+  it('preserves exact values in readouts and the data table', () => {
+    const { container, getByRole } = stage({ type: 'chart', form: 'line', title: 'Measurements', x: ['A', 'B'], series: [{ key: 'v', label: 'Measure', values: [0.0001234, 1234567] }] })
+    fireEvent.keyDown(container.querySelector('svg')!, { key: 'Home' })
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('0.0001234')
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelector('.card-table')?.textContent).toContain('1234567')
+    expect(container.querySelector('.card-table')?.textContent).toContain('0.0001234')
+  })
+  it('spaces observations by elapsed time, not array index', () => {
+    const { container } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2021', '2025'], positions: [2020, 2021, 2025], series: [{ key: 'count', label: 'Count', values: [2, 3, 4] }] })
+    const ticks = [...container.querySelectorAll('.chart-x')].map((element) => Number(element.getAttribute('x')))
+    expect(ticks).toHaveLength(3)
+    expect((ticks[1] - ticks[0]) / (ticks[2] - ticks[0])).toBeCloseTo(0.2)
+  })
+  it('opens a readout with a touch pointer, with no hover required', () => {
+    const { container } = stage({ type: 'chart', form: 'line', title: 'Counts', x: ['2020', '2025'], positions: [2020, 2025], series: [{ key: 'count', label: 'Count', values: [2, 4] }] })
+    const event = new Event('pointerdown', { bubbles: true })
+    Object.assign(event, { pointerType: 'touch', clientX: 40, clientY: 30 })
+    fireEvent(container.querySelector('.card-chart-svg')!, event)
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('2020')
+  })
+})
+
+describe('analytical chart interactions', () => {
+  it('renders scatter points without connecting them and inspects repeated x coordinates by keyboard', () => {
+    const { container } = stage({ type: 'chart', form: 'scatter', title: 'Score', xLabel: 'Hours', x: ['2', '4', '4'], positions: [2, 4, 4], series: [{ key: 'score', label: 'Score', values: [48, 68, 57] }] })
+    expect(container.querySelectorAll('.chart-scatter-point')).toHaveLength(3)
+    expect(container.querySelector('.chart-line')).toBeNull()
+    fireEvent.keyDown(container.querySelector('svg')!, { key: 'End' })
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('57')
+    fireEvent.keyDown(container.querySelector('svg')!, { key: 'ArrowLeft' })
+    expect(container.querySelector('.card-chart-readout')?.textContent).toContain('68')
+  })
+  it('renders a constant histogram and its frequency table', () => {
+    const { container, getByRole } = stage({ type: 'chart', form: 'histogram', title: 'Latency', x: ['5'], series: [{ key: 'count', label: 'Frequency', values: [3] }] })
+    expect(container.querySelectorAll('.chart-bar')).toHaveLength(1)
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelector('.card-table tbody')?.textContent).toContain('53')
+  })
+  it('shows missing heatmap cells differently from zero and supports cell selection', () => {
+    const { container, getByRole } = stage({ type: 'chart', form: 'heatmap', title: 'Visits', xLabel: 'Day', yLabel: 'Team', x: ['Mon', 'Tue'], series: [{ key: 'a', label: 'Alpha', values: [0, 18] }, { key: 'b', label: 'Beta', values: [8, null] }] })
+    expect(getByRole('button', { name: 'Alpha, Mon: 0' }).textContent).toBe('0')
+    const missing = getByRole('button', { name: 'Beta, Tue: no value' })
+    expect(missing.textContent).toBe('—')
+    fireEvent.click(missing)
+    expect(container.querySelector('.chart-heatmap-selection')?.textContent).toContain('Beta · Tue: no value')
+    fireEvent.click(getByRole('button', { name: 'Show as table' }))
+    expect(container.querySelector('.card-table tbody')?.textContent).toContain('Tue18—')
+  })
+})
 
 describe('a line chart', () => {
   it('breaks the line at a gap, and marks a value stranded between gaps with a dot', () => {

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { hear, saidDays, saidEvents, saidItems, saidPins, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
-import { blockOf, orderBySlot, type Block, type CardSize, type CardV2, type ForecastBlock, type MediaBlock, type StoriesBlock } from '../../lib/cards/schema'
+import { blockOf, orderBySlot, type Block, type CardSize, type CardSource, type CardV2, type ForecastBlock, type MediaBlock, type StoriesBlock, type TableBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
 import { Chart } from './blocks/Chart'
 import { Forecast, HourStrip, WeatherIcon, WeekDays } from './blocks/Forecast'
@@ -49,6 +49,8 @@ export function CardFace(props: CardFaceProps) {
 }
 
 interface BodyBlockProps {
+  sources?: CardSource[]
+  sourceTable?: TableBlock
   block: Block
   start: number
   spoken: string
@@ -61,7 +63,7 @@ interface BodyBlockProps {
   onAsk?: (text: string) => void
 }
 
-function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, onAsk }: BodyBlockProps) {
+function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, onAsk, sources, sourceTable }: BodyBlockProps) {
   const start = useFirst(planned)
   switch (block.type) {
     case 'headline':
@@ -87,7 +89,7 @@ function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, 
     case 'quote':
       return <Quote block={block} start={start} />
     case 'chart':
-      return <Chart block={block} start={start} size={size} front={front} shared={shared} said={saidPoints(block, heard)} />
+      return <Chart block={block} start={start} size={size} front={front} shared={shared} said={saidPoints(block, heard)} sources={sources} sourceTable={sourceTable} />
     case 'stories':
       return <StoryList block={block} start={start} front={front} said={saidStories(block, heard)} />
     case 'forecast':
@@ -117,6 +119,8 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
       front={front}
       size={card.size}
       shared={shared}
+      sources={card.sources}
+      sourceTable={card.blocks.find((item): item is TableBlock => item.type === 'table' && item.id === 'source-table')}
       heard={heard}
       onAsk={onAsk}
     />

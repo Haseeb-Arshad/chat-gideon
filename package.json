@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "vite dev",
+    "dev:visualizations": "node scripts/visualization-lab.mjs",
     "build": "vite build && vite build --config vite.realtime.config.ts",
     "dev:cloudflare": "vite dev --mode cloudflare",
     "build:cloudflare": "vite build --mode cloudflare && tsc --noEmit",

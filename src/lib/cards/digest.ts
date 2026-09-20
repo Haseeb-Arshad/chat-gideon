@@ -34,6 +34,9 @@ function blockDigest(block: Block): string {
         block.rows.map((row) => joined(row.cells.map((cell) => cell.text), ' / ')),
       )}`
     case 'chart': {
+      if (block.form === 'scatter') return `Scatter plot of ${block.title} against ${block.xLabel ?? 'x'}: ${joined(block.x.map((label, index) => `${label} / ${block.series[0]?.values[index] ?? 'missing'}`))}`
+      if (block.form === 'histogram') return `Histogram of ${block.title}: ${joined(block.x.map((label, index) => `${label}: ${block.series[0]?.values[index] ?? 'missing'} observations`))}`
+      if (block.form === 'heatmap') return `Heatmap of ${block.title}: ${joined(block.series.map((series) => `${series.label}: ${joined(block.x.map((label, index) => `${label} ${series.values[index] ?? 'missing'}`), ', ')}`))}`
       const lines = block.series.map((series) => {
         const points = series.values.flatMap((value, index) => (value === null ? [] : [{ x: block.x[index], value }]))
         if (!points.length) return ''

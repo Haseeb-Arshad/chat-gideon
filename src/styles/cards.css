@@ -154,11 +154,24 @@
   margin-top: 26px;
 }
 
+.chart-heatmap { overflow-x: auto; padding: 10px; }
+.chart-heatmap table { width: 100%; border-collapse: separate; border-spacing: 3px; font-size: 0.7rem; }
+.chart-heatmap th { padding: 5px; color: rgba(240,245,255,.85); text-align: left; font-weight: 500; }
+.chart-heatmap th:first-child { min-width: 70px; }
+.chart-heatmap td { padding: 0; min-width: 48px; }
+.chart-heatmap button { width: 100%; min-height: 32px; padding: 5px 8px; border: 1px solid transparent; border-radius: 4px; color: #fff; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.chart-heatmap button:focus-visible, .chart-heatmap button[aria-pressed='true'] { outline: 2px solid #fff; outline-offset: -2px; }
+.chart-heatmap-scale, .chart-heatmap-selection { margin: 8px 3px 0; color: rgba(240,245,255,.8); font-size: .7rem; }
+
 .lab-case h2 {
   margin: 0 0 10px;
   font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 400;
+}
+
+.lab-case {
+  min-width: 0;
 }
 
 .lab-case h2 small {

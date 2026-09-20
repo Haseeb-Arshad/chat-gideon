@@ -7,6 +7,7 @@
  */
 
 import { cardFromMaterials } from '../lib/cards/from-materials'
+import { VISUALIZATION_FIXTURES } from './visualization-fixtures'
 import { placeCard, routeCard, type MapPlace } from '../lib/cards/maps'
 import { withPlaceMap } from '../lib/tools/weather'
 import type { Material, StoriesMaterial } from '../lib/cards/materials'
@@ -174,6 +175,7 @@ const SAMPLE_NEWS: StoriesMaterial = {
 }
 
 export const FIXTURES: Fixture[] = [
+  ...VISUALIZATION_FIXTURES,
   drawn('lab:weather-dry', 'weather, dry (Open-Meteo)', "What's the weather in Lisbon?", [WEATHER_LISBON], 'Sunny and 24 degrees, with a high of 27, and tomorrow is a touch cooler.'),
   ...weatherWithMap(),
   drawn('lab:weather-wet', 'weather, wet (Open-Meteo)', 'Will it rain in Bergen this week?', [WEATHER_BERGEN], 'Rain every day this week, and Sunday looks the coldest.'),

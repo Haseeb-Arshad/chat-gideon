@@ -109,6 +109,33 @@ function textTurn(content: string): Json {
   return { model: 'test/researcher', choices: [{ message: { content } }] }
 }
 
+describe('visualization skills in the research loop', () => {
+  it('captures a read table, selects a ranking, and tracks it without another provider lookup', async () => {
+    const url = 'https://example.org/statistics'
+    const web = scripted({
+      model: [
+        toolCallTurn([{ name: 'search', args: { query: 'fixture statistics' } }]),
+        toolCallTurn([{ name: 'read', args: { url } }]),
+        toolCallTurn([{ name: 'visualize_table', args: { table_id: 'page1-1', skill: 'ranking', label_column: 0, value_column: 1 } }]),
+        textTurn(`Beta has 9 passengers, Alpha 4. Sources: Statistics ${url}`),
+      ],
+      search: () => ({ results: [{ title: 'Statistics', url, highlights: ['Passenger counts.'] }] }),
+      contents: () => ({ results: [{ title: 'Statistics', url, text: '| City | Passengers |\n|---|---|\n| Alpha | 4 |\n| Beta | 9 |' }] }),
+    })
+    const result = await research('Rank fixture passenger counts', { signal: new AbortController().signal }, deps(web.fetch))
+    expect(result.ok).toBe(true)
+    expect(result.materials.find((material) => material.kind === 'table')).toMatchObject({ view: { skill: 'ranking', values: [4, 9] } })
+    expect(result.visualizations).toEqual([
+      { stage: 'capture', outcome: 'ready', reason: 'ready', rows: 2 },
+      { stage: 'selection', skill: 'ranking', outcome: 'ready', reason: 'ready', rows: 2 },
+    ])
+    expect(web.calls.filter((call) => call.url.endsWith('/contents'))).toHaveLength(1)
+    expect(web.calls.filter((call) => call.url.endsWith('/search'))).toHaveLength(1)
+    expect(web.calls.filter((call) => call.url.includes('openrouter.ai'))).toHaveLength(4)
+    expect(JSON.stringify(result.visualizations)).not.toContain('Alpha')
+  })
+})
+
 const searchFixture = (body: Json): Json => {
   const query = String(body.query)
   return {

@@ -13,6 +13,7 @@
  */
 
 import { formatNumber, withUnit } from './chart-math'
+import { tableCard } from './table-card'
 import { UV_BANDS, conditionOf, dayCode, degrees, placeName } from './weather'
 import {
   isRecord,
@@ -206,6 +207,7 @@ function trendCard(question: string, group: SeriesMaterial[], records: RecordMat
     xLabel: 'Year',
     asOf: `${first.source.title}, to ${Math.max(...group.map((each) => Number(latest(each).x)))}`,
     x,
+    positions: x.map(Number),
     series,
     ...(group.length === 1 && peak > 0 && peak < x.length - 1 ? { marks: [{ at: peak, label: 'Peak' }] } : {}),
   }
@@ -489,6 +491,9 @@ function weatherCard(question: string, material: WeatherMaterial): CardV2 {
  * the numbers. Then records, compared when there are several of the same kind.
  */
 export function cardFromMaterials(question: string, materials: Material[], now: number): CardV2 | null {
+  // An explicit desk selection wins over incidental entity/provider lookups.
+  const selected = materials.filter((material) => material.kind === 'table').at(-1)
+  if (selected) return tableCard(question, selected)
   const weather = materials.find(isWeather)
   if (weather) return weatherCard(question, weather)
 
@@ -537,6 +542,9 @@ export function describeCard(card: CardV2): string {
   if (stories?.items.length) return `a front page of ${stories.items.length} stories, led by "${stories.items[0].headline}"`
   const chart = card.blocks.find((block): block is ChartBlock => block.type === 'chart')
   if (chart) {
+    if (chart.form === 'scatter') return `a scatter plot of ${chart.title} against ${chart.xLabel ?? 'the horizontal measure'}, with ${chart.x.length} paired observations`
+    if (chart.form === 'histogram') return `a histogram of ${chart.title}, with ${chart.x.length} bins and the original observations below`
+    if (chart.form === 'heatmap') return `a heatmap of ${chart.title} by ${chart.xLabel ?? 'column'} and ${chart.yLabel ?? 'row'}, with missing values shown as gaps`
     const subjects = joinNames(chart.series.map((series) => series.label))
     return `a chart of ${chart.title.toLowerCase()} for ${subjects}, ${chart.x[0]} to ${chart.x[chart.x.length - 1]}`
   }

@@ -516,6 +516,87 @@ div.card-figure strong {
   margin-bottom: 8px;
 }
 
+.card-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  color: #a9b1bd;
+  font-size: 0.76rem;
+}
+
+.card-chart-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card-chart-controls select {
+  max-width: 100%;
+  padding: 5px;
+  border: 1px solid #576273;
+  border-radius: 6px;
+  background: #101722;
+  color: #edf2fa;
+  font: inherit;
+}
+
+.card-chart-controls select:focus-visible {
+  outline: 2px solid #bfe9ff;
+  outline-offset: 2px;
+}
+
+.chart-details {
+  width: min(1100px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  overflow: auto;
+  padding: clamp(12px, 3vw, 28px);
+  border: 1px solid #576273;
+  border-radius: 18px;
+  background: #0b101a;
+  color: #edf2fa;
+}
+
+.chart-details::backdrop { background: rgb(0 0 0 / 70%); }
+.chart-details header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chart-details h2 { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
+.chart-details h3 { font-size: 0.9rem; }
+.chart-details section { margin-top: 24px; }
+.chart-details a { color: #bfe9ff; overflow-wrap: anywhere; }
+.chart-details button:focus-visible { outline: 2px solid #bfe9ff; outline-offset: 2px; }
+
+.advanced-chart { min-width: 0; padding: 10px 0; }
+.advanced-canvas { overflow: auto; max-width: 100%; }
+.advanced-canvas .card-chart-svg { max-width: none; }
+.advanced-instructions { margin: 0 10px 10px; color: #b6c1d0; font-size: 0.72rem; }
+.advanced-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 10px; color: #dce5f1; font-size: 0.75rem; }
+.advanced-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.advanced-legend i { width: 12px; height: 4px; flex: none; }
+.advanced-readout { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 10px; border-top: 1px solid #3b4656; color: #dce5f1; font-size: 0.8rem; overflow-wrap: anywhere; }
+.advanced-readout span { display: grid; gap: 3px; min-width: 0; }
+.advanced-readout small { color: #a9b1bd; }
+.advanced-readout strong { font-weight: 500; }
+.advanced-story { display: flex; align-items: center; gap: 12px; padding: 10px; color: #dce5f1; }
+.advanced-story button { border: 1px solid #617087; background: #152030; color: #edf2fa; border-radius: 6px; padding: 6px 12px; }
+.advanced-story button:disabled { opacity: 0.45; }
+.table-explore { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; color: #bec9d8; font-size: 0.74rem; }
+.table-explore label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.table-explore input[type='search'] { width: min(180px, 100%); min-width: 0; }
+.table-explore input, .table-explore button { color: #edf2fa; background: #111a27; border: 1px solid #617087; border-radius: 5px; padding: 5px 8px; font: inherit; }
+.table-explore button:disabled { opacity: 0.45; }
+.table-explore :focus-visible { outline: 2px solid #bfe9ff; outline-offset: 2px; }
+.card-table td { position: relative; }
+.table-inline-bar { position: absolute; top: 20%; height: 60%; background: rgb(63 153 233 / 24%); pointer-events: none; }
+.table-cell-text { position: relative; }
+.source-locator { display: block; font-weight: 400; color: #a9b1bd; }
+.dataset-evidence { margin: 12px 0; font-size: 0.75rem; color: #bfcada; overflow-wrap: anywhere; }
+.dataset-evidence summary { cursor: pointer; color: #e1ebf8; }
+.dataset-evidence a { color: #bfe9ff; }
+
 .card-chart-title {
   color: rgba(236, 240, 247, 0.92);
   font-size: 0.86rem;
@@ -670,6 +751,8 @@ div.card-figure strong {
   display: grid;
   gap: 3px;
   min-width: 132px;
+  max-width: calc(100% - 16px);
+  overflow-wrap: anywhere;
   padding: 8px 10px;
   border-radius: 12px;
   background: rgba(14, 18, 28, 0.82);
@@ -694,7 +777,7 @@ div.card-figure strong {
   display: flex;
   align-items: center;
   gap: 6px;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .card-chart-readout-row i {
