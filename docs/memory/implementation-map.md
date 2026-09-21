@@ -64,6 +64,44 @@ These names are documented now but not wired as working capabilities. New produc
 
 No flag is evidence that its enabled behavior exists. Server-side scope and rollout ownership will be defined by the stages that implement each capability.
 
+## Stage 03 PostgreSQL authority and worker boundary
+
+- `backend/memory/src/index.ts` is the Node-only entry point. It exports the
+  PostgreSQL store, capture seam, migration runner, health/readiness checks, and
+  fenced job worker. It is not imported by the Worker or browser graph.
+- `backend/memory/src/postgres.ts` implements `MemoryStorageCapabilities` with
+  transaction-scoped reads, exact versions, source/dependency edges, scalar
+  slot locks, suppression checks, durable capture receipts, and outbox jobs.
+  `captureEvent()` requires an authenticated server session, a database grant,
+  a matching policy epoch, and a memory consent reference.
+- `backend/memory/src/jobs.ts` claims bounded pending/retry/expired-running jobs
+  with `FOR UPDATE SKIP LOCKED`, leases, attempts and monotonically increasing
+  fences. Provider/model handlers run outside database transactions;
+  completion reacquires the transaction and checks the current lease,
+  policy/deletion epochs, source suppression and scope before committing.
+- `backend/memory/migrations/001-memory-authority.sql` owns the canonical
+  principals, scopes, grants, epochs, events, receipts, assertion versions,
+  evidence/dependencies, projections, jobs, scalar locks and deletion
+  suppression tables. `002-memory-indexes.sql` adds scoped lookup, scalar-slot,
+  job-claim and suppression indexes. Composite foreign keys preserve scope
+  consistency for events, assertions, evidence, projections and suppressions.
+- `scripts/memory-postgres-harness.mjs` creates and removes a disposable local
+  PostgreSQL cluster for the real integration gate. `memory:postgres:status`
+  is read-only; `memory:postgres:migrate` requires `GIDEON_MEMORY_MIGRATE=1`
+  and refuses remote URLs unless explicitly overridden. See
+  `backend/memory/README.md` for local setup and safety boundaries.
+- `backend/memory/src/postgres.live.test.ts` is the real PostgreSQL conformance
+  suite. It covers atomic event/job capture and rollback, same-key content
+  conflicts, cross-worker claims, scalar first-insert contention, retries,
+  scoped reads, stale-fence rejection, accepted receipts and unavailable
+  database health.
+
+Stage 03 remains isolated from the existing legacy JSON, Supabase, D1 and
+Durable Object authorities. No production-facing feature flag is enabled and
+no Cloudflare Worker bundle imports the `pg` driver. A future Cloudflare
+deployment must use the platform's supported database connection boundary; this
+local Node adapter is not a Worker database client.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
@@ -110,3 +148,5 @@ migration, provider, grant broadening, or deployment was added.
 - `src/lib/memory-baseline.test.ts`: current-memory and supplied-summary baseline adapters with no usage mutation.
 - `scripts/memory-baseline.test.ts`: schema loading, all 36 case records, C26 execution, C33 `NOT_IMPLEMENTED`, corpus-size measurements, and local JSON persistence measurement.
 - `docs/memory/reports/stage-01-baseline.json`: generated local evidence artifact. Its latency measurements are local selection or local JSON persistence only, not end-to-end voice latency.
+- `backend/memory/src/postgres.live.test.ts`: Stage 03 real PostgreSQL acceptance suite; it is excluded from the ordinary offline suite and run through `npm run memory:postgres:test`.
+- `backend/memory/README.md`: local disposable PostgreSQL, migration, credential and rollback instructions.

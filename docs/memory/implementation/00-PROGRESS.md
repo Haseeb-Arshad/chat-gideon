@@ -6,7 +6,7 @@ This ledger starts with no implementation stage claimed complete. The foundation
 |---|---|---|---|---|
 | 01 Baseline, repository map, and truthful legacy receipts | LOCAL_VERIFIED | `docs/memory/reports/stage-01-baseline.json`; focused memory/tool/agent tests; offline suite and local builds passed | Not run; no deployment or production migration authorized | `docs/memory/handoffs/01-baseline-and-receipts.md` |
 | 02 Shared contracts, runtime validation, and authenticated memory sessions | LOCAL_VERIFIED | `src/lib/memory/contracts.test.ts`; edge-entry, server-session, memory-tool, Worker/identity regressions; TypeScript and Cloudflare build passed | Not run; no deployment, database migration, or production verification authorized | `docs/memory/handoffs/02-contracts-and-identity.md` |
-| 03 Transactional PostgreSQL authority, outbox, and fenced worker | NOT_STARTED | Not run | Not run | Not created |
+| 03 Transactional PostgreSQL authority, outbox, and fenced worker | LOCAL_VERIFIED | `npm run memory:postgres:test` passed 1 file / 4 real PostgreSQL tests; `npx tsc --noEmit`; `git diff --check` | Not run; existing app integration, deployment, and production migration intentionally disabled | `docs/memory/handoffs/03-postgres-and-jobs.md` |
 | 04 Explicit commands, correction semantics, and temporal history | NOT_STARTED | Not run | Not run | Not created |
 | 05 Privacy deletion, grant revocation, and resurrection prevention | NOT_STARTED | Not run | Not run | Not created |
 | 06 Conversation state, reference resolution, and episode continuity | NOT_STARTED | Not run | Not run | Not created |
@@ -27,7 +27,9 @@ Allowed status labels: NOT_STARTED, IN_PROGRESS, BLOCKED, LOCAL_VERIFIED, STAGIN
 
 ## Current blockers
 
-None assessed by an implementation agent yet. Missing provider/database access discovered during implementation must be recorded with the exact affected gate.
+No Stage 03 local blocker remains. Staging/production database migration,
+application cutover, provider execution and live voice proof remain intentionally
+out of scope for the completed stages and are not implied by LOCAL_VERIFIED.
 
 ## Resume instructions
 
