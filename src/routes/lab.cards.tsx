@@ -34,6 +34,8 @@ function CardLab() {
   const [size, setSize] = useState<CardSize | 'recipe'>('recipe')
   const [stage, setStage] = useState<StageName>('1280 × 720')
   const [stripes, setStripes] = useState(false)
+  const [example, setExample] = useState('all')
+  const visualFixtures = FIXTURES.filter(f => f.id.startsWith('lab:visual-'))
 
   if (!import.meta.env.DEV) {
     return <main className="not-found">The lab is only open while developing.</main>
@@ -48,6 +50,7 @@ function CardLab() {
 
         <header className="lab-bar">
           <strong>Card lab</strong>
+          {visualizations ? <label className="lab-example">22 visualization families · {visualFixtures.length} examples<select aria-label="Visualization example" value={example} onChange={event => setExample(event.target.value)}><option value="all">All examples</option>{visualFixtures.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label> : null}
           <Choice label="Mood" value={mood} options={Object.keys(ANCHORS) as EyeEmotion[]} onChange={setMood} />
           <Choice label="Size" value={size} options={['recipe', ...CARD_SIZES] as const} onChange={setSize} />
           <Choice label="Stage" value={stage} options={Object.keys(STAGES) as StageName[]} onChange={setStage} />
@@ -59,7 +62,7 @@ function CardLab() {
 
         <div className="lab-cases">
           {!visualizations ? <ManyCards stage={dimensions} stripes={stripes} /> : null}
-          {FIXTURES.filter((fixture) => !visualizations || fixture.id.startsWith('lab:visual-')).map((fixture) => {
+          {FIXTURES.filter((fixture) => !visualizations || fixture.id.startsWith('lab:visual-') && (example === 'all' || example === fixture.id)).map((fixture) => {
             const card = size === 'recipe' ? fixture.card : { ...fixture.card, size }
             return (
               <section className="lab-case" key={fixture.id}>

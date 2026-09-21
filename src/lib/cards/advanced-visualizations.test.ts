@@ -16,6 +16,11 @@ describe('advanced source visualization families', () => {
     expect(card.blocks.filter(b => b.type === 'chart')).toHaveLength(3)
   })
   it('covers every runtime skill', () => expect(ADVANCED_EXAMPLES.map(e => e.skill).sort()).toEqual([...ADVANCED_SKILLS].sort()))
+  it('does not silently lose an entirely missing selected series in the legacy reader', () => {
+    const e = ADVANCED_EXAMPLES.find(e => e.skill === 'multi-trend')!, table = structuredClone(exampleTable(e))
+    table.rows.forEach(r => { r.cells[2] = '—' })
+    expect(compileAdvanced(table, { skill: e.skill, label_column: 0, value_column: 1, ...e.args }).reason).toBe('insufficient_data')
+  })
   it.each(ADVANCED_EXAMPLES)('$skill validates and round-trips with source evidence', e => {
     const table = exampleTable(e), args = { skill: e.skill, label_column: 0, value_column: 1, ...e.args }
     expect(compileAdvanced(table, args).reason).toBe('ready')

@@ -24,7 +24,9 @@ const config = defineConfig(({ command, mode }) => {
   resolve: { tsconfigPaths: true },
   plugins: [
     ...(isCloudflare ? [cloudflare({ viteEnvironment: { name: 'ssr' } })] : []),
-    devtools(),
+    // The isolated gallery does not need the devtools console bridge. Browser
+    // extension hydration warnings can otherwise echo between client/server.
+    ...(mode === 'visualizations' ? [] : [devtools()]),
     ...(isCloudflare ? [] : [realtimePlugin()]),
     tailwindcss(),
     tanstackStart(),

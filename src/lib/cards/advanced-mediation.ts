@@ -209,7 +209,8 @@ function compile(table: CapturedTable, args: Record<string, unknown>): CompiledV
   for (let i = 0; i < table.headers.length; i++) if (!selected.has(i) && /\b(currency|unit|cohort|basis|period|year|date)\b/i.test(table.headers[i]) && new Set(table.rows.map((row) => row.cells[i])).size > 1) return reject('unsupported_context')
   if (chart.series.length) {
     if (['line', 'area', 'column'].includes(chart.form)) {
-      if (!chart.series.some((s) => s.values.some((v) => v !== null)) || new Set(chart.x).size !== chart.x.length || chart.x.length < 2) return reject('insufficient_data')
+      if (chart.series.some((s) => !s.values.some((v) => v !== null)) || new Set(chart.x).size !== chart.x.length || chart.x.length < 2) return reject('insufficient_data')
+      if (chart.x.some(label => label.length > 40)) return reject('invalid_selection')
     } else if (!validAdvancedChart(chart)) return reject('unsupported_context')
     blocks.push(chart)
   }

@@ -1,6 +1,6 @@
 # Research-card visualization plan
 
-Written 19 September 2026. The original proposal is below; the first implementation is recorded in [implementation status](04-implementation-status.md). Advanced families remain proposals until explicitly marked implemented there.
+Written 19 September 2026. **Current implementation:** [22-family coverage and verification](06-broad-implementation.md). The proposal and earlier audits below are historical snapshots; the advanced implementation supersedes their missing-family lists.
 
 The [20 September code audit](05-code-audit-2026-09-20.md) maps every catalog family to actual routing/rendering support, records repairs, and lists the remaining implementation gaps.
 

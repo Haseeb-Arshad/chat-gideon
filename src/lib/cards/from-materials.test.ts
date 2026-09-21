@@ -15,6 +15,13 @@ import { orderBySlot, type Block, type CardV2, type StoriesBlock } from './schem
 const NOW = Date.UTC(2026, 8, 14)
 const fetchedAt = '2026-09-14T00:00:00.000Z'
 
+it('separates provider series by unit and discloses the selected scope', () => {
+  const card = cardFromMaterials('Compare', [series('A', 'AA', [[2020, 1], [2021, 2]], { unit: 'USD' }), series('B', 'BB', [[2020, 3], [2021, 4]], { unit: 'EUR' })], NOW)!
+  const chart = card.blocks.find(b => b.type === 'chart')!
+  expect(chart.series).toHaveLength(1)
+  expect(card.blocks.find(b => b.id === 'series-scope')).toMatchObject({ type: 'note', text: expect.stringContaining('1 of 2') })
+})
+
 function series(subject: string, iso2: string, points: Array<[number, number]>, overrides: Partial<SeriesMaterial> = {}): SeriesMaterial {
   return {
     id: `worldbank:population:${subject}`,

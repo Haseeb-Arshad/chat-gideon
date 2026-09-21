@@ -56,6 +56,7 @@ export function advancedTableOf(block: ChartBlock): TableBlock {
   block.series.forEach((s, i) => columns.push({ key: s.key, label: s.label, kind: block.form === 'gantt' || block.form === 'event-timeline' ? 'text' : 'number', unit: block.analysis?.units?.[i] ?? (block.form === 'geo-symbol' && i > 0 ? 'degrees' : block.unit) }))
   if (block.analysis?.annotations) columns.push({ key: 'annotation', label: 'Source annotation', kind: 'text' })
   if (block.form === 'box') columns.push({ key: 'n', label: 'Sample size', kind: 'number' }, { key: 'outliers', label: 'Outliers', kind: 'text' })
+  if (block.analysis?.totals) columns.push({ key: 'source-total', label: block.analysis.denominator || 'Source total', kind: 'number', unit: block.unit })
   const rows = block.x.map((label, i) => {
     const cells: TableBlock['rows'][number]['cells'] = [{ text: label }]
     if (block.form === 'treemap') cells.push({ text: block.analysis!.ids![i] }, { text: block.analysis!.parents![i] || 'Root' })
@@ -66,6 +67,7 @@ export function advancedTableOf(block: ChartBlock): TableBlock {
     })
     if (block.analysis?.annotations) cells.push({ text: block.analysis.annotations[i] })
     if (block.form === 'box') cells.push({ text: String(block.analysis!.sampleSizes![i]), value: block.analysis!.sampleSizes![i] }, { text: block.analysis!.outliers![i].join(', ') || 'None' })
+    if (block.analysis?.totals) { const total = block.analysis.totals.length === 1 ? block.analysis.totals[0] : block.analysis.totals[i]; cells.push({ text: String(total), value: total }) }
     return { id: String(i), cells }
   })
   return { id: `${block.id}-values`, slot: 'data', type: 'table', rowHeaders: true, caption: block.form === 'stacked-percent' ? 'Exact absolute source values; the drawing shows shares of the verified totals.' : block.title, columns, rows }

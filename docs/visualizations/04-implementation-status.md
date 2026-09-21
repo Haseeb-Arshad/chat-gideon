@@ -1,5 +1,7 @@
 # Implementation: categories, mediation and tracking
 
+Historical first release. See [current broad implementation](06-broad-implementation.md) for the expanded catalog, capture limits and multiple-view support.
+
 ## Implemented
 
 Three repository development skills live under `.agents/skills/`: `gideon-visualization-categories`, `gideon-data-mediation`, and `gideon-visualization-tracking`. They describe how to extend and test this system. GIDEON's runtime behavior is implemented separately in TypeScript; the speaking agent is not expected to read these Markdown files.

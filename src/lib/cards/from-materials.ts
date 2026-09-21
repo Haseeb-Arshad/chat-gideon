@@ -505,9 +505,14 @@ export function cardFromMaterials(question: string, materials: Material[], now: 
 
   if (series.length) {
     const groups = new Map<string, SeriesMaterial[]>()
-    for (const each of series) groups.set(each.measure, [...(groups.get(each.measure) ?? []), each])
+    for (const each of series) {
+      const key = JSON.stringify([each.measure, each.unit])
+      groups.set(key, [...(groups.get(key) ?? []), each])
+    }
     const group = [...groups.values()].sort((a, b) => b.length - a.length)[0].slice(0, 5)
-    return trendCard(question, group, records, now)
+    const card = trendCard(question, group, records, now)
+    if (series.length > group.length) card.blocks.push({ id: 'series-scope', type: 'note', slot: 'summary', tone: 'info', text: `Showing ${group.length} of ${series.length} returned series with the same measure and unit. A chart supports at most five series. Ask for another measure or subject to inspect the other returned series.` })
+    return card
   }
 
   if (records.length) {

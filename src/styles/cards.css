@@ -206,3 +206,5 @@
     --card-w: min(960px, calc(100cqw - 150px));
   }
 }
+.lab-example { display: grid; gap: 5px; min-width: 0; max-width: 100%; color: #cbd5e1; font-size: 12px; }
+.lab-example select { min-width: 0; max-width: 100%; color: inherit; background: #101722; border: 1px solid #46536a; border-radius: 5px; padding: 5px; }

@@ -182,7 +182,7 @@ export interface ChartSummaryInput {
 export function summarizeChart({ form, x, series, unit = '', xLabel = '' }: ChartSummaryInput): string {
   const first = series[0]
   if (!first) return ''
-  if (isAdvancedForm(form)) return `${form.replaceAll('-', ' ')}: ${x.length} source entries across ${series.length} measure${series.length === 1 ? '' : 's'}. Exact values and source evidence are available in the table and expanded details.`
+  if (isAdvancedForm(form)) return `${form.replaceAll('-', ' ')}: ${x.length} displayed entries. Exact values, missing observations and transformation details are available in the table and expanded view.`
   if (form === 'scatter') return `${x.length} paired observations. Association does not establish causation.`
   if (form === 'histogram') return `${first.values.reduce<number>((total, value) => total + (value ?? 0), 0)} observations across ${x.length} bins.`
   if (form === 'heatmap') return `${series.length} rows by ${x.length} columns. Missing cells are shown as a dash, not zero.`
