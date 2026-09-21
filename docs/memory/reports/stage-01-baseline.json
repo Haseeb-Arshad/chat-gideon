@@ -1,0 +1,433 @@
+{
+  "reportVersion": "stage-01-baseline-v1",
+  "generatedAt": "2026-09-21T13:03:01.114Z",
+  "scope": "local offline baseline; not staging, production, live provider, or voice proof",
+  "runtime": {
+    "node": "v22.13.0",
+    "platform": "win32",
+    "release": "10.0.19045",
+    "arch": "x64",
+    "host": "DESKTOP-J075PCL"
+  },
+  "sourceSchema": "docs/memory/acceptance-scenarios.json",
+  "fixtureSummary": {
+    "totalCases": 36,
+    "pass": 1,
+    "fail": 0,
+    "notImplemented": 35,
+    "releaseBlockingNotImplemented": 14
+  },
+  "fixtureResults": [
+    {
+      "caseId": "C01",
+      "backend": "legacy-memory",
+      "capability": "stage-01:reference",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C02",
+      "backend": "legacy-memory",
+      "capability": "stage-01:reference",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C03",
+      "backend": "legacy-memory",
+      "capability": "stage-01:correction",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C04",
+      "backend": "legacy-memory",
+      "capability": "stage-01:correction",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C05",
+      "backend": "legacy-memory",
+      "capability": "stage-01:correction",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C06",
+      "backend": "legacy-memory",
+      "capability": "stage-01:scoped_preference",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C07",
+      "backend": "legacy-memory",
+      "capability": "stage-01:expiry",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C08",
+      "backend": "legacy-memory",
+      "capability": "stage-01:rejection_reason",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C09",
+      "backend": "legacy-memory",
+      "capability": "stage-01:implicit_applicability",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C10",
+      "backend": "legacy-memory",
+      "capability": "stage-01:negative_personalization",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C11",
+      "backend": "legacy-memory",
+      "capability": "stage-01:attribution",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C12",
+      "backend": "legacy-memory",
+      "capability": "stage-01:hypothetical",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C13",
+      "backend": "legacy-memory",
+      "capability": "stage-01:inference",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C14",
+      "backend": "legacy-memory",
+      "capability": "stage-01:open_loop",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C15",
+      "backend": "legacy-memory",
+      "capability": "stage-01:commitment",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C16",
+      "backend": "legacy-memory",
+      "capability": "stage-01:voice_delivery",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C17",
+      "backend": "legacy-memory",
+      "capability": "stage-01:voice_delivery",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C18",
+      "backend": "legacy-memory",
+      "capability": "stage-01:speculation",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C19",
+      "backend": "legacy-memory",
+      "capability": "stage-01:read_your_writes",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C20",
+      "backend": "legacy-memory",
+      "capability": "stage-01:concurrency",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C21",
+      "backend": "legacy-memory",
+      "capability": "stage-01:idempotency",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C22",
+      "backend": "legacy-memory",
+      "capability": "stage-01:deletion",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C23",
+      "backend": "legacy-memory",
+      "capability": "stage-01:backup_restore",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C24",
+      "backend": "legacy-memory",
+      "capability": "stage-01:authorization",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C25",
+      "backend": "legacy-memory",
+      "capability": "stage-01:outage",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C26",
+      "backend": "legacy-memory",
+      "capability": "truthful-capacity-receipt",
+      "outcome": "PASS",
+      "latencyBoundary": "local in-process legacy tool and ephemeral store; not voice or deployment",
+      "latencyMs": 4.355,
+      "evidence": "The full 400-record corpus remained intact, the new record was absent, and the tool returned ok=false.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C27",
+      "backend": "legacy-memory",
+      "capability": "stage-01:extraction_miss",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C28",
+      "backend": "legacy-memory",
+      "capability": "stage-01:multilingual",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C29",
+      "backend": "legacy-memory",
+      "capability": "stage-01:prompt_injection",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C30",
+      "backend": "legacy-memory",
+      "capability": "stage-01:provider_failure",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C31",
+      "backend": "legacy-memory",
+      "capability": "stage-01:self_reinforcement",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C32",
+      "backend": "legacy-memory",
+      "capability": "stage-01:model_upgrade",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C33",
+      "backend": "legacy-memory",
+      "capability": "durable-quota-receipt",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "The legacy MemoryStore has no per-user durable quota contract; this case is not counted as a pass.",
+      "releaseBlocking": true
+    },
+    {
+      "caseId": "C34",
+      "backend": "legacy-memory",
+      "capability": "stage-01:topic_switch",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C35",
+      "backend": "legacy-memory",
+      "capability": "stage-01:artifact_history",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    },
+    {
+      "caseId": "C36",
+      "backend": "legacy-memory",
+      "capability": "stage-01:preference_override",
+      "outcome": "NOT_IMPLEMENTED",
+      "latencyBoundary": "not-run",
+      "evidence": "Outside Stage 01 scope; retained in the denominator rather than silently passing or being removed.",
+      "releaseBlocking": false
+    }
+  ],
+  "corpusMeasurements": [
+    {
+      "corpus": "empty",
+      "sampleCount": 0,
+      "measurements": [
+        {
+          "queryLabel": "empty/no-match",
+          "backend": "legacy-memory",
+          "source": "legacy-memory",
+          "selectionMs": 1.7513999999999896,
+          "selectedCount": 0,
+          "contextChars": 0,
+          "estimatedTokens": 0
+        }
+      ]
+    },
+    {
+      "corpus": "small",
+      "sampleCount": 3,
+      "measurements": [
+        {
+          "queryLabel": "small/detail",
+          "backend": "legacy-memory",
+          "source": "legacy-memory",
+          "selectionMs": 0.7855999999999312,
+          "selectedCount": 3,
+          "contextChars": 110,
+          "estimatedTokens": 28
+        }
+      ]
+    },
+    {
+      "corpus": "cap-sized",
+      "sampleCount": 400,
+      "measurements": [
+        {
+          "queryLabel": "cap-sized/detail",
+          "backend": "legacy-memory",
+          "source": "legacy-memory",
+          "selectionMs": 5.796600000000012,
+          "selectedCount": 4,
+          "contextChars": 139,
+          "estimatedTokens": 35
+        }
+      ]
+    }
+  ],
+  "profileSessionSummaryMeasurements": [
+    {
+      "queryLabel": "profile",
+      "backend": "profile-session-summary",
+      "source": "supplied-summary-fixture",
+      "selectionMs": 0.49530000000004293,
+      "selectedCount": 1,
+      "contextChars": 61,
+      "estimatedTokens": 16
+    },
+    {
+      "queryLabel": "session-summary",
+      "backend": "profile-session-summary",
+      "source": "supplied-summary-fixture",
+      "selectionMs": 0.20289999999999964,
+      "selectedCount": 2,
+      "contextChars": 130,
+      "estimatedTokens": 33
+    }
+  ],
+  "persistenceMeasurement": {
+    "backend": "json-memory-local-fixture",
+    "ok": true,
+    "persistenceMs": 4.834,
+    "corpusCount": 1,
+    "evidence": "Local Node JSON store only; no database, Worker, deployment, provider, or customer data involved."
+  },
+  "capacityMembership": {
+    "ok": false,
+    "corpusCount": 400,
+    "newFactPresent": false
+  },
+  "boundaries": {
+    "rawUserTextLogged": false,
+    "selectionLatency": "performance.now around synchronous lexical selection; no network/provider time",
+    "contextLength": "UTF-16 character count plus an approximate four-characters-per-token estimate",
+    "persistenceLatency": "performance.now around the local tool and local store write",
+    "summaryBaseline": "controlled supplied-summary fixtures, not a configured summarizer"
+  }
+}

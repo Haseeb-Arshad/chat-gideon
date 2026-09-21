@@ -4,7 +4,7 @@ This ledger starts with no implementation stage claimed complete. The foundation
 
 | Stage | Status | Local evidence | Staging / production evidence | Handoff |
 |---|---|---|---|---|
-| 01 Baseline, repository map, and truthful legacy receipts | NOT_STARTED | Not run | Not run | Not created |
+| 01 Baseline, repository map, and truthful legacy receipts | LOCAL_VERIFIED | `docs/memory/reports/stage-01-baseline.json`; focused memory/tool/agent tests; offline suite and local builds passed | Not run; no deployment or production migration authorized | `docs/memory/handoffs/01-baseline-and-receipts.md` |
 | 02 Shared contracts, runtime validation, and authenticated memory sessions | NOT_STARTED | Not run | Not run | Not created |
 | 03 Transactional PostgreSQL authority, outbox, and fenced worker | NOT_STARTED | Not run | Not run | Not created |
 | 04 Explicit commands, correction semantics, and temporal history | NOT_STARTED | Not run | Not run | Not created |

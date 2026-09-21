@@ -125,7 +125,9 @@ export const MAX_MEMORIES = 400
 export const MAX_MEMORY_LENGTH = 240
 
 function normaliseText(text: string): string {
-  return text.trim().replace(/\s+/g, ' ').slice(0, MAX_MEMORY_LENGTH)
+  // Normalisation may remove formatting, but it must not silently remove
+  // semantic content. Admission validates the resulting length below.
+  return text.trim().replace(/\s+/g, ' ')
 }
 
 /** Near-duplicate detection, so "likes tea" is not stored eleven times. */
@@ -196,9 +198,21 @@ export function rank(memories: Memory[], query: string, now = Date.now()): Score
   return scored.sort((a, b) => b.score - a.score)
 }
 
-export interface RememberResult {
-  status: 'stored' | 'merged'
-  memory: Memory
+export type RememberRejection = 'empty' | 'too_long' | 'capacity'
+
+export type RememberResult =
+  | { status: 'stored' | 'merged'; memory: Memory }
+  | { status: 'rejected'; memory: Memory; reason: RememberRejection }
+
+function draftMemory(kind: MemoryKind, text: string, stamp: string): Memory {
+  return {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    kind,
+    text,
+    createdAt: stamp,
+    usedAt: stamp,
+    uses: 0,
+  }
 }
 
 /**
@@ -217,6 +231,13 @@ export function remember(
   const text = normaliseText(rawText)
   const stamp = now.toISOString()
 
+  if (!text) {
+    return { memories, result: { status: 'rejected', memory: draftMemory(kind, text, stamp), reason: 'empty' } }
+  }
+  if (text.length > MAX_MEMORY_LENGTH) {
+    return { memories, result: { status: 'rejected', memory: draftMemory(kind, text, stamp), reason: 'too_long' } }
+  }
+
   const existing = memories.find((memory) => duplicateKey(memory.text) === duplicateKey(text))
   if (existing) {
     // The newer phrasing wins: a fact restated has usually been refined.
@@ -227,14 +248,7 @@ export function remember(
     }
   }
 
-  const memory: Memory = {
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    kind,
-    text,
-    createdAt: stamp,
-    usedAt: stamp,
-    uses: 0,
-  }
+  const memory = draftMemory(kind, text, stamp)
 
   const next = [...memories, memory]
   if (next.length <= MAX_MEMORIES) return { memories: next, result: { status: 'stored', memory } }
@@ -245,8 +259,15 @@ export function remember(
     (a, b) => a.uses - b.uses || Date.parse(a.usedAt) - Date.parse(b.usedAt),
   )
   const doomed = new Set(ordered.slice(0, next.length - MAX_MEMORIES))
+  const retained = next.filter((candidate) => !doomed.has(candidate))
+  if (!retained.some((candidate) => candidate.id === memory.id)) {
+    // A result is only "stored" if the returned corpus contains the new
+    // record. Keep the input list intact so a failed replacement cannot remove
+    // the old fact while also failing to admit its successor.
+    return { memories, result: { status: 'rejected', memory, reason: 'capacity' } }
+  }
   return {
-    memories: next.filter((candidate) => !doomed.has(candidate)),
+    memories: retained,
     result: { status: 'stored', memory },
   }
 }

@@ -99,9 +99,12 @@ describe('remember', () => {
     expect(result.memories.map((memory) => memory.text)).toEqual([first, second])
   })
 
-  it('truncates something far too long to be one fact', () => {
-    const { result } = remember([], 'fact', 'x'.repeat(MAX_MEMORY_LENGTH + 100))
-    expect(result.memory.text.length).toBe(MAX_MEMORY_LENGTH)
+  it('rejects something far too long instead of silently truncating it', () => {
+    const { memories, result } = remember([], 'fact', 'x'.repeat(MAX_MEMORY_LENGTH + 100))
+    expect(memories).toEqual([])
+    expect(result.status).toBe('rejected')
+    if (result.status === 'rejected') expect(result.reason).toBe('too_long')
+    expect(result.memory.text.length).toBe(MAX_MEMORY_LENGTH + 100)
   })
 
   it('collapses whitespace so the same fact is recognised as the same', () => {
@@ -123,6 +126,36 @@ describe('remember', () => {
     const { memories } = remember([precious, ...chaff], 'fact', 'A brand new fact')
     expect(memories).toHaveLength(MAX_MEMORIES)
     expect(memories.some((memory) => memory.id === 'precious')).toBe(true)
+  })
+
+  it('rejects a new zero-use fact when every full-cache record is more useful', () => {
+    const existing = Array.from({ length: MAX_MEMORIES }, (_, i) =>
+      make(`Existing durable detail ${i}`, {
+        id: `existing-${i}`,
+        uses: 1,
+        usedAt: '2026-06-01T00:00:00.000Z',
+      }),
+    )
+
+    const result = remember(existing, 'preference', 'The user prefers quiet venues')
+
+    expect(result.result.status).toBe('rejected')
+    if (result.result.status === 'rejected') expect(result.result.reason).toBe('capacity')
+    expect(result.memories).toHaveLength(MAX_MEMORIES)
+    expect(result.memories).toEqual(existing)
+    expect(result.memories.some((memory) => memory.text === 'The user prefers quiet venues')).toBe(false)
+  })
+
+  it('admits the new fact at the exact cap boundary', () => {
+    const existing = Array.from({ length: MAX_MEMORIES - 1 }, (_, i) =>
+      make(`Existing detail ${i}`, { id: `existing-${i}`, uses: 1 }),
+    )
+
+    const result = remember(existing, 'preference', 'The user prefers quiet venues')
+
+    expect(result.result.status).toBe('stored')
+    expect(result.memories).toHaveLength(MAX_MEMORIES)
+    expect(result.memories.some((memory) => memory.text === 'The user prefers quiet venues')).toBe(true)
   })
 })
 

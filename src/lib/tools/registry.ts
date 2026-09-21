@@ -22,6 +22,7 @@ import {
   tokenise,
   touch,
   type MemoryKind,
+  type RememberRejection,
 } from './memory'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-builder'
@@ -320,7 +321,47 @@ function outdatedBy(memories: Memory[], replaces: string, fact: string): Set<str
  * Going through `store.mutate` rather than `all()` then `save()` is what stops
  * two turns finishing together from overwriting each other's list wholesale.
  */
-async function runMemoryTool(
+function rememberRejection(reason: RememberRejection): ToolOutcome {
+  if (reason === 'capacity') {
+    return {
+      ok: false,
+      content: 'I could not store that because memory capacity is full, so the new fact was not retained.',
+      summary: 'Memory was not stored: capacity reached',
+    }
+  }
+  if (reason === 'too_long') {
+    return {
+      ok: false,
+      content: 'I could not store that because a memory is limited to 240 characters, and nothing was truncated.',
+      summary: 'Memory was not stored: text too long',
+    }
+  }
+  return { ok: false, content: 'Nothing was given to remember.' }
+}
+
+function memoryStorageFailure(name: string): ToolOutcome {
+  if (name === 'remember') {
+    return {
+      ok: false,
+      content: 'I could not store that because durable memory rejected the write. Nothing was confirmed as stored.',
+      summary: 'Memory was not stored',
+    }
+  }
+  if (name === 'forget') {
+    return {
+      ok: false,
+      content: 'I could not forget that because durable memory rejected the change. Nothing was confirmed as forgotten.',
+      summary: 'Memory was not forgotten',
+    }
+  }
+  return {
+    ok: false,
+    content: 'I could not read stored memory because durable memory is unavailable.',
+    summary: 'Memory could not be read',
+  }
+}
+
+async function runMemoryToolUnsafe(
   name: string,
   args: Record<string, unknown>,
   store: MemoryStore,
@@ -340,6 +381,9 @@ async function runMemoryTool(
         kind,
         value,
       )
+      if (result.status === 'rejected') {
+        return { memories, result: rememberRejection(result.reason) }
+      }
       const replaced = outdated.size ? `Replaced ${outdated.size} older memor${outdated.size === 1 ? 'y' : 'ies'}. ` : ''
       return {
         memories: next,
@@ -408,6 +452,19 @@ async function runMemoryTool(
   }
 
   return { ok: false, content: `Unknown memory tool ${name}.` }
+}
+
+/** Storage failures are failed receipts, not stream-level exceptions. */
+async function runMemoryTool(
+  name: string,
+  args: Record<string, unknown>,
+  store: MemoryStore,
+): Promise<ToolOutcome> {
+  try {
+    return await runMemoryToolUnsafe(name, args, store)
+  } catch {
+    return memoryStorageFailure(name)
+  }
 }
 
 /**

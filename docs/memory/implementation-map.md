@@ -1,0 +1,80 @@
+# ChatGideon conversational memory implementation map
+
+Stage 01 establishes this map. It is a repository map and boundary record, not a claim that later memory stages already exist.
+
+## Baseline snapshot
+
+- Stage entry commit: `db4f6b4a4c8b958d2210fdd4659183a38ecee791` (`feat: complete broad research visualizations`).
+- Branch: `fix/reliability-and-memory-isolation`, tracking `origin/fix/reliability-and-memory-isolation`.
+- `master` and `origin/master` were fast-forwarded to the same commit before Stage 01 began.
+- The pre-stage worktree was clean. Earlier unrelated visualization and `agent-core` edits were preserved, tested, committed, pushed, merged into `master`, and were not reset or overwritten.
+- Pre-stage focused memory/Worker suite: 4 files, 48 tests passed.
+- Pre-stage release evidence: 77 offline test files / 896 tests passed, TypeScript passed, and application plus realtime builds passed. These checks covered the pre-existing visualization release, not the Stage 01 changes.
+
+## Runtime and ownership boundaries
+
+### Shared core and legacy memory
+
+- `src/lib/tools/memory.ts` contains the current `Memory`, lexical tokenisation/ranking, formatting-equivalent merge, exact destructive matching, serialised store contract, `JsonMemoryStore`, and `EphemeralMemoryStore`.
+- Pure memory transformations are usable by the Worker; Node filesystem access remains inside the existing `JsonMemoryStore` adapter and is not expanded by this stage.
+- `src/lib/tools/registry.ts` is the server-tool boundary for `remember`, `recall`, and `forget`. A success receipt is emitted only after `MemoryStore.mutate` returns successfully. Capacity, validation, and storage errors return `ok: false` outcomes with action-ledger summaries.
+- `src/lib/agent-core.ts` copies `ToolOutcome.ok` and `ToolOutcome.summary` into the action frame. `src/lib/agent-core.test.ts` proves the capacity rejection appears as a failed action entry.
+
+### Node HTTP and WebSocket
+
+- `src/server/identity.ts` accepts only a valid, server-signed `gideon-owner` cookie for a durable `node/<owner>` key. Without that proof, `nodeMemoryStore()` returns an ephemeral store.
+- `src/lib/openrouter.server.ts` selects the Node HTTP memory store from request headers and passes it into `streamTurn`.
+- `src/server/realtime-host.ts` applies the same signed-cookie selection to `/api/realtime` WebSocket sessions. A browser-provided session identifier is not treated as ownership proof.
+- `src/server/memory-authority.ts` serialises and versions the Node store; this remains the existing local authority. Stage 01 does not replace it.
+
+### Cloudflare Worker HTTP and WebSocket
+
+- `backend/worker/src/accounts.ts` resolves a Better Auth session and derives `user/<authenticated-user-id>`. The Worker overwrites the internal owner header; client-supplied owner values are not authoritative.
+- `backend/worker/src/api.ts` calls `ownerOf()` and `memoryStoreForHttp()`. Verified owners use the session RPC; unverified callers receive an ephemeral per-response store.
+- `backend/worker/src/realtime.ts` accepts only an internally injected `user/` or `ephemeral/` owner whose Durable Object name matches the current object. Account memory uses the existing `VersionedMemoryAuthority` over Durable Object storage or the existing Supabase adapter.
+- No HTTP or WebSocket route was rewired in Stage 01. The only application behavior change is truthful legacy memory receipts.
+
+## Chosen source layout
+
+| Concern | Stage 01 location | Boundary |
+|---|---|---|
+| Edge-safe memory algorithms and baseline adapters | `src/lib/tools/memory.ts`, `src/lib/memory-baseline.ts` | No new Node, database-driver, secret, or provider imports in the baseline adapter |
+| Existing Node/local authority | `src/server/identity.ts`, `src/server/memory-authority.ts`, `JsonMemoryStore` | Signed-cookie owner selection and local JSON persistence |
+| Existing Worker adapter | `backend/worker/src/memory.ts`, `backend/worker/src/accounts.ts`, `backend/worker/src/realtime.ts` | Authenticated owner / Durable Object boundary; no new migration in this stage |
+| Future PostgreSQL adapter and migrations | `backend/memory/` (reserved; not created in Stage 01) | Stage 03 only, after contracts and identity are stable |
+| Baseline runner | `src/lib/memory-baseline-runner.ts`, `scripts/memory-baseline.test.ts`, `npm run memory:baseline` | Loads the supplied seed schema and runs local synthetic fixtures |
+| Baseline and conformance reports | `docs/memory/reports/` | Metadata and measurements only; no raw user text |
+| Stage handoffs | `docs/memory/handoffs/` | One evidence handoff per completed stage |
+| Progress and map | `docs/memory/implementation/00-PROGRESS.md`, this file | Navigation and explicit evidence boundary |
+
+This layout is intentionally compatible with the prompt pack's later split: an edge-safe core can be extracted without moving the existing HTTP/Worker adapters, and PostgreSQL remains behind a server adapter rather than entering the client-facing core.
+
+## Feature-flag names reserved for later stages
+
+These names are documented now but not wired as working capabilities. New production-facing behavior remains off until its own stage and verification gate.
+
+| Capability | Reserved environment flag | Stage 01 state |
+|---|---|---|
+| Capture committed conversation evidence | `GIDEON_MEMORY_CAPTURE_ENABLED` | Not wired |
+| Canonical command writes | `GIDEON_MEMORY_COMMAND_WRITES_ENABLED` | Not wired; legacy tools remain the current path |
+| Memory recall/context injection | `GIDEON_MEMORY_RECALL_ENABLED` | Not wired; current legacy recall remains unchanged except for failed receipts |
+| Automatic/background learning | `GIDEON_MEMORY_LEARNING_ENABLED` | Not wired |
+| Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Not wired |
+| Jev classification | `GIDEON_MEMORY_JEV_ENABLED` | Not wired |
+
+No flag is evidence that its enabled behavior exists. Server-side scope and rollout ownership will be defined by the stages that implement each capability.
+
+## Stage 01 receipt contract
+
+`remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
+
+Formatting-equivalent duplicate merging and exact destructive matching remain unchanged. PostgreSQL, automatic extraction, vector search, Jev, deployment, and production migration are outside this stage.
+
+## Verification paths
+
+- `src/lib/tools/memory.test.ts`: pure admission, exact-cap insertion, full-capacity rejection, duplicate merge, exact matching, and non-truncating validation.
+- `src/lib/tools/memory-tools.test.ts`: tool receipts, C26 capacity membership, and rejecting storage adapter behavior.
+- `src/lib/agent-core.test.ts`: failed capacity receipt in the user-visible action ledger.
+- `src/lib/memory-baseline.test.ts`: current-memory and supplied-summary baseline adapters with no usage mutation.
+- `scripts/memory-baseline.test.ts`: schema loading, all 36 case records, C26 execution, C33 `NOT_IMPLEMENTED`, corpus-size measurements, and local JSON persistence measurement.
+- `docs/memory/reports/stage-01-baseline.json`: generated local evidence artifact. Its latency measurements are local selection or local JSON persistence only, not end-to-end voice latency.

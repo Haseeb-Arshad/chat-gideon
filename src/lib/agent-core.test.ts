@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { streamTurn, type TurnOptions } from './agent-core'
-import { EphemeralMemoryStore, remember } from './tools/memory'
+import { MAX_MEMORIES, EphemeralMemoryStore, remember, type Memory } from './tools/memory'
 import type { ServerFrame } from './protocol'
 
 const event = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`
@@ -35,6 +35,35 @@ describe('upstream terminal completion', () => {
 })
 
 describe('turn memory boundary', () => {
+  it('emits a failed action ledger entry when legacy admission rejects a new fact', async () => {
+    const store = new EphemeralMemoryStore()
+    const stamp = '2026-01-01T00:00:00.000Z'
+    const existing: Memory[] = Array.from({ length: MAX_MEMORIES }, (_, index) => ({
+      id: `existing-${index}`,
+      kind: 'fact',
+      text: `Existing durable detail ${index}`,
+      createdAt: stamp,
+      usedAt: stamp,
+      uses: 1,
+    }))
+    await store.save(existing)
+
+    let round = 0
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      (round++ === 0 ? tool : text) + 'data: [DONE]\n\n',
+    )))
+
+    const frames = await collect({ memoryStore: store })
+
+    expect(frames).toContainEqual(expect.objectContaining({
+      t: 'action',
+      name: 'remember',
+      ok: false,
+      summary: 'Memory was not stored: capacity reached',
+    }))
+    expect(await store.all()).toHaveLength(MAX_MEMORIES)
+  })
+
   it('retrieves speculation context without touching metadata or saving', async () => {
     const store = new EphemeralMemoryStore()
     await store.save(remember([], 'fact', 'The user plays the cello').memories)
