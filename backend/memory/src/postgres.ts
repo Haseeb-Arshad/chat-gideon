@@ -11,6 +11,7 @@ import {
   type EventEnvelope,
   type ExactVersionRef,
   type MemoryFailure,
+  type MemoryAction,
   type MemoryReceipt,
   type MemorySession,
   type MemoryStorageCapabilities,
@@ -20,7 +21,7 @@ import {
   type ScopedCandidateQuery,
   type PrincipalId,
 } from '../../../src/lib/memory/contracts.ts'
-import { MEMORY_SCHEMA, memoryPostgresConfig } from './config.ts'
+import { DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA, MEMORY_SCHEMA, memoryPostgresConfig } from './config.ts'
 import { assertionVersionHash, canonicalJson, eventContentHash, isoNow, subjectKey } from './serialization.ts'
 
 const SQL = {
@@ -37,6 +38,10 @@ const SQL = {
   jobs: `${MEMORY_SCHEMA}.jobs`,
   slots: `${MEMORY_SCHEMA}.slot_locks`,
   suppressions: `${MEMORY_SCHEMA}.deletion_suppressions`,
+  quotas: `${MEMORY_SCHEMA}.quota_limits`,
+  commandReceipts: `${MEMORY_SCHEMA}.command_receipts`,
+  changeCounters: `${MEMORY_SCHEMA}.change_counters`,
+  changeFeed: `${MEMORY_SCHEMA}.change_feed`,
 } as const
 
 export interface PostgresMemoryContext {
@@ -133,12 +138,23 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     return requireContext(this.context)
   }
 
-  async assertTrustedContext(session: Pick<MemorySession, 'trust' | 'principal' | 'scope' | 'policyEpoch' | 'grants'>): Promise<void> {
+  async isVersionSuppressed(reference: ExactVersionRef, evidenceEventIds: readonly string[] = []): Promise<boolean> {
+    if (await this.isSuppressed(reference)) return true
+    for (const eventId of evidenceEventIds) {
+      if (await this.isSuppressed({ eventId: eventId as EventEnvelope['id'] })) return true
+    }
+    return false
+  }
+
+  async assertAuthorizedContext(
+    session: Pick<MemorySession, 'trust' | 'principal' | 'scope' | 'policyEpoch' | 'grants'>,
+    action: MemoryAction,
+  ): Promise<void> {
     const context = this.scope()
     if (session.trust !== 'authenticated' || session.principal.id !== context.principalId || session.scope.id !== context.scopeId) {
       throw failure('unauthorized', 'This memory session is not authorized for the requested scope.')
     }
-    const decision = evaluateGrant(session, 'capture', context.scopeId)
+    const decision = evaluateGrant(session, action, context.scopeId)
     if (!decision.allowed) throw new PostgresMemoryOperationError(decision.failure)
     const result = await this.query<{ policy_epoch: string; principal_trust: string }>(
       `
@@ -149,16 +165,20 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
         WHERE p.principal_id = $1
           AND p.trust = 'authenticated'
           AND g.issued_by = 'server_policy'
-          AND g.actions @> '["capture"]'::jsonb
+          AND g.actions @> $3::jsonb
           AND (g.expires_at IS NULL OR g.expires_at > now())
         LIMIT 1
       `,
-      [context.principalId, context.scopeId],
+      [context.principalId, context.scopeId, JSON.stringify([action])],
     )
     if (!result.rows[0]) throw failure('unauthorized', 'The database has no active grant for this memory scope.')
     if (Number(result.rows[0].policy_epoch) !== context.policyEpoch || Number(result.rows[0].policy_epoch) !== session.policyEpoch) {
       throw failure('conflict', 'The memory policy changed; retry with a fresh session.', true)
     }
+  }
+
+  async assertTrustedContext(session: Pick<MemorySession, 'trust' | 'principal' | 'scope' | 'policyEpoch' | 'grants'>): Promise<void> {
+    return this.assertAuthorizedContext(session, 'capture')
   }
 
   async findEventByIdempotency(idempotencyKey: string): Promise<EventEnvelope | null> {
@@ -220,7 +240,9 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       `,
       [context.scopeId, reference.assertionId, reference.revision],
     )
-    return result.rows[0] ? parseStoredAssertion(result.rows[0].version) : null
+    if (!result.rows[0]) return null
+    const version = parseStoredAssertion(result.rows[0].version)
+    return await this.isVersionSuppressed(reference, version.evidence.map((edge) => edge.eventId)) ? null : version
   }
 
   async scopedCandidates(query: ScopedCandidateQuery): Promise<readonly AssertionVersion[]> {
@@ -243,7 +265,99 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       `,
       [context.scopeId, requestedSubject, queryText, limit],
     )
-    return result.rows.map((row) => parseStoredAssertion(row.version))
+    const visible: AssertionVersion[] = []
+    for (const row of result.rows) {
+      const version = parseStoredAssertion(row.version)
+      if (!await this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId))) {
+        visible.push(version)
+      }
+    }
+    return visible
+  }
+
+  async currentVersion(assertionId: AssertionVersion['id']): Promise<AssertionVersion | null> {
+    const context = this.scope()
+    const result = await this.query<{ version: unknown }>(
+      `
+        SELECT v.version
+        FROM ${SQL.assertions} a
+        JOIN ${SQL.versions} v ON v.scope_id = a.scope_id AND v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+        WHERE a.scope_id = $1 AND a.assertion_id = $2
+      `,
+      [context.scopeId, assertionId],
+    )
+    if (!result.rows[0]) return null
+    const version = parseStoredAssertion(result.rows[0].version)
+    return await this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId)) ? null : version
+  }
+
+  async allVersions(assertionId: AssertionVersion['id']): Promise<readonly AssertionVersion[]> {
+    const context = this.scope()
+    const result = await this.query<{ version: unknown }>(
+      `SELECT version FROM ${SQL.versions} WHERE scope_id = $1 AND assertion_id = $2 ORDER BY revision`,
+      [context.scopeId, assertionId],
+    )
+    const visible: AssertionVersion[] = []
+    for (const row of result.rows) {
+      const version = parseStoredAssertion(row.version)
+      if (!await this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId))) {
+        visible.push(version)
+      }
+    }
+    return visible
+  }
+
+  async findCanonicalAssertion(canonicalKey: string): Promise<AssertionVersion | null> {
+    const context = this.scope()
+    const result = await this.query<{ version: unknown }>(
+      `
+        SELECT v.version
+        FROM ${SQL.assertions} a
+        JOIN ${SQL.versions} v ON v.scope_id = a.scope_id AND v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+        WHERE a.scope_id = $1 AND a.canonical_key = $2
+          AND a.current_status IN ('candidate', 'accepted', 'disputed')
+        LIMIT 1
+      `,
+      [context.scopeId, canonicalKey],
+    )
+    if (!result.rows[0]) return null
+    const version = parseStoredAssertion(result.rows[0].version)
+    return await this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId)) ? null : version
+  }
+
+  async nextEventSequence(): Promise<number> {
+    const context = this.scope()
+    const epoch = await this.query<{ scope_id: string }>(
+      `SELECT scope_id FROM ${SQL.policyEpochs} WHERE scope_id = $1 FOR UPDATE`,
+      [context.scopeId],
+    )
+    if (!epoch.rows[0]) throw failure('unavailable', 'The memory policy epoch is unavailable.', true)
+    const result = await this.query<{ next_sequence: string }>(
+      `SELECT COALESCE(MAX(event_sequence), 0) + 1 AS next_sequence FROM ${SQL.events} WHERE scope_id = $1`,
+      [context.scopeId],
+    )
+    return Number(result.rows[0]?.next_sequence ?? 1)
+  }
+
+  async sourceRevisionsFor(reference: ExactVersionRef): Promise<readonly string[]> {
+    const context = this.scope()
+    const result = await this.query<{ envelope: unknown }>(
+      `
+        SELECT e.envelope
+        FROM ${SQL.evidence} edge
+        JOIN ${SQL.events} e ON e.scope_id = edge.scope_id AND e.event_id = edge.event_id
+        WHERE edge.scope_id = $1 AND edge.assertion_id = $2 AND edge.assertion_revision = $3
+      `,
+      [context.scopeId, reference.assertionId, reference.revision],
+    )
+    return result.rows.flatMap((row) => {
+      try {
+        const event = parseStoredEvent(row.envelope)
+        return [event.sourceAuthority.revision]
+      } catch {
+        return []
+      }
+    })
   }
 
   async withSlotLock<T>(scopeId: ScopeId, slot: CanonicalSlot, work: () => Promise<T>): Promise<T> {
@@ -310,11 +424,11 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       await this.query(
         `
           INSERT INTO ${SQL.assertions}
-            (assertion_id, scope_id, subject_kind, subject_key, slot_id, slot_cardinality, current_revision, current_status)
-          VALUES ($1, $2, $3, $4, $5, $6, 0, 'candidate')
+            (assertion_id, scope_id, subject_kind, subject_key, slot_id, slot_cardinality, current_revision, current_status, canonical_key)
+          VALUES ($1, $2, $3, $4, $5, $6, 0, 'candidate', $7)
           ON CONFLICT (assertion_id) DO NOTHING
         `,
-        [assertion.id, context.scopeId, assertion.subject.kind, subjectKey(assertion.subject), input.slot?.slotId ?? null, input.slot?.cardinality ?? null],
+        [assertion.id, context.scopeId, assertion.subject.kind, subjectKey(assertion.subject), input.slot?.slotId ?? null, input.slot?.cardinality ?? null, input.canonicalKey ?? null],
       )
       current = await this.query<{ current_revision: string; scope_id: string }>(
         `SELECT current_revision, scope_id FROM ${SQL.assertions} WHERE assertion_id = $1 FOR UPDATE`,
@@ -379,8 +493,11 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       )
     }
     await this.query(
-      `UPDATE ${SQL.assertions} SET current_revision = $2, current_status = $3, updated_at = now() WHERE assertion_id = $1`,
-      [assertion.id, assertion.revision, assertion.status],
+      `UPDATE ${SQL.assertions}
+       SET current_revision = $2, current_status = $3,
+           canonical_key = COALESCE($4, canonical_key), updated_at = now()
+       WHERE assertion_id = $1`,
+      [assertion.id, assertion.revision, assertion.status, input.canonicalKey ?? null],
     )
     return { ok: true, revision: assertion.revision }
   }
@@ -465,6 +582,14 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
   }
 
   async insertCaptureJob(event: EventEnvelope): Promise<void> {
+    await this.insertJob(event, 'interpret_event')
+  }
+
+  async insertProjectionJob(event: EventEnvelope): Promise<void> {
+    await this.insertJob(event, 'rebuild_projection')
+  }
+
+  private async insertJob(event: EventEnvelope, kind: 'interpret_event' | 'rebuild_projection'): Promise<void> {
     const context = this.scope()
     const epoch = await this.query<{ policy_epoch: string; deletion_epoch: string }>(
       `SELECT policy_epoch, deletion_epoch FROM ${SQL.policyEpochs} WHERE scope_id = $1 FOR SHARE`,
@@ -475,10 +600,10 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       `
         INSERT INTO ${SQL.jobs}
           (job_id, scope_id, principal_id, input_event_id, kind, state, attempts, max_attempts, available_at, policy_epoch, deletion_epoch)
-        VALUES ($1, $2, $3, $4, 'interpret_event', 'pending', 0, 5, $5::timestamptz, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, 'pending', 0, 5, $6::timestamptz, $7, $8)
         ON CONFLICT (input_event_id, kind) DO NOTHING
       `,
-      [`job/${event.id}`, context.scopeId, context.principalId, event.id, event.receivedAt, epoch.rows[0].policy_epoch, epoch.rows[0].deletion_epoch],
+      [`job/${event.id}/${kind}`, context.scopeId, context.principalId, event.id, kind, event.receivedAt, epoch.rows[0].policy_epoch, epoch.rows[0].deletion_epoch],
     )
   }
 
@@ -567,6 +692,22 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
           ON CONFLICT (scope_id) DO NOTHING
         `,
         [session.scope.id, session.policyEpoch],
+      )
+      await transaction.query(
+        `
+          INSERT INTO ${SQL.quotas} (scope_id, max_accepted_assertions)
+          VALUES ($1, $2)
+          ON CONFLICT (scope_id) DO NOTHING
+        `,
+        [session.scope.id, DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA],
+      )
+      await transaction.query(
+        `
+          INSERT INTO ${SQL.changeCounters} (scope_id, next_watermark)
+          VALUES ($1, 0)
+          ON CONFLICT (scope_id) DO NOTHING
+        `,
+        [session.scope.id],
       )
       for (const grant of session.grants) {
         if (grant.scopeId !== session.scope.id) continue

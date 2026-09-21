@@ -102,6 +102,40 @@ no Cloudflare Worker bundle imports the `pg` driver. A future Cloudflare
 deployment must use the platform's supported database connection boundary; this
 local Node adapter is not a Worker database client.
 
+## Stage 04 explicit commands and temporal history
+
+- `backend/memory/src/commands.ts` is the server-only explicit command service.
+  It accepts only a server-bound authenticated session, validates exact
+  correction targets and revisions, creates durable user-command events, and
+  commits accepted assertion versions through the Stage 03 transaction writer.
+  It provides deterministic formatting-equivalent duplicate handling, scoped
+  temporary exceptions, source-revision checks, current/known-at/valid-at
+  reads, ambiguity-safe target resolution, and an accepted-change overlay.
+- `src/lib/memory/contracts.ts` extends the public command contract with
+  bounded valid-time input, temporal relation, polarity, exact correction
+  revision/source checks, assertion supersession metadata and a server-computed
+  canonical commit key. Receipt and authority validation remains edge-safe.
+- `backend/memory/migrations/003-commands-and-temporal.sql` adds canonical
+  assertion identity, per-scope quota limits, monotonic change-feed
+  watermarks, accepted command receipts, and change-feed records. The command
+  transaction writes the event, accepted version/evidence, change notification,
+  projection invalidation job and command receipt together.
+- `backend/memory/src/postgres.ts` now authorizes individual database actions,
+  preserves canonical keys, gates exact/current/candidate/historical reads on
+  suppression records, exposes version/source reads, allocates command event
+  sequences, and supports projection invalidation jobs.
+- `backend/memory/src/postgres.live.test.ts` contains the real PostgreSQL
+  Stage 04 cases: C04 transition/correction time reads, C05 interpretation
+  correction, C06/C07 scoped expiry, C19 accepted overlay/read-your-writes,
+  C20 expected-revision contention, C21 ambiguous-response idempotency, C26
+  durable quota-independent admission, C33 explicit quota rejection, and
+  C36 preservation of the global preference during a scoped exception.
+
+Stage 04 is still an isolated Node/PostgreSQL authority. No HTTP, realtime,
+Worker, Durable Object, legacy JSON, Supabase, provider, deployment or remote
+migration was enabled. Captured-only events are not returned by the accepted
+overlay; only committed accepted command changes receive a change watermark.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.

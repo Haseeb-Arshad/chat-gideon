@@ -51,6 +51,34 @@ The schema is isolated under `gideon_memory` and is applied in filename order:
   jobs, slot locks, and deletion suppressions.
 - `migrations/002-memory-indexes.sql`: scoped reads, scalar-slot uniqueness,
   bounded job claims, and suppression indexes.
+- `migrations/003-commands-and-temporal.sql`: deterministic command identity,
+  per-scope quota admission, accepted command receipts, and monotonic accepted
+  change-feed watermarks.
+
+## Explicit command boundary
+
+`backend/memory/src/commands.ts` is the Stage 04 Node-only command adapter.
+`executeExplicitCommand()` accepts a public `remember` or `correct` command
+only after `bindMemoryCommand()` derives authority from an authenticated server
+session. Corrections require an exact assertion ID and revision; callers may
+also pin the source revision. `executeScopedException()` creates a separate
+temporary assertion with explicit conditions and an expiry, so it does not
+rewrite a global preference.
+
+An accepted command commits its event, assertion version/evidence, accepted
+receipt, change-feed watermark, projection invalidation job, and command retry
+record in one transaction. A repeated command ID returns the stored result;
+formatting-equivalent `remember` commands are deterministic no-ops and do not
+create a second semantic effect. `readCurrentAssertion()`,
+`readAssertionAsOf()` and `readAcceptedChangeOverlay()` distinguish current,
+known-at-time, valid-at-time, and accepted-overlay reads. No captured-only
+event appears in the accepted overlay.
+
+The command quota is explicit: a full scope returns `budget_exhausted` and
+does not evict or falsely acknowledge an accepted assertion. The default limit
+is bounded by `DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA`; an operator may set a
+smaller synthetic-test limit in the owned local database. Stage 04 does not
+implement privacy deletion or grant revocation; those remain Stage 05.
 
 The capture transaction validates the server-bound session and consent, checks
 the database grant and policy epoch, inserts the event, durable captured receipt,

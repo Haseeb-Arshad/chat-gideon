@@ -366,6 +366,8 @@ export interface AssertionVersion {
   evidence: readonly EvidenceRef[]
   dependencies: readonly DependencyRef[]
   producer: ProducerVersion
+  /** The exact prior version this edit replaces, retained for audit and reads. */
+  supersedes?: ExactVersionRef | null
 }
 
 export interface Projection {
@@ -397,6 +399,10 @@ export interface PublicRememberCommand {
   text: string
   assertionKind: Exclude<AssertionKind, 'episode_checkpoint'>
   conditions: readonly Condition[]
+  /** User-supplied valid-time information; receipt/interpretation time is server-bound. */
+  validTime?: ValidTime
+  relation?: 'ordinary' | 'temporary_exception'
+  polarity?: AssertionPolarity
 }
 
 export interface PublicCorrectCommand {
@@ -404,9 +410,14 @@ export interface PublicCorrectCommand {
   commandId: string
   kind: 'correct'
   targetAssertionId: AssertionId
+  targetRevision: number
+  sourceRevision?: RevisionId | null
   text: string
   assertionKind: Exclude<AssertionKind, 'episode_checkpoint'>
   conditions: readonly Condition[]
+  validTime?: ValidTime
+  relation?: 'correction' | 'transition' | 'temporary_exception'
+  polarity?: AssertionPolarity
 }
 
 export interface PublicForgetCommand {
@@ -466,6 +477,8 @@ export interface AssertionCommit {
   assertion: AssertionVersion
   expectedRevision: number | null
   slot: CanonicalSlot | null
+  /** Server-computed exact identity used by deterministic explicit commands. */
+  canonicalKey?: string | null
 }
 
 /**
@@ -814,6 +827,32 @@ function parseTimeSemantics(value: unknown, path: string, issues: ContractIssue[
     : null
 }
 
+function parseCommandValidTime(value: unknown, path: string, issues: ContractIssue[]): ValidTime | null {
+  if (!isRecord(value)) {
+    issues.push(issue(path, 'invalid_type', 'Expected valid-time bounds.'))
+    return null
+  }
+  issues.push(...unknownFields(value, ['from', 'until', 'precision', 'sourceTimeZone'], path))
+  const from = instant(value.from, `${path}.from`, issues, true)
+  const until = instant(value.until, `${path}.until`, issues, true)
+  const precision = enumValue(value.precision, ['unknown', 'year', 'month', 'day', 'hour', 'minute', 'second'] as const, `${path}.precision`, issues)
+  const sourceTimeZone = value.sourceTimeZone === null
+    ? null
+    : (typeof value.sourceTimeZone === 'string' && TIME_ZONE_PATTERN.test(value.sourceTimeZone)
+      ? value.sourceTimeZone
+      : (issues.push(issue(`${path}.sourceTimeZone`, 'invalid_value', 'Invalid source timezone.')), null))
+  if (precision === 'unknown' && (from !== null || until !== null)) {
+    issues.push(issue(path, 'inconsistent', 'Unknown effective precision cannot carry an effective date.'))
+  }
+  if (from === null && precision !== 'unknown') {
+    issues.push(issue(path, 'inconsistent', 'A known precision requires a known start.'))
+  }
+  if (from && until && Date.parse(until) < Date.parse(from)) {
+    issues.push(issue(path, 'inconsistent', 'Valid-time end precedes its start.'))
+  }
+  return precision ? { from, until, precision, sourceTimeZone } : null
+}
+
 function parseProposition(value: unknown, path: string, issues: ContractIssue[]): Proposition | null {
   if (!isRecord(value)) {
     issues.push(issue(path, 'invalid_type', 'Expected a proposition.'))
@@ -995,7 +1034,7 @@ export function parseAssertionVersion(input: unknown): ParseResult<AssertionVers
   const issues: ContractIssue[] = []
   if (!isRecord(input)) return invalid([issue('$', 'invalid_type', 'Expected an assertion version object.')])
   issues.push(...unknownFields(input, [
-    'schemaVersion', 'id', 'revision', 'scopeId', 'subject', 'kind', 'payload', 'attribution', 'polarity', 'status', 'time', 'evidence', 'dependencies', 'producer',
+    'schemaVersion', 'id', 'revision', 'scopeId', 'subject', 'kind', 'payload', 'attribution', 'polarity', 'status', 'time', 'evidence', 'dependencies', 'producer', 'supersedes',
   ], '$'))
   const schemaVersion = numberValue(input.schemaVersion, '$.schemaVersion', issues, MEMORY_CONTRACT_VERSION, MEMORY_CONTRACT_VERSION)
   const id = identifier<'assertion'>(input.id, 'Assertion ID', '$.id', issues)
@@ -1060,8 +1099,37 @@ export function parseAssertionVersion(input: unknown): ParseResult<AssertionVers
     const model = input.producer.model === null ? null : stringValue(input.producer.model, '$.producer.model', issues, 160)
     if (name && version) producer = { name, version, model }
   }
+  let supersedes: ExactVersionRef | null | undefined
+  if (input.supersedes !== undefined) {
+    if (input.supersedes === null) {
+      supersedes = null
+    } else if (!isRecord(input.supersedes)) {
+      issues.push(issue('$.supersedes', 'invalid_type', 'Expected an exact prior assertion version.'))
+    } else {
+      issues.push(...unknownFields(input.supersedes, ['assertionId', 'revision'], '$.supersedes'))
+      const assertionId = identifier<'assertion'>(input.supersedes.assertionId, 'Assertion ID', '$.supersedes.assertionId', issues)
+      const priorRevision = numberValue(input.supersedes.revision, '$.supersedes.revision', issues, 1)
+      if (assertionId && priorRevision !== null) supersedes = { assertionId, revision: priorRevision }
+    }
+  }
   if (schemaVersion !== MEMORY_CONTRACT_VERSION || !id || revision === null || !scopeId || !subject || !kind || !parsedPayload || !attribution || !polarity || !status || !time || !producer) return invalid(issues)
-  return parseResult({ schemaVersion: MEMORY_CONTRACT_VERSION, id, revision, scopeId, subject, kind, payload: parsedPayload, attribution, polarity, status, time, evidence, dependencies, producer }, issues)
+  return parseResult({
+    schemaVersion: MEMORY_CONTRACT_VERSION,
+    id,
+    revision,
+    scopeId,
+    subject,
+    kind,
+    payload: parsedPayload,
+    attribution,
+    polarity,
+    status,
+    time,
+    evidence,
+    dependencies,
+    producer,
+    ...(supersedes !== undefined ? { supersedes } : {}),
+  }, issues)
 }
 
 function parseCommandId(value: unknown, path: string, issues: ContractIssue[]): string | null {
@@ -1076,17 +1144,64 @@ export function parsePublicMemoryCommand(input: unknown): ParseResult<PublicMemo
   const schemaVersion = numberValue(input.schemaVersion, '$.schemaVersion', issues, MEMORY_CONTRACT_VERSION, MEMORY_CONTRACT_VERSION)
   const commandId = parseCommandId(input.commandId, '$.commandId', issues)
   if (kind === 'remember' || kind === 'correct') {
-    const allowed = kind === 'remember' ? ['schemaVersion', 'commandId', 'kind', 'text', 'assertionKind', 'conditions'] : ['schemaVersion', 'commandId', 'kind', 'targetAssertionId', 'text', 'assertionKind', 'conditions']
+    const allowed = kind === 'remember'
+      ? ['schemaVersion', 'commandId', 'kind', 'text', 'assertionKind', 'conditions', 'validTime', 'relation', 'polarity']
+      : ['schemaVersion', 'commandId', 'kind', 'targetAssertionId', 'targetRevision', 'sourceRevision', 'text', 'assertionKind', 'conditions', 'validTime', 'relation', 'polarity']
     issues.push(...unknownFields(input, allowed, '$'))
     const text = stringValue(input.text, '$.text', issues, MAX_ASSERTION_TEXT_LENGTH)
     const assertionKind = enumValue(input.assertionKind, ['fact', 'preference', 'constraint', 'decision'] as const, '$.assertionKind', issues)
     const conditions = parseConditions(input.conditions, '$.conditions', issues)
+    const validTime = input.validTime === undefined ? undefined : parseCommandValidTime(input.validTime, '$.validTime', issues)
+    const parsedRelation = input.relation === undefined
+      ? undefined
+      : enumValue(input.relation, kind === 'remember' ? ['ordinary', 'temporary_exception'] as const : ['correction', 'transition', 'temporary_exception'] as const, '$.relation', issues)
+    const relation = kind === 'remember'
+      ? (parsedRelation === null ? undefined : parsedRelation as 'ordinary' | 'temporary_exception' | undefined)
+      : (parsedRelation === null ? undefined : parsedRelation as 'correction' | 'transition' | 'temporary_exception' | undefined)
+    const parsedPolarity = input.polarity === undefined ? undefined : enumValue(input.polarity, ['positive', 'negative', 'unknown'] as const, '$.polarity', issues)
+    const polarity = parsedPolarity === null ? undefined : parsedPolarity
     let targetAssertionId: AssertionId | null = null
-    if (kind === 'correct') targetAssertionId = identifier<'assertion'>(input.targetAssertionId, 'Assertion ID', '$.targetAssertionId', issues)
-    if (schemaVersion === MEMORY_CONTRACT_VERSION && commandId && text && assertionKind) {
-      return parseResult(kind === 'remember'
-        ? { schemaVersion: MEMORY_CONTRACT_VERSION, commandId, kind, text, assertionKind, conditions }
-        : { schemaVersion: MEMORY_CONTRACT_VERSION, commandId, kind, targetAssertionId: targetAssertionId as AssertionId, text, assertionKind, conditions }, issues)
+    let targetRevision: number | null = null
+    let sourceRevision: RevisionId | null | undefined
+    if (kind === 'correct') {
+      targetAssertionId = identifier<'assertion'>(input.targetAssertionId, 'Assertion ID', '$.targetAssertionId', issues)
+      targetRevision = numberValue(input.targetRevision, '$.targetRevision', issues, 1)
+      sourceRevision = input.sourceRevision === undefined
+        ? undefined
+        : input.sourceRevision === null
+          ? null
+          : identifier<'revision'>(input.sourceRevision, 'Revision ID', '$.sourceRevision', issues)
+    }
+    if (schemaVersion === MEMORY_CONTRACT_VERSION && commandId && text && assertionKind && !issues.length) {
+      if (kind === 'remember') {
+        const rememberCommand: PublicRememberCommand = {
+          schemaVersion: MEMORY_CONTRACT_VERSION,
+          commandId,
+          kind,
+          text,
+          assertionKind,
+          conditions,
+          ...(validTime !== undefined ? { validTime: validTime as ValidTime } : {}),
+          ...(relation !== undefined ? { relation: relation as 'ordinary' | 'temporary_exception' } : {}),
+          ...(polarity !== undefined ? { polarity } : {}),
+        }
+        return parseResult(rememberCommand, issues)
+      }
+      const correctCommand: PublicCorrectCommand = {
+        schemaVersion: MEMORY_CONTRACT_VERSION,
+        commandId,
+        kind,
+        targetAssertionId: targetAssertionId as AssertionId,
+        targetRevision: targetRevision as number,
+        ...(sourceRevision !== undefined ? { sourceRevision } : {}),
+        text,
+        assertionKind,
+        conditions,
+        ...(validTime !== undefined ? { validTime: validTime as ValidTime } : {}),
+        ...(relation !== undefined ? { relation: relation as 'correction' | 'transition' | 'temporary_exception' } : {}),
+        ...(polarity !== undefined ? { polarity } : {}),
+      }
+      return parseResult(correctCommand, issues)
     }
     return invalid(issues)
   }

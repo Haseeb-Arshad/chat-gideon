@@ -5,6 +5,7 @@ export const DEFAULT_MEMORY_POOL_MAX = 8
 export const DEFAULT_MEMORY_CONNECTION_TIMEOUT_MS = 3_000
 export const DEFAULT_MEMORY_IDLE_TIMEOUT_MS = 30_000
 export const DEFAULT_MEMORY_STATEMENT_TIMEOUT_MS = 10_000
+export const DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA = 1_000
 
 export interface MemoryPostgresConfig extends PoolConfig {
   connectionString: string
