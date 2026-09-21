@@ -1,7 +1,7 @@
 # Stage 04 handoff: explicit commands, correction semantics, and temporal history
 
 Status: LOCAL_VERIFIED
-Implementation commit or working-tree identifier: commit `d6d35a25bf1abf01a9d1c211f35e58526e0a0a3c` (`feat(memory): add explicit commands and temporal versions`) on `fix/reliability-and-memory-isolation`
+Implementation commit or working-tree identifier: commit `40de650` (`feat(memory): add explicit commands and temporal versions`) on `fix/reliability-and-memory-isolation`
 Date: 2026-09-21
 Environment: Windows 10.0.19045 x64, Node v22.13.0, npm 11.0.0, PostgreSQL 17.5 disposable local cluster, Vitest 4.1.5; no customer or remote database
 
