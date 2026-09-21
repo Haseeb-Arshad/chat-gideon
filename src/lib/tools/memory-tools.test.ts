@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_MEMORIES, EphemeralMemoryStore, type Memory, type MemoryStore } from './memory'
 import { runServerTool, type ToolContext } from './registry'
+import { createServerMemorySession } from '../../server/memory-session'
 
 /**
  * The memory tools as the speaking model calls them. Replacement and forgetting
@@ -127,6 +128,27 @@ describe('forget', () => {
 })
 
 describe('truthful admission and storage receipts', () => {
+  it('uses the server-bound session store, not a model-supplied scope or fallback store', async () => {
+    const fallback = new EphemeralMemoryStore()
+    const bound = new EphemeralMemoryStore()
+    const session = createServerMemorySession({
+      owner: 'user/session-1',
+      store: bound,
+      channel: 'http',
+      authority: 'node_signed_cookie',
+    })
+
+    const outcome = await runServerTool(
+      'remember',
+      { text: 'The user prefers quiet venues', scopeId: 'user/another-account' },
+      { ...context(fallback), session },
+    )
+
+    expect(outcome.ok).toBe(true)
+    expect(await kept(fallback)).toEqual([])
+    expect(await kept(bound)).toEqual(['The user prefers quiet venues'])
+  })
+
   it('returns a failed receipt when the full legacy cache cannot retain the new fact', async () => {
     const store = await fullStore()
 

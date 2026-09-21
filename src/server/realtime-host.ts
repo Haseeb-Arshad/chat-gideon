@@ -12,7 +12,7 @@
 import { REALTIME_PATH } from '../lib/protocol'
 import { callerKey, isLocalRequest, isTrustedAddress, limiter, originAllowed, rateLimited } from '../lib/guard'
 import { createRealtimeSession } from '../lib/realtime-session'
-import { nodeMemoryStore } from './identity'
+import { resolveNodeMemorySession } from './node-memory-session'
 
 /** Minimal structural view of `ws`, which ships without type declarations. */
 interface NodeWebSocket {
@@ -181,9 +181,9 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
                 {
                   caller,
                   host,
-                  memoryStore: nodeMemoryStore({
-                    get: (name) => headerValue(request, name),
-                  }),
+                  memorySession: resolveNodeMemorySession({
+                    headers: { get: (name: string) => headerValue(request, name) },
+                  }, 'websocket'),
                 },
               )
               if (closed) return session.close()

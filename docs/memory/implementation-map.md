@@ -1,6 +1,6 @@
 # ChatGideon conversational memory implementation map
 
-Stage 01 establishes this map. It is a repository map and boundary record, not a claim that later memory stages already exist.
+Stages 01–02 establish this map. It is a repository map and boundary record, not a claim that later memory stages already exist.
 
 ## Baseline snapshot
 
@@ -69,6 +69,38 @@ No flag is evidence that its enabled behavior exists. Server-side scope and roll
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
 
 Formatting-equivalent duplicate merging and exact destructive matching remain unchanged. PostgreSQL, automatic extraction, vector search, Jev, deployment, and production migration are outside this stage.
+
+## Stage 02 contract and identity boundary
+
+- `src/lib/memory/index.ts` is the edge-safe Worker entry point. It exports only
+  `src/lib/memory/contracts.ts`; the import-graph test proves that the entry
+  point cannot reach Node, filesystem, database-driver, provider, or secret
+  modules.
+- `src/lib/memory/contracts.ts` defines schema version 1, bounded runtime
+  validators, event/source-span and assertion variants, registered slot
+  cardinality, temporal semantics, typed failures, receipt states, storage
+  capability interfaces, public commands, bound commands, and deterministic
+  source/grant policy.
+- `src/server/memory-session.ts` is the only shared server binder. It derives
+  account scope, subject, grants, and authority from a server-selected owner;
+  callers cannot provide those fields. `src/server/node-memory-session.ts`
+  resolves the signed Node cookie without entering the Worker graph.
+- `src/lib/tools/registry.ts`, `src/lib/agent-core.ts`, and
+  `src/lib/realtime-session.ts` accept the prebound session for model-visible
+  memory tools. The existing direct `MemoryStore` field remains only as an
+  explicit compatibility path for current unit tests and Stage 01 baseline
+  adapters.
+- `backend/worker/src/api.ts` and `backend/worker/src/realtime.ts` bind the
+  verified Worker owner before invoking the shared core. `src/server/realtime-host.ts`
+  and `src/lib/openrouter.server.ts` use the Node resolver for HTTP and socket
+  parity.
+- `src/lib/memory/test-adapter.ts` is test-only and is not exported by the edge
+  entry point. It does not substitute for the PostgreSQL authority required by
+  Stage 03.
+
+The contract documentation and version/upgrade policy live in
+`docs/memory/contracts-and-identity.md`. No new account system, database table,
+migration, provider, grant broadening, or deployment was added.
 
 ## Verification paths
 

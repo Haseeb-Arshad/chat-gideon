@@ -9,6 +9,7 @@ import type { Memory } from '../../../src/lib/tools/memory'
 import { VersionedMemoryAuthority } from '../../../src/server/memory-authority'
 import { OWNER_HEADER } from './accounts'
 import { callerFromRequest } from './identity'
+import { createServerMemorySession } from '../../../src/server/memory-session'
 import {
   DurableObjectMemoryStore,
   EphemeralMemoryStore,
@@ -98,6 +99,12 @@ export class GideonSession extends DurableObject<Env> {
     const memoryStore = attachment.owner.startsWith('user/')
       ? this.memoryFor(attachment.owner)
       : new EphemeralMemoryStore()
+    const memorySession = createServerMemorySession({
+      owner: attachment.owner,
+      store: memoryStore,
+      channel: 'worker_websocket',
+      authority: attachment.owner.startsWith('user/') ? 'worker_internal_owner' : 'ephemeral_request',
+    })
 
     return createRealtimeSession(
       {
@@ -108,6 +115,7 @@ export class GideonSession extends DurableObject<Env> {
         caller: attachment.caller,
         host: attachment.host,
         memoryStore,
+        memorySession,
         location: attachment.location,
       },
     )

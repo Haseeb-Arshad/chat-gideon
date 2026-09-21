@@ -24,6 +24,7 @@ import {
   type MemoryKind,
   type RememberRejection,
 } from './memory'
+import { evaluateGrant, type MemoryAction, type MemorySession } from '../memory'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-builder'
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
@@ -602,6 +603,8 @@ async function runShowImages(
 
 export interface ToolContext {
   store: MemoryStore
+  /** Server-bound identity and grants. Model arguments cannot construct this. */
+  session?: MemorySession<MemoryStore>
   /** From the browser, so "today" means the user's today. */
   timezone: string
   signal: AbortSignal
@@ -623,6 +626,14 @@ export async function runServerTool(
     case 'remember':
     case 'recall':
     case 'forget':
+      if (context.session) {
+        const action = name as MemoryAction
+        const decision = evaluateGrant(context.session, action)
+        if (!decision.allowed) return { ok: false, content: decision.failure.message, summary: 'Memory operation was not authorized' }
+        return runMemoryTool(name, args, context.session.store)
+      }
+      // Compatibility for existing unit/baseline adapters. Production hosts
+      // bind a session before model-visible memory tools are reached.
       return runMemoryTool(name, args, context.store)
     case 'research':
       return runResearch(args, context)

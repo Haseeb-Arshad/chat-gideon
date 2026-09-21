@@ -18,7 +18,7 @@ import {
 import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
-import { nodeMemoryStore } from '../server/identity'
+import { resolveNodeMemorySession } from '../server/node-memory-session'
 
 export { getPublicConfig, warmUpstream }
 
@@ -64,7 +64,7 @@ export function streamChat(
   request?: Request,
 ): Response {
   const encoder = new TextEncoder()
-  const memoryStore = request ? nodeMemoryStore(request.headers) : undefined
+  const memorySession = request ? resolveNodeMemorySession(request, 'http') : undefined
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -76,7 +76,7 @@ export function streamChat(
           timezone,
           speculative,
           screen,
-          memoryStore,
+          memorySession,
         })) {
           if (signal.aborted) break
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))

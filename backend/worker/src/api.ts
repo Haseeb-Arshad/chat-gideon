@@ -20,6 +20,7 @@ import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { ensureAccount, ownerOf, OwnerUnavailable } from './accounts'
 import { memoryStoreForHttp } from './memory'
+import { createServerMemorySession } from '../../../src/server/memory-session'
 import type { Env } from './types'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' }
@@ -88,13 +89,19 @@ function streamChat(
   // the sockets use; an unverified caller gets an ephemeral store that exists
   // for this response alone.
   const store = memoryStoreForHttp(env, owner, env.GIDEON_SESSION)
+  const memorySession = createServerMemorySession({
+    owner,
+    store,
+    channel: 'worker_http',
+    authority: owner.startsWith('user/') ? 'worker_auth_session' : 'ephemeral_request',
+  })
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const frame of streamTurn(id, messages, request.signal, {
           timezone,
           speculative,
-          memoryStore: store,
+          memorySession,
           screen,
           location: locationFromCf((request as { cf?: unknown }).cf),
         })) {

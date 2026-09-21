@@ -32,6 +32,7 @@ import {
   EphemeralMemoryStore,
   type MemoryStore,
 } from './tools/memory'
+import type { MemorySession } from './memory'
 import { nameOf, positionIn, type CoarseLocation } from './location'
 import { locateDevice } from './tools/maps'
 import { runtimeEnv } from './runtime-env'
@@ -330,6 +331,8 @@ export interface TurnOptions {
   speculative?: boolean
   /** Host-provided persistence, such as a Durable Object or Supabase store. */
   memoryStore?: MemoryStore
+  /** Server-bound identity/grants and its already-selected store. */
+  memorySession?: MemorySession<MemoryStore>
   /** What the page is showing, as it reported it when the turn began. */
   screen?: ScreenState | null
   /** Roughly where the user is, from the host's address lookup, for a forecast that names no place. */
@@ -424,7 +427,7 @@ export async function* streamTurn(
     return
   }
 
-  const turnStore = options.memoryStore ?? new EphemeralMemoryStore()
+  const turnStore = options.memorySession?.store ?? options.memoryStore ?? new EphemeralMemoryStore()
   const memories = await contextMemories(
     turnStore,
     messages.at(-1)?.content ?? '',
@@ -752,6 +755,7 @@ export async function* streamTurn(
         }
         outcome = await runServerTool(call.name, args, {
           store: turnStore,
+          session: options.memorySession,
           timezone: options.timezone || 'UTC',
           signal,
           env: configValue,

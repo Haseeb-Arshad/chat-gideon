@@ -26,6 +26,7 @@ import type { ToolOutcome } from './tools/registry'
 import { readScreen } from './stage-judge'
 import type { CoarseLocation } from './location'
 import type { MemoryStore } from './tools/memory'
+import type { MemorySession } from './memory'
 import {
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
@@ -58,6 +59,8 @@ export interface SessionOptions {
   host?: string | null
   /** Durable store selected by the host for this browser session. */
   memoryStore?: MemoryStore
+  /** Server-bound identity/grants for model-visible memory tools. */
+  memorySession?: MemorySession<MemoryStore>
   /** Roughly where the user is, from the host's address lookup when the socket opened. */
   location?: CoarseLocation | null
 }
@@ -217,6 +220,7 @@ export function createRealtimeSession(
         bridge: bridgeFor(frame.id),
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
+        memorySession: options.memorySession,
         screen: readScreen(frame.screen),
         // The device's own answer, once a tool has had to ask, is surer than the address lookup.
         location: located ?? options.location ?? null,
