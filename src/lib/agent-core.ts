@@ -38,6 +38,7 @@ import { locateDevice } from './tools/maps'
 import { runtimeEnv } from './runtime-env'
 import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
 import { Outbox } from './outbox'
+import { conversationContext, type ConversationState } from './conversation-state'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -335,6 +336,8 @@ export interface TurnOptions {
   memorySession?: MemorySession<MemoryStore>
   /** What the page is showing, as it reported it when the turn began. */
   screen?: ScreenState | null
+  /** Bounded, attributed continuity for this conversation; never an authority grant. */
+  conversationState?: ConversationState | null
   /** Roughly where the user is, from the host's address lookup, for a forecast that names no place. */
   location?: CoarseLocation | null
   /** Told where the user's device placed them, when a tool had to ask, so the session need not ask again. */
@@ -461,6 +464,7 @@ export async function* streamTurn(
       content: `Cards on the user's screen beside you, oldest first:\n${describeScreen(options.screen, labels)}\nYou can refer to them. Never read a card out word for word. The screen follows the conversation by itself, so when the user asks to bring a card back, look at another or put them away, just answer: no tool moves cards. But when they ask to hear more about one, or to have it opened, that card was only ever a glance: call research with its full headline or name as the question and depth deep, rather than answering from the little it already shows.`,
     })
   }
+  if (options.conversationState) history.push({ role: 'system', content: conversationContext(options.conversationState) })
   history.push(...messages.map((message) => ({ role: message.role, content: message.content })))
 
   // Every delta is cleaned before anyone sees it, so the caption and the voice

@@ -24,6 +24,7 @@ import { RequestValidationError, parseChatBody, parseVoiceBody } from './openrou
 import { limiter, rateLimited } from './guard'
 import type { ToolOutcome } from './tools/registry'
 import { readScreen } from './stage-judge'
+import { readConversationState } from './conversation-state'
 import type { CoarseLocation } from './location'
 import type { MemoryStore } from './tools/memory'
 import type { MemorySession } from './memory'
@@ -222,6 +223,7 @@ export function createRealtimeSession(
         memoryStore: options.memoryStore,
         memorySession: options.memorySession,
         screen: readScreen(frame.screen),
+        conversationState: readConversationState(frame.conversationState),
         // The device's own answer, once a tool has had to ask, is surer than the address lookup.
         location: located ?? options.location ?? null,
         onLocation: (location) => {

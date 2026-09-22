@@ -3,6 +3,7 @@ import { parseChatBody, RequestValidationError, apiError } from '../lib/openrout
 import { guardRequest, streamChat } from '../lib/openrouter.server'
 import { captureServerEvent } from '../lib/posthog-server'
 import { readScreen } from '../lib/stage-judge'
+import { readConversationState } from '../lib/conversation-state'
 
 /**
  * Streaming HTTP fallback for the realtime link. Emits the same protocol frames
@@ -22,6 +23,7 @@ export const Route = createFileRoute('/api/chat')({
             timezone?: unknown
             speculative?: unknown
             screen?: unknown
+            conversationState?: unknown
           }
           const id = typeof body?.id === 'string' ? body.id : 'turn'
           const timezone =
@@ -39,6 +41,7 @@ export const Route = createFileRoute('/api/chat')({
             timezone,
             body?.speculative === true,
             readScreen(body?.screen),
+            readConversationState(body?.conversationState),
             request,
           )
         } catch (error) {

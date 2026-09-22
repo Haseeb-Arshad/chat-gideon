@@ -313,6 +313,7 @@ export interface EpisodeCheckpointPayload {
   openItems: readonly string[]
   meaningfulOutcomes: readonly string[]
   sourceWatermark: string
+  state: BoundedJson
 }
 
 export type AssertionKind = 'fact' | 'preference' | 'constraint' | 'decision' | 'episode_checkpoint'
@@ -925,9 +926,10 @@ function parseAssertionPayload(value: unknown, path: string, issues: ContractIss
     return topic && decision ? { kind, topic, decision, alternatives, reasons } : null
   }
   if (kind === 'episode_checkpoint') {
-    issues.push(...unknownFields(value, ['kind', 'topic', 'decisions', 'alternatives', 'reasons', 'openItems', 'meaningfulOutcomes', 'sourceWatermark'], path))
+    issues.push(...unknownFields(value, ['kind', 'topic', 'decisions', 'alternatives', 'reasons', 'openItems', 'meaningfulOutcomes', 'sourceWatermark', 'state'], path))
     const topic = stringValue(value.topic, `${path}.topic`, issues, 240)
     const sourceWatermark = stringValue(value.sourceWatermark, `${path}.sourceWatermark`, issues, 160)
+    const state = boundedJson(value.state, `${path}.state`, issues)
     const readList = (key: string) => {
       const candidate = value[key]
       if (!Array.isArray(candidate)) {
@@ -945,7 +947,7 @@ function parseAssertionPayload(value: unknown, path: string, issues: ContractIss
     const reasons = readList('reasons')
     const openItems = readList('openItems')
     const meaningfulOutcomes = readList('meaningfulOutcomes')
-    return topic && sourceWatermark ? { kind, topic, decisions, alternatives, reasons, openItems, meaningfulOutcomes, sourceWatermark } : null
+    return topic && sourceWatermark && state !== null ? { kind, topic, decisions, alternatives, reasons, openItems, meaningfulOutcomes, sourceWatermark, state } : null
   }
   return null
 }

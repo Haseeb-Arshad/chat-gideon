@@ -19,6 +19,7 @@ import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
 import { resolveNodeMemorySession } from '../server/node-memory-session'
+import { readConversationState, type ConversationState } from './conversation-state'
 
 export { getPublicConfig, warmUpstream }
 
@@ -60,6 +61,8 @@ export function streamChat(
   speculative?: boolean,
   /** What the page is showing, already read and bounded. */
   screen?: import('./stage-judge').ScreenState | null,
+  /** Bounded, attributed continuity supplied by the browser. */
+  conversationState?: ConversationState | null,
   /** The request itself, so memory can be resolved from its cookie. */
   request?: Request,
 ): Response {
@@ -76,6 +79,7 @@ export function streamChat(
           timezone,
           speculative,
           screen,
+          conversationState: conversationState ? readConversationState(conversationState) : null,
           memorySession,
         })) {
           if (signal.aborted) break

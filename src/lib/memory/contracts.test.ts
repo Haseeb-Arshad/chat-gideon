@@ -137,6 +137,37 @@ describe('memory contract runtime validation', () => {
     expect(parsed.ok).toBe(true)
   })
 
+  it('requires a bounded serialized state for episode checkpoints', () => {
+    const base = {
+      schemaVersion: 1,
+      id: 'assertion/episode/1',
+      revision: 1,
+      scopeId: 'user/1',
+      subject: { kind: 'known', subjectId: 'user/1' },
+      kind: 'episode_checkpoint',
+      attribution: { actor: { kind: 'assistant', assistantId: 'gideon' }, basis: 'inference' },
+      polarity: 'unknown',
+      status: 'accepted',
+      time: { validTime: { from: null, until: null, precision: 'unknown', sourceTimeZone: null }, receivedAt: '2026-09-21T10:00:00.000Z', interpretedAt: '2026-09-21T10:00:00.000Z', relation: 'ordinary' },
+      evidence: [],
+      dependencies: [],
+      producer: { name: 'conversation-state', version: '1', model: null },
+    }
+    const payload = {
+      kind: 'episode_checkpoint',
+      topic: 'Plans',
+      decisions: [],
+      alternatives: ['Plan A', 'Plan B'],
+      reasons: ['Cost unresolved'],
+      openItems: ['cost'],
+      meaningfulOutcomes: [],
+      sourceWatermark: 'turn/3',
+      state: { schemaVersion: 1, sourceSequence: 3, recentTurns: [] },
+    }
+    expect(parseAssertionVersion({ ...base, payload }).ok).toBe(true)
+    expect(parseAssertionVersion({ ...base, payload: { ...payload, state: undefined } }).ok).toBe(false)
+  })
+
   it('rejects unregistered slot cardinality but permits unresolved free-form claims', () => {
     const base = {
       schemaVersion: 1,

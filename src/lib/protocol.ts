@@ -15,6 +15,7 @@
 import type { CardPatch } from './cards/patch'
 import type { CardV2 } from './cards/schema'
 import type { ScreenState } from './stage-judge'
+import type { ConversationState } from './conversation-state'
 
 export const REALTIME_PATH = '/api/realtime'
 /** 3: cards are sent as blocks, and grow by `card_patch`. */
@@ -43,6 +44,8 @@ export type ClientFrame =
       speculative?: boolean
       /** What the page is showing, so the server can keep it in step with the talk. */
       screen?: ScreenState
+      /** Bounded, attributed continuity supplied for this turn. */
+      conversationState?: ConversationState
     }
   | { t: 'speak'; id: string; seq: number; text: string }
   | { t: 'cancel'; id: string }

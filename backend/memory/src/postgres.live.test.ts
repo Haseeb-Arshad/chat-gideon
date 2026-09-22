@@ -10,6 +10,8 @@ import { applyMigrations } from './migrations.ts'
 import { claimJobs, completeJob, failJob } from './jobs.ts'
 import { PostgresMemoryStore } from './postgres.ts'
 import { sha256 } from './serialization.ts'
+import { persistEpisodeCheckpoint, resumeEpisodeCheckpoint } from './episodes.ts'
+import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
   createDeletionPlan,
   createMemoryDispatchGuard,
@@ -720,4 +722,68 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
     expect(authority.rows[0]?.policy_epoch).toBe('1')
     expect(authority.rows[0]?.actions).toEqual(expect.arrayContaining(['forget', 'inspect']))
   })
+
+  it('Stage 06 persists a bounded episode checkpoint, resumes it in a fresh session, and deletion removes it', async () => {
+    const owner = `user/${run}-stage06-episode`
+    const memorySession = session(owner)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const firstAt = '2026-09-21T09:00:00.000Z'
+    const source = eventFor(memorySession, `${run}-stage06-source`, 1, firstAt)
+    expect(await captureCommittedEvent(store, memorySession, source, { now: firstAt })).toMatchObject({ ok: true, state: 'captured' })
+
+    let current = createConversationState({ conversationId: `conversation/${run}/stage06`, sessionId: `session/${run}/stage06`, now: firstAt })
+    current = reduceConversationState(current, {
+      type: 'turn_committed',
+      turn: { turnId: 'turn/stage06/1', revision: 1, sequence: 1, role: 'user', text: 'Compare the two plans.', source: 'final_transcript', committedAt: firstAt, delivery: 'committed', heardText: null },
+      topic: { topicId: 'topic/plans', label: 'Plans' },
+    })
+    current = reduceConversationState(current, {
+      type: 'decision_recorded',
+      decision: {
+        decisionId: 'decision/plans', topicId: 'topic/plans', question: 'Which plan?',
+        alternatives: [{ stableId: 'plan/a', label: 'Plan A', rejectionReason: 'Cost unresolved' }, { stableId: 'plan/b', label: 'Plan B', rejectionReason: null }],
+        selectedId: null, statedReasons: ['Keep the rollout quiet'], unresolvedFactors: ['cost'], sourceTurnId: 'turn/stage06/1', sourceSequence: 2, status: 'open', derivedFrom: ['turn/stage06/1'],
+      },
+    })
+    const first = checkpointConversationState(current, { now: firstAt })
+    const consent = { id: `consent/${run}/stage06` as ConsentId, policyVersion: `revision/policy/${run}` as RevisionId, purpose: 'memory_retention' as const }
+    const persisted = await persistEpisodeCheckpoint(durable, { episodeId: `episode/${run}/stage06`, state: first, sourceEventIds: [source.id], consent, now: firstAt })
+    expect(persisted).toMatchObject({ ok: true, assertion: { revision: 1 }, receipt: { ok: true, state: 'accepted' } })
+    if (!persisted.ok) return
+
+    const duplicate = await persistEpisodeCheckpoint(durable, { episodeId: `episode/${run}/stage06`, state: first, sourceEventIds: [source.id], consent, now: firstAt })
+    expect(duplicate).toMatchObject({ ok: true, assertion: { revision: 1 }, receipt: { eventId: persisted.receipt.eventId } })
+
+    const secondAt = '2026-09-21T09:01:00.000Z'
+    const sourceTwo = eventFor(memorySession, `${run}-stage06-source`, 3, secondAt)
+    expect(await captureCommittedEvent(store, memorySession, sourceTwo, { now: secondAt })).toMatchObject({ ok: true, state: 'captured' })
+    current = reduceConversationState(first, {
+      type: 'turn_committed',
+      turn: { turnId: 'turn/stage06/2', revision: 1, sequence: 3, role: 'user', text: 'Keep the cost question open.', source: 'final_transcript', committedAt: secondAt, delivery: 'committed', heardText: null },
+    })
+    const second = checkpointConversationState(current, { now: secondAt })
+    const updated = await persistEpisodeCheckpoint(durable, { episodeId: `episode/${run}/stage06`, state: second, sourceEventIds: [source.id, sourceTwo.id], consent, now: secondAt })
+    expect(updated).toMatchObject({ ok: true, assertion: { revision: 2 }, receipt: { state: 'accepted' } })
+
+    const resumedSession = session(owner)
+    await store.provisionTrustedContext(resumedSession)
+    const resumed = await resumeEpisodeCheckpoint(postgresSession(resumedSession, store), `episode/${run}/stage06`, { now: secondAt })
+    expect(resumed).toMatchObject({ ok: true, status: 'resumed', state: { sourceWatermark: 'turn/3', decisions: [{ decisionId: 'decision/plans' }], recentTurns: [{ text: 'Compare the two plans.' }, { text: 'Keep the cost question open.' }] } })
+
+    const other = session(`user/${run}-stage06-other`)
+    await store.provisionTrustedContext(other)
+    expect(await resumeEpisodeCheckpoint(postgresSession(other, store), `episode/${run}/stage06`, { now: secondAt })).toMatchObject({ ok: true, status: 'not_found' })
+
+    const planned = await createDeletionPlan(durable, { targetAssertionId: persisted.assertion.id, targetRevision: 2, query: null }, { now: '2026-09-21T09:02:00.000Z' })
+    expect(planned).toMatchObject({ ok: true })
+    if (!planned.ok) return
+    const deleted = await executeDeletionPlan(durable, planned.plan.planId, { now: '2026-09-21T09:02:01.000Z' })
+    expect(deleted).toMatchObject({ ok: true, receipt: { reuseBlocked: true } })
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const batch = await runPurgeBatch(store, { now: '2026-09-21T09:03:00.000Z', limit: 50 })
+      if (batch.claimed === 0) break
+    }
+    expect(await resumeEpisodeCheckpoint(postgresSession(resumedSession, store), `episode/${run}/stage06`, { now: '2026-09-21T09:04:00.000Z' })).toMatchObject({ ok: true, status: 'not_found' })
+  }, 20_000)
 })

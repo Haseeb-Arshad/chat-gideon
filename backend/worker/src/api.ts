@@ -17,6 +17,7 @@ import {
 } from '../../../src/lib/openrouter'
 import { encodeFrame, type ServerFrame } from '../../../src/lib/protocol'
 import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
+import { readConversationState, type ConversationState } from '../../../src/lib/conversation-state'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { ensureAccount, ownerOf, OwnerUnavailable } from './accounts'
 import { memoryStoreForHttp } from './memory'
@@ -83,6 +84,7 @@ function streamChat(
   timezone: string | undefined,
   speculative: boolean,
   screen: ScreenState | null,
+  conversationState: ConversationState | null,
 ): Response {
   const encoder = new TextEncoder()
   // Every verified owner's reads and writes meet the same serialised authority
@@ -103,6 +105,7 @@ function streamChat(
           speculative,
           memorySession,
           screen,
+          conversationState,
           location: locationFromCf((request as { cf?: unknown }).cf),
         })) {
           if (request.signal.aborted) break
@@ -144,7 +147,7 @@ async function chat(request: Request, env: Env) {
 
   try {
     const parsed = parseChatBody(body)
-    const value = body as { id?: unknown; timezone?: unknown; speculative?: unknown; screen?: unknown }
+    const value = body as { id?: unknown; timezone?: unknown; speculative?: unknown; screen?: unknown; conversationState?: unknown }
     const id = typeof value.id === 'string' ? value.id : 'turn'
     const timezone = typeof value.timezone === 'string' ? value.timezone.slice(0, 64) : undefined
     return streamChat(
@@ -156,6 +159,7 @@ async function chat(request: Request, env: Env) {
       timezone,
       value.speculative === true,
       readScreen(value.screen),
+      readConversationState(value.conversationState),
     )
   } catch (error) {
     if (error instanceof RequestValidationError) {

@@ -23,6 +23,7 @@ import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
 import type { CardV2 } from './cards/schema'
 import type { ScreenState, StageMove } from './stage-judge'
+import type { ConversationState } from './conversation-state'
 
 export type LinkTransport = 'idle' | 'connecting' | 'socket' | 'http'
 
@@ -331,7 +332,7 @@ export class RealtimeLink {
     id: string,
     messages: ChatTurnMessage[],
     handlers: TurnHandlers,
-    options: { speculative?: boolean; screen?: ScreenState } = {},
+    options: { speculative?: boolean; screen?: ScreenState; conversationState?: ConversationState } = {},
   ): TurnHandle {
     if (this.disposed) {
       handlers.onError('The link closed.', false)
@@ -357,6 +358,7 @@ export class RealtimeLink {
         timezone: localTimezone(),
         speculative: options.speculative,
         screen: options.screen,
+        conversationState: options.conversationState,
       })
       return {
         id,
@@ -370,7 +372,7 @@ export class RealtimeLink {
 
     const controller = new AbortController()
     this.httpControllers.set(id, controller)
-    void this.runHttpTurn(id, messages, controller.signal, options.speculative, options.screen)
+    void this.runHttpTurn(id, messages, controller.signal, options.speculative, options.screen, options.conversationState)
     return {
       id,
       cancel: () => {
@@ -623,6 +625,7 @@ export class RealtimeLink {
     signal: AbortSignal,
     speculative?: boolean,
     screen?: ScreenState,
+    conversationState?: ConversationState,
   ) {
     const handlers = this.turns.get(id)
     if (!handlers) return
@@ -633,7 +636,7 @@ export class RealtimeLink {
       const response = await fetch(backendUrl('/api/chat'), {
         method: 'POST',
         headers: backendHeaders('application/json'),
-        body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative, screen }),
+        body: JSON.stringify({ id, messages, timezone: localTimezone(), speculative, screen, conversationState }),
         signal,
       })
 

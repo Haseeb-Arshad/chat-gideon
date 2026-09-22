@@ -56,6 +56,12 @@ import { ResourcesPanel, type Resource, type ResourceLink } from './ResourcesPan
 import { StageShelf } from './StageShelf'
 import { clearHistory, restoreHistory, persistHistory, INTERRUPTED, type Message } from './agentHistory'
 import { InputGeneration, SegmentAccumulator, isComposingKey, playbackCaption } from './agentLifecycle'
+import {
+  createConversationState,
+  reduceConversationState,
+  type ConversationEvent,
+  type ConversationState,
+} from '../lib/conversation-state'
 
 /**
  * `replying` is the state between the first streamed token and audible playback.
@@ -459,6 +465,9 @@ export function AgentPage() {
   const phaseRef = useRef<Phase>('idle')
   const voiceModeRef = useRef<VoiceMode>('active')
   const messagesRef = useRef<Message[]>([WELCOME_MESSAGE])
+  const conversationStateRef = useRef<ConversationState>(
+    createConversationState({ conversationId: 'conversation/browser', sessionId: 'session/browser' }),
+  )
   const linkRef = useRef<RealtimeLink | null>(null)
   const listenerRef = useRef<Listener | null>(null)
   const captureRef = useRef<MicCapture | null>(null)
@@ -515,6 +524,10 @@ export function AgentPage() {
   const setVoiceMode = useCallback((next: VoiceMode) => {
     voiceModeRef.current = next
     setVoiceModeState(next)
+  }, [])
+
+  const recordConversationEvent = useCallback((event: ConversationEvent) => {
+    conversationStateRef.current = reduceConversationState(conversationStateRef.current, event)
   }, [])
 
   const scheduleListen = useCallback((delay: number, preserveDeadline = false) => {
@@ -693,6 +706,34 @@ export function AgentPage() {
     setStageMode(next)
   }, [])
 
+  const recordArtifactDisplay = useCallback((sourceTurnId: string) => {
+    const items = stageEntriesRef.current.flatMap((entry) =>
+      entry.card && !entry.leaving
+        ? [{ stableId: entry.id, label: entry.card.title, kind: entry.card.recipe }]
+        : [],
+    )
+    if (!items.length) return
+    const current = conversationStateRef.current
+    const revision = Math.max(
+      0,
+      ...current.artifacts
+        .filter((artifact) => artifact.artifactId === 'screen')
+        .map((artifact) => artifact.displayRevision),
+    ) + 1
+    recordConversationEvent({
+      type: 'artifact_changed',
+      snapshot: {
+        artifactId: 'screen',
+        displayRevision: revision,
+        title: 'GIDEON stage',
+        items,
+        sourceTurnId,
+        sourceSequence: current.sourceSequence + 1,
+        status: 'visible',
+      },
+    })
+  }, [recordConversationEvent])
+
   const focus = useCallback((id: string | null) => {
     frontIdRef.current = id
     setFrontId(id)
@@ -751,8 +792,21 @@ export function AgentPage() {
       openedForRef.current = null
       focus(id)
       setMode('open')
+      const snapshot = [...conversationStateRef.current.artifacts]
+        .filter((artifact) => artifact.artifactId === 'screen')
+        .sort((left, right) => right.displayRevision - left.displayRevision)[0]
+      if (snapshot?.items.some((item) => item.stableId === id)) {
+        recordConversationEvent({
+          type: 'artifact_selected',
+          artifactId: 'screen',
+          displayRevision: snapshot.displayRevision,
+          selectedId: id,
+          sourceTurnId: `ui/${id}`,
+          sourceSequence: conversationStateRef.current.sourceSequence + 1,
+        })
+      }
     },
-    [cancelLater, focus, setMode],
+    [cancelLater, focus, recordConversationEvent, setMode],
   )
 
   /** A searching pane that came to nothing dissolves, and is let go once it has. */
@@ -852,8 +906,9 @@ export function AgentPage() {
         return
       }
       openOn(id)
+      recordArtifactDisplay(id.split(':', 1)[0] || id)
     },
-    [cancelLater, dropCard, openOn, updateStage],
+    [cancelLater, dropCard, openOn, recordArtifactDisplay, updateStage],
   )
 
   /**
@@ -869,8 +924,9 @@ export function AgentPage() {
           entry.id === id && entry.card ? { ...entry, card: applyPatch(entry.card, patch) } : entry,
         ),
       )
+      recordArtifactDisplay(id.split(':', 1)[0] || id)
     },
-    [updateStage],
+    [recordArtifactDisplay, updateStage],
   )
 
   /** Research came back, so its card should follow; if it never does, the pane goes. */
@@ -1301,6 +1357,29 @@ export function AgentPage() {
     setVoicingId(null)
 
     if (spoken) {
+      if (!conversationStateRef.current.recentTurns.some((item) => item.turnId === turn.id)) {
+        recordConversationEvent({
+          type: 'turn_committed',
+          turn: {
+            turnId: turn.id,
+            revision: 1,
+            sequence: conversationStateRef.current.sourceSequence + 1,
+            role: 'assistant',
+            text: turn.complete,
+            source: 'assistant_generated',
+            committedAt: new Date().toISOString(),
+            delivery: 'committed',
+            heardText: null,
+          },
+        })
+      }
+      recordConversationEvent({
+        type: 'interrupted',
+        turnId: turn.id,
+        sourceRevision: 1,
+        heardText: spoken,
+        sourceSequence: conversationStateRef.current.sourceSequence + 1,
+      })
       const assistantMessage: Message = {
         id: turn.messageId ?? makeId(),
         role: 'assistant',
@@ -1332,7 +1411,7 @@ export function AgentPage() {
     if (!partialTimerRef.current) {
       partialTimerRef.current = setInterval(() => runPartialRef.current(), 850)
     }
-  }, [abandon, setPhase])
+  }, [abandon, recordConversationEvent, setPhase])
 
   /**
    * Something that might be the user started while GIDEON was talking.
@@ -1474,6 +1553,20 @@ export function AgentPage() {
           content: turn.complete,
           createdAt: new Date().toISOString(),
         }
+        recordConversationEvent({
+          type: 'turn_committed',
+          turn: {
+            turnId: turn.id,
+            revision: 1,
+            sequence: conversationStateRef.current.sourceSequence + 1,
+            role: 'assistant',
+            text: turn.complete,
+            source: 'assistant_generated',
+            committedAt: assistantMessage.createdAt,
+            delivery: 'committed',
+            heardText: null,
+          },
+        })
         const next = [...context, assistantMessage]
         turn.messageId = assistantMessage.id
         if (voice) setVoicingId(assistantMessage.id)
@@ -1516,7 +1609,7 @@ export function AgentPage() {
       if (turn.finished) void settle()
       else turn.onFinish = settle
     },
-    [deliver, feel, scheduleListen, setPhase, showAction],
+    [deliver, feel, recordConversationEvent, scheduleListen, setPhase, showAction],
   )
 
   /**
@@ -1609,7 +1702,7 @@ export function AgentPage() {
             if (voiceModeRef.current === 'active') scheduleListen(700)
           },
         },
-        { speculative, screen: screenNow() },
+        { speculative, screen: screenNow(), conversationState: conversationStateRef.current },
       )
 
       turn.timeline.mark('turn_sent')
@@ -1647,6 +1740,20 @@ export function AgentPage() {
         content: text,
         createdAt: new Date().toISOString(),
       }
+      recordConversationEvent({
+        type: 'turn_committed',
+        turn: {
+          turnId: userMessage.id,
+          revision: 1,
+          sequence: conversationStateRef.current.sourceSequence + 1,
+          role: 'user',
+          text,
+          source: 'final_transcript',
+          committedAt: userMessage.createdAt,
+          delivery: 'committed',
+          heardText: null,
+        },
+      })
       const context = [...messagesRef.current, userMessage]
 
       // Resolve any guesses made while this sentence was still being spoken.
@@ -1693,7 +1800,7 @@ export function AgentPage() {
 
       promote(turn, text, context)
     },
-    [abandon, beginTurn, feel, invalidateInput, posthog, promote, resetSilenceTimer, stopPartials, tuckStage],
+    [abandon, beginTurn, feel, invalidateInput, posthog, promote, recordConversationEvent, resetSilenceTimer, stopPartials, tuckStage],
   )
 
   /**
@@ -2133,6 +2240,10 @@ export function AgentPage() {
     setResources([])
     setResourcesOpen(false)
     setResourcesSeen(0)
+    conversationStateRef.current = createConversationState({
+      conversationId: `conversation/${makeId()}`,
+      sessionId: 'session/browser',
+    })
     resetStage()
     clearHistory()
 
