@@ -1,8 +1,11 @@
 # Stage 08 handoff: hybrid retrieval and context composition
 
-Status: LOCAL_VERIFIED  
-Implementation commit or working-tree identifier: `de46c69ec6ff1fe098da195da68239c7def007d6` (`feat(memory): implement stage 08 retrieval`)  
-Date: 2026-09-23  
+Status: LOCAL_VERIFIED
+
+Implementation commit or working-tree identifier: `de46c69ec6ff1fe098da195da68239c7def007d6` (`feat(memory): implement stage 08 retrieval`)
+
+Date: 2026-09-23
+
 Environment: Windows local checkout, Node `v22.13.0`, disposable PostgreSQL 17 used by the owned local memory test harness
 
 ## Prerequisite evidence
