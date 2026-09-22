@@ -286,6 +286,78 @@ deployment, provider call, live voice test or real-user cache/deletion drill was
 run. The five-second private cache is an inspectable bounded view, not an
 independent authority and not an indefinite lease.
 
+## Stage 08 hybrid retrieval and context composition
+
+- `src/lib/memory/retrieval.ts` defines the authenticated `RetrievalRequest`,
+  rejects caller-supplied authority, retains unresolved referents as unknown,
+  builds a bounded query from resolved context and a small relevant committed
+  span, ranks authorized lexical candidates, fuses branches deterministically,
+  selects constraints independently of lexical overlap, and composes attributed
+  context sections under a provider tokenizer or conservative UTF-8-byte
+  ceiling. Non-positive cosine scores do not become semantic candidates.
+- `backend/memory/src/retrieval.ts` is the Node/PostgreSQL adapter. Exact
+  assertion/entity/decision reads, current constraints, PostgreSQL full-text
+  search, requested warm-snapshot hints, exact versioned-vector scans and
+  permitted source-only fallback run under a shared deadline. SQL scopes before
+  candidate selection; hydration rechecks accepted versions and suppression;
+  source fallback is limited to this principal's committed user statements and
+  corrections with memory-capture/retention consent. A final policy/deletion
+  epoch comparison withholds stale results. Returned packs require dispatch
+  revalidation and confer no action authority.
+- `indexAuthorizedEmbeddings()` accepts at most 16 exact current accepted
+  versions, skips secret-like text before the provider call, stores only a
+  scope/version/model/dimension/content-hash/vector record, and rechecks current
+  authority before insert. Remote providers require a server-side authorization
+  callback; no real provider is configured by default. Semantic hydration
+  recomputes source hashes and validates evidence ownership, consent, source
+  eligibility, source reference and suppression before ranking a stored vector.
+- Exact cosine search is capped at 512 rows per scope and filters scope,
+  current revision, model/version, dimensions, content hash and positive
+  similarity before score ordering. It is a bounded development-scale scan, not
+  an ANN index. PostgreSQL full text uses OR-composed bounded terms and GIN
+  expression indexes.
+- Constraint selection preserves unknown conditions as conditional, honors
+  validity/exception windows and explicit task-only overrides, and keeps a
+  general preference out of a task when neither explicit scope/condition nor
+  useful lexical relevance applies. Hard constraints have priority; if budget
+  cannot carry one, the pack exposes omitted handles and a budget-exhausted
+  warning rather than silently implying it does not exist. Facts/conflict
+  bundles are all-or-nothing; partial context status is consolidated into the
+  coverage line so the highest-ranked fact is not discarded merely to print a
+  long omission list.
+- `runBoundedDeepRecall()` exposes cancellation and hard caps of 32 relationship
+  edges and 64 evidence fetches. The exported adapter remains a seam; this stage
+  does not add a user-facing route, automatic recall dispatch, reranker, Jev
+  dependency, or graph database.
+- `backend/memory/migrations/005-retrieval-embeddings.sql` adds the scoped
+  derivative table and full-text indexes after migrations 001–004. It has been
+  applied only by the owned disposable PostgreSQL test harness; it has not been
+  run on a shared, staging, or production database.
+- Tests: `src/lib/memory/retrieval.test.ts` covers request identity, unresolved
+  references, Roman Urdu/negation, C07 expiry, C09 applicability, C10 irrelevant
+  profile exclusion, C28 contextual preferences, C35 volatile prices, C36 task
+  overrides, tenant/revision/model/vector filtering, conflicts, token ceilings,
+  partial packs, C27 honest empty results and bounded cancellation.
+  `backend/memory/src/postgres.live.test.ts` adds real PostgreSQL C09/C24/C27
+  reads, evidence-only fallback, cross-scope isolation, metadata-only vector
+  persistence, secret/remote-provider denial, current-revision retrieval,
+  warm-preferred correction freshness and deletion cascade checks.
+- `scripts/memory-retrieval-ablation.test.ts`, run by
+  `npm run memory:retrieval:ablation`, pairs lexical, deterministic hybrid and
+  applicability variants on 12 synthetic fixtures. Aggregate evidence is in
+  `docs/memory/reports/stage-08-retrieval-ablation.json`. Fixture vectors are
+  control-flow probes only; latency excludes PostgreSQL, provider, network and
+  application/voice costs and cannot establish real semantic quality.
+- `backend/memory/README.md` lists migration 005 and keeps its migration local-
+  test-only for this stage. `src/lib/memory/index.ts` and
+  `backend/memory/src/index.ts` export the retrieval contracts/adapter without
+  wiring them into the application entry points.
+
+Stage 08 is locally verified only after the ledger is marked `LOCAL_VERIFIED`
+and the handoff records the final test run. No staging/production migration,
+provider/model call, deployment, route integration, live voice check or
+real-user privacy drill is performed. Stage 09 owns app and voice integration.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
@@ -337,4 +409,7 @@ migration, provider, grant broadening, or deployment was added.
 - `backend/memory/src/postgres.live.test.ts`: Stage 06 real PostgreSQL checkpoint idempotency, revision updates, fresh-session resume, scope isolation and deletion/purge coverage, run through `npm run memory:postgres:test`.
 - `src/lib/memory/projections.test.ts`: Stage 07 edge-safe profile, snapshot, correction-overlay, cache, invalidation, parser-bound and telemetry tests.
 - `backend/memory/src/postgres.live.test.ts`: Stage 07 real PostgreSQL projection preparation/publication, signed change-feed cursor pagination/reset, stale computation rejection and deletion purge coverage, run through `npm run memory:postgres:test`.
+- `src/lib/memory/retrieval.test.ts`: Stage 08 request/query planning, ranking/applicability, exact-vector filters, expiry, conflicts, safe preference overrides and tokenizer/budget outcomes.
+- `backend/memory/src/postgres.live.test.ts`: Stage 08 real PostgreSQL exact/lexical/evidence retrieval, tenant isolation, embedding index/revision checks, provider authorization, warm correction and deletion cascade coverage.
+- `scripts/memory-retrieval-ablation.test.ts` and `docs/memory/reports/stage-08-retrieval-ablation.json`: paired synthetic-only lexical/hybrid/applicability diagnostics; no model/network calls.
 - `backend/memory/README.md`: local disposable PostgreSQL, migration, credential and rollback instructions.

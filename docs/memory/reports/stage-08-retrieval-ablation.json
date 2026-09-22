@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-22T22:54:14Z",
+  "run": "npm run memory:retrieval:ablation",
+  "environment": "local synthetic development fixtures",
+  "fixtureCount": 12,
+  "goldRelevantDocumentsPerFixture": 2,
+  "contextCounter": "utf8-byte-upper-bound-v1",
+  "provider": {
+    "model": null,
+    "externalCalls": 0,
+    "networkCalls": 0,
+    "costUsd": 0
+  },
+  "variants": {
+    "lexical": {
+      "relevantHits": 12,
+      "relevantPossible": 24,
+      "relevantRecall": 0.5,
+      "contextRelevantHits": 12,
+      "contextRelevantRecall": 0.5,
+      "applicableHardConstraints": 0,
+      "applicableHardConstraintPossible": 12,
+      "medianCandidates": 1,
+      "medianContextBytes": 529,
+      "medianLocalFixtureLatencyMs": 0.1883
+    },
+    "hybrid": {
+      "relevantHits": 24,
+      "relevantPossible": 24,
+      "relevantRecall": 1,
+      "contextRelevantHits": 24,
+      "contextRelevantRecall": 1,
+      "applicableHardConstraints": 0,
+      "applicableHardConstraintPossible": 12,
+      "medianCandidates": 2,
+      "medianContextBytes": 671,
+      "medianLocalFixtureLatencyMs": 0.1519
+    },
+    "applicability": {
+      "relevantHits": 24,
+      "relevantPossible": 24,
+      "relevantRecall": 1,
+      "contextRelevantHits": 24,
+      "contextRelevantRecall": 1,
+      "applicableHardConstraints": 12,
+      "applicableHardConstraintPossible": 12,
+      "medianCandidates": 2,
+      "medianContextBytes": 938,
+      "medianLocalFixtureLatencyMs": 0.2544
+    }
+  },
+  "diagnostics": {
+    "filteredCandidates": 60,
+    "expectedFilteredCandidates": 60,
+    "perFixture": {
+      "crossScope": 1,
+      "wrongModelVersion": 1,
+      "nonPositiveSimilarity": 3
+    },
+    "rawTextLogged": false
+  },
+  "caveat": "Hand-authored vectors and synthetic fixtures exercise deterministic control flow only. These results are not evidence of real-world semantic quality, production latency, or provider cost. Measured local fixture latency excludes PostgreSQL, embedding providers, network, and voice/application integration."
+}
