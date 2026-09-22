@@ -54,6 +54,12 @@ The schema is isolated under `gideon_memory` and is applied in filename order:
 - `migrations/003-commands-and-temporal.sql`: deterministic command identity,
   per-scope quota admission, accepted command receipts, and monotonic accepted
   change-feed watermarks.
+- `migrations/004-deletion-revocation.sql`: durable deletion plans, source and
+  assertion suppression, purge work, grant revocation, and epoch advancement.
+- `migrations/005-retrieval-embeddings.sql`: scoped, revision-bound vector
+  metadata and exact embeddings without duplicated source text, plus bounded
+  full-text search indexes. This migration is local/test-only in Stage 08; it
+  has not been run against staging or production.
 
 ## Explicit command boundary
 

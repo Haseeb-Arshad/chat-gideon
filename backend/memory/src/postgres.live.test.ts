@@ -22,6 +22,8 @@ import {
   readWarmSnapshot,
   rebuildWarmSnapshot,
 } from './projections.ts'
+import { indexAuthorizedEmbeddings, retrieveMemory, type RetrievalEmbeddingProvider } from './retrieval.ts'
+import { createRetrievalRequest } from '../../../src/lib/memory/retrieval.ts'
 import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
   createDeletionPlan,
@@ -49,6 +51,31 @@ function session(owner: string) {
 
 function postgresSession(memorySession: ReturnType<typeof session>, store: PostgresMemoryStore) {
   return { ...memorySession, store } as typeof memorySession & { store: PostgresMemoryStore }
+}
+
+function retrievalInput(query: string, now = new Date(), extra: Record<string, unknown> = {}) {
+  return {
+    query,
+    resolved: { topicId: null, topicLabel: null, entities: [], assertionIds: [], artifactIds: [], unknownReferents: [] },
+    activity: { kind: null, topicId: null, topicLabel: null, projectId: null, format: null, attributes: {} },
+    requestedTime: { mode: 'current', instant: null, timeZone: 'UTC' },
+    consistency: 'authoritative',
+    budget: { tier: 'expanded', reserveAnswerTokens: 128, reserveToolTokens: 64 },
+    deadlineAt: new Date(now.getTime() + 15_000).toISOString(),
+    ...extra,
+  }
+}
+
+function localTestEmbeddingProvider(): RetrievalEmbeddingProvider {
+  return {
+    modelId: 'local/stage08-fixture',
+    modelVersion: 'fixture-v1',
+    dimensions: 2,
+    placement: 'local',
+    async embed(texts) {
+      return texts.map((text) => /cedar|quiet|meeting|where should we talk/iu.test(text) ? [1, 0] : [0, 1])
+    },
+  }
 }
 
 function eventFor(memorySession: ReturnType<typeof session>, run: string, index: number, receivedAt: string): EventEnvelope {
@@ -884,4 +911,262 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
     )
     expect(projectionRows.rows[0]).toEqual({ projections: '0', cache: '0', members: '0' })
   }, 20_000)
+
+  it('Stage 08 retrieves applicable constraints and source-only evidence without crossing tenant scopes', async () => {
+    const owner = `user/${run}-stage08-applicability`
+    const memorySession = session(owner)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const quiet = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-quiet-meetings`,
+      kind: 'remember',
+      text: 'Choose quiet venues for work meetings.',
+      assertionKind: 'constraint',
+      conditions: [{ key: 'activity', operator: 'equals', value: 'work_meeting' }],
+    })
+    expect(quiet).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 1 } })
+
+    const now = new Date()
+    const meetingActivity = { kind: 'work_meeting', topicId: null, topicLabel: null, projectId: null, format: null, attributes: {} }
+    const constraintInput = retrievalInput('Find a place near the office.', now, { activity: meetingActivity })
+    const constraintResult = await retrieveMemory(durable, constraintInput, { now: now.toISOString() })
+    expect(constraintResult.ok).toBe(true)
+    if (!constraintResult.ok) return
+    expect(constraintResult.pack.sections.applicableConstraints.map((item) => item.document.text)).toContain('Choose quiet venues for work meetings.')
+    expect(constraintResult.pack.text).toContain('prioritized independently of lexical rank')
+
+    const sourceEvent = {
+      ...eventFor(memorySession, `${run}-stage08-source-only`, 2, new Date().toISOString()),
+      payload: { text: 'I like saffron coffee from the tiny station shop.' },
+    }
+    expect(await captureCommittedEvent(store, memorySession, sourceEvent, { now: sourceEvent.receivedAt })).toMatchObject({ ok: true, state: 'captured' })
+    const evidenceNow = new Date()
+    const evidenceResult = await retrieveMemory(
+      durable,
+      retrievalInput('Where was the saffron coffee from?', evidenceNow),
+      { now: evidenceNow.toISOString() },
+    )
+    expect(evidenceResult.ok).toBe(true)
+    if (!evidenceResult.ok) return
+    expect(evidenceResult.pack.sections.evidenceOnly.map((item) => item.document.text)).toContain('I like saffron coffee from the tiny station shop.')
+    expect(evidenceResult.pack.text).toContain('Source evidence not represented by an accepted extracted assertion')
+    expect(evidenceResult.pack.text).toContain('do not upgrade it into durable memory')
+
+    const otherSession = session(`user/${run}-stage08-other-tenant`)
+    await store.provisionTrustedContext(otherSession)
+    const otherNow = new Date()
+    const otherResult = await retrieveMemory(
+      postgresSession(otherSession, store),
+      retrievalInput('Where was the saffron coffee from?', otherNow),
+      { now: otherNow.toISOString() },
+    )
+    expect(otherResult.ok).toBe(true)
+    if (!otherResult.ok) return
+    expect(otherResult.pack.text).not.toContain('tiny station shop')
+    expect(otherResult.pack.sections.evidenceOnly).toEqual([])
+  }, 20_000)
+
+  it('Stage 08 resolves exact valid-at reads across a transition and labels the historical version', async () => {
+    const memorySession = session(`user/${run}-stage08-valid-time`)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const initial = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-provider-alpha`,
+      kind: 'remember',
+      text: 'The active provider is Provider Alpha.',
+      assertionKind: 'fact',
+      conditions: [],
+      validTime: { from: '2026-09-01T00:00:00.000Z', until: null, precision: 'day', sourceTimeZone: 'UTC' },
+    }, { now: '2026-09-01T00:00:00.000Z' })
+    expect(initial).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 1 } })
+    if (!initial.ok) return
+    const correction = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-provider-beta-transition`,
+      kind: 'correct',
+      targetAssertionId: initial.assertion.id,
+      targetRevision: 1,
+      text: 'The active provider is Provider Beta.',
+      assertionKind: 'fact',
+      conditions: [],
+      relation: 'transition',
+      validTime: { from: '2026-09-10T00:00:00.000Z', until: null, precision: 'day', sourceTimeZone: 'UTC' },
+    }, { now: '2026-09-11T00:00:00.000Z' })
+    expect(correction).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 2 } })
+    if (!correction.ok) return
+
+    const beforeNow = new Date()
+    const before = await retrieveMemory(durable, retrievalInput('Which provider was active?', beforeNow, {
+      resolved: { topicId: null, topicLabel: null, entities: [], assertionIds: [initial.assertion.id], artifactIds: [], unknownReferents: [] },
+      requestedTime: { mode: 'valid_at', instant: '2026-09-05T12:00:00.000Z', timeZone: 'UTC' },
+    }), { now: beforeNow.toISOString() })
+    expect(before.ok).toBe(true)
+    if (!before.ok) return
+    expect(before.pack.sections.relevantFacts.map((item) => item.document.text)).toContain('The active provider is Provider Alpha.')
+    expect(before.pack.sections.relevantFacts.find((item) => item.document.text.includes('Provider Alpha'))?.document.reference?.revision).toBe(1)
+    expect(before.pack.text).toContain('historical version')
+
+    const afterNow = new Date()
+    const after = await retrieveMemory(durable, retrievalInput('Which provider was active?', afterNow, {
+      resolved: { topicId: null, topicLabel: null, entities: [], assertionIds: [initial.assertion.id], artifactIds: [], unknownReferents: [] },
+      requestedTime: { mode: 'valid_at', instant: '2026-09-12T12:00:00.000Z', timeZone: 'UTC' },
+    }), { now: afterNow.toISOString() })
+    expect(after.ok).toBe(true)
+    if (!after.ok) return
+    expect(after.pack.sections.relevantFacts.map((item) => item.document.text)).toContain('The active provider is Provider Beta.')
+    expect(after.pack.sections.relevantFacts.find((item) => item.document.text.includes('Provider Beta'))?.document.reference?.revision).toBe(2)
+  }, 20_000)
+
+  it('Stage 08 indexes only authorized safe text and semantically retrieves only the current assertion revision', async () => {
+    const memorySession = session(`user/${run}-stage08-semantic`)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const remembered = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-remember-cedar`,
+      kind: 'remember',
+      text: 'I prefer cedar rooms.',
+      assertionKind: 'preference',
+      conditions: [],
+    })
+    expect(remembered).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 1 } })
+    if (!remembered.ok) return
+
+    const now = new Date()
+    const input = retrievalInput('Where should we talk?', now)
+    const bound = createRetrievalRequest(memorySession, input, { now: now.toISOString() })
+    expect(bound.ok).toBe(true)
+    if (!bound.ok) return
+    const provider = localTestEmbeddingProvider()
+    const indexed = await indexAuthorizedEmbeddings(durable, [{ assertionId: remembered.assertion.id, revision: 1 }], provider, { request: bound.request })
+    if (indexed.status !== 'indexed') throw new Error(`Stage 08 embedding index failed: ${JSON.stringify(indexed)}`)
+    expect(indexed).toMatchObject({ status: 'indexed', modelId: 'local/stage08-fixture', modelVersion: 'fixture-v1', dimension: 2 })
+    expect(indexed.indexed).toBeGreaterThan(0)
+
+    const metadata = await database.query<{ source_kind: string; source_ref: string; source_event_id: string | null; model_id: string; model_version: string; dimensions: number; content_hash: string; embedding: string }>(
+      `SELECT source_kind, source_ref, source_event_id, model_id, model_version, dimensions, content_hash, embedding::text AS embedding
+       FROM gideon_memory.retrieval_embeddings WHERE scope_id = $1 AND assertion_id = $2`,
+      [memorySession.scope.id, remembered.assertion.id],
+    )
+    expect(metadata.rows).toHaveLength(2)
+    expect(metadata.rows).toContainEqual(expect.objectContaining({ source_kind: 'assertion', source_ref: `assertion/${remembered.assertion.id}/1`, source_event_id: null, model_id: provider.modelId, model_version: provider.modelVersion, dimensions: 2 }))
+    expect(metadata.rows).toContainEqual(expect.objectContaining({ source_kind: 'evidence', source_event_id: remembered.receipt.eventId }))
+    for (const row of metadata.rows) {
+      expect(row.content_hash).toMatch(/^[a-f0-9]{64}$/u)
+      expect(row.embedding).not.toContain('I prefer cedar rooms.')
+    }
+
+    const queryNow = new Date()
+    const semantic = await retrieveMemory(durable, retrievalInput('Where should we talk?', queryNow), { now: queryNow.toISOString(), embeddingProvider: provider })
+    expect(semantic.ok).toBe(true)
+    if (!semantic.ok) return
+    expect(semantic.diagnostics.semanticCandidates).toBeGreaterThan(0)
+    expect(semantic.pack.text).toContain('I prefer cedar rooms.')
+
+    const warmBuildNow = new Date()
+    expect(await rebuildWarmSnapshot(durable, { now: warmBuildNow.toISOString() })).toMatchObject({ status: 'published' })
+
+    const secretRemembered = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-secret-text`,
+      kind: 'remember',
+      text: 'api_key=AbCdEf0123456789abcdef',
+      assertionKind: 'fact',
+      conditions: [],
+    })
+    expect(secretRemembered.ok).toBe(true)
+    if (!secretRemembered.ok) return
+    let secretWasSentToProvider = false
+    const spyProvider: RetrievalEmbeddingProvider = {
+      ...provider,
+      async embed(texts, signal) {
+        if (texts.some((text) => /api_key/iu.test(text))) secretWasSentToProvider = true
+        return provider.embed(texts, signal)
+      },
+    }
+    const secretNow = new Date()
+    const secretRequest = createRetrievalRequest(memorySession, retrievalInput('api key', secretNow), { now: secretNow.toISOString() })
+    expect(secretRequest.ok).toBe(true)
+    if (!secretRequest.ok) return
+    const secretIndex = await indexAuthorizedEmbeddings(durable, [{ assertionId: secretRemembered.assertion.id, revision: 1 }], spyProvider, { request: secretRequest.request })
+    expect(secretIndex).toMatchObject({ status: 'indexed', indexed: 0, skippedSensitive: 1 })
+    expect(secretWasSentToProvider).toBe(false)
+
+    let remoteProviderWasCalled = false
+    const remoteProvider: RetrievalEmbeddingProvider = {
+      ...provider,
+      placement: 'remote',
+      async embed(texts, signal) {
+        remoteProviderWasCalled = true
+        return provider.embed(texts, signal)
+      },
+    }
+    const remoteNow = new Date()
+    const remoteRequest = createRetrievalRequest(memorySession, retrievalInput('Where should we talk?', remoteNow), { now: remoteNow.toISOString() })
+    expect(remoteRequest.ok).toBe(true)
+    if (!remoteRequest.ok) return
+    const remoteIndex = await indexAuthorizedEmbeddings(durable, [{ assertionId: remembered.assertion.id, revision: 1 }], remoteProvider, { request: remoteRequest.request })
+    expect(remoteIndex).toMatchObject({ status: 'unauthorized', indexed: 0 })
+    expect(remoteProviderWasCalled).toBe(false)
+    const sensitiveQueryNow = new Date()
+    const sensitiveQuery = await retrieveMemory(
+      durable,
+      retrievalInput('Where should we talk? api_key=AbCdEf0123456789abcdef', sensitiveQueryNow),
+      { now: sensitiveQueryNow.toISOString(), embeddingProvider: remoteProvider, authorizeRemoteEmbedding: () => true },
+    )
+    expect(sensitiveQuery.ok).toBe(true)
+    if (!sensitiveQuery.ok) return
+    expect(sensitiveQuery.pack.coverage.branches.semantic.reason).toBe('sensitive_query_not_embedded')
+    expect(remoteProviderWasCalled).toBe(false)
+
+    const correctionNow = new Date()
+    const correction = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage08-correct-cedar`,
+      kind: 'correct',
+      targetAssertionId: remembered.assertion.id,
+      targetRevision: 1,
+      text: 'I prefer cedar rooms for calls.',
+      assertionKind: 'preference',
+      conditions: [],
+    }, { now: correctionNow.toISOString() })
+    expect(correction).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 2 } })
+    if (!correction.ok) return
+    const revisedNow = new Date()
+    const revisedRequest = createRetrievalRequest(memorySession, retrievalInput('Where should we talk?', revisedNow), { now: revisedNow.toISOString() })
+    expect(revisedRequest.ok).toBe(true)
+    if (!revisedRequest.ok) return
+    const revisedIndex = await indexAuthorizedEmbeddings(durable, [{ assertionId: correction.assertion.id, revision: 2 }], provider, { request: revisedRequest.request })
+    expect(revisedIndex.status).toBe('indexed')
+    if (revisedIndex.status !== 'indexed') return
+    expect(revisedIndex.indexed).toBeGreaterThan(0)
+    const correctedNow = new Date()
+    const corrected = await retrieveMemory(
+      durable,
+      retrievalInput('Where should we talk?', correctedNow, { consistency: 'warm_preferred' }),
+      { now: correctedNow.toISOString(), embeddingProvider: provider },
+    )
+    expect(corrected.ok).toBe(true)
+    if (!corrected.ok) return
+    expect(corrected.diagnostics.semanticCandidates).toBeGreaterThan(0)
+    expect(corrected.pack.text).toContain('I prefer cedar rooms for calls.')
+    expect(corrected.pack.text).not.toContain('I prefer cedar rooms.</untrusted-memory>')
+    expect(corrected.pack.sections.relevantFacts.map((item) => item.document.reference?.revision)).toContain(2)
+
+    const planned = await createDeletionPlan(durable, { targetAssertionId: correction.assertion.id, targetRevision: 2, query: null })
+    expect(planned.ok).toBe(true)
+    if (!planned.ok) return
+    expect(await executeDeletionPlan(durable, planned.plan.planId)).toMatchObject({ ok: true, receipt: { reuseBlocked: true } })
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const batch = await runPurgeBatch(store, { limit: 50 })
+      if (batch.claimed === 0) break
+    }
+    const deletedVectors = await database.query<{ count: string }>(
+      'SELECT count(*) FROM gideon_memory.retrieval_embeddings WHERE scope_id = $1 AND assertion_id = $2',
+      [memorySession.scope.id, correction.assertion.id],
+    )
+    expect(deletedVectors.rows[0]?.count).toBe('0')
+  }, 30_000)
 })

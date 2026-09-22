@@ -453,16 +453,21 @@ export async function rebuildWarmSnapshot(session: MemorySession, options: Prepa
   return publishPreparedWarmSnapshot(session, prepared.prepared)
 }
 
-export async function readWarmSnapshot(session: MemorySession, options: { now?: string; leaseId?: string } = {}): Promise<WarmSnapshotReadResult> {
+export async function readWarmSnapshot(session: MemorySession, options: { now?: string; leaseId?: string; deadlineAt?: string; signal?: AbortSignal } = {}): Promise<WarmSnapshotReadResult> {
   try {
     const durable = postgresSession(session)
     const now = ensureIso(options.now ?? isoNow(), 'now')
+    const remainingMs = options.deadlineAt ? Date.parse(options.deadlineAt) - Date.now() : null
+    if (options.signal?.aborted) return { status: 'unavailable', snapshot: null, inspector: null, reason: 'retrieval_cancelled', failure: { code: 'unavailable', message: 'The warm snapshot read was cancelled.', retryable: true } }
+    if (remainingMs !== null && (!Number.isFinite(remainingMs) || remainingMs <= 0)) return { status: 'unavailable', snapshot: null, inspector: null, reason: 'retrieval_deadline_expired', failure: { code: 'unavailable', message: 'The warm snapshot read exceeded the retrieval deadline.', retryable: true } }
     if (options.leaseId) {
       const { validatePrivateSnapshotLease } = await import('./deletion.ts')
       const lease = await validatePrivateSnapshotLease(durable, options.leaseId, { now })
       if (!lease.valid) return { status: lease.reason === 'expired' ? 'expired' : 'invalidated', snapshot: null, inspector: null, reason: `private_lease_${lease.reason}` }
     }
     return await durable.store.forSession(durable).runTransaction(async (transaction) => {
+      if (options.signal?.aborted) throw new Error('Warm snapshot read cancelled.')
+      if (remainingMs !== null) await transaction.query(`SELECT set_config('statement_timeout', $1, true)`, [`${Math.max(1, Math.floor(remainingMs))}ms`])
       await transaction.assertAuthorizedContext(durable, 'recall')
       const epoch = await currentEpoch(transaction, durable.scope.id)
       const rows = await transaction.query<{ payload: unknown; policy_epoch: string | number; deletion_epoch: string | number; expires_at: string | null }>(
