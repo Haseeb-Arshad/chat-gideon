@@ -138,6 +138,26 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     return requireContext(this.context)
   }
 
+  /**
+   * A restore guard is a control-plane fail-closed switch. An absent row is
+   * treated as ready for scopes created before Stage 05; once a guard exists,
+   * no durable read or write proceeds until its ledger watermark is caught up.
+   */
+  async assertRecoveryReady(): Promise<void> {
+    const context = this.scope()
+    const result = await this.query<{ status: 'ready' | 'blocked'; required_ledger_sequence: string; reconciled_ledger_sequence: string }>(
+      `SELECT status, required_ledger_sequence, reconciled_ledger_sequence
+       FROM ${MEMORY_SCHEMA}.recovery_guards
+       WHERE scope_id = $1
+       FOR SHARE`,
+      [context.scopeId],
+    )
+    const guard = result.rows[0]
+    if (guard && (guard.status === 'blocked' || Number(guard.reconciled_ledger_sequence) < Number(guard.required_ledger_sequence))) {
+      throw failure('unavailable', 'Memory authority is unavailable until the deletion and revocation ledger is reconciled.', true, { reason: 'restore_reconciliation_pending' })
+    }
+  }
+
   async isVersionSuppressed(reference: ExactVersionRef, evidenceEventIds: readonly string[] = []): Promise<boolean> {
     if (await this.isSuppressed(reference)) return true
     for (const eventId of evidenceEventIds) {
@@ -156,15 +176,20 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     }
     const decision = evaluateGrant(session, action, context.scopeId)
     if (!decision.allowed) throw new PostgresMemoryOperationError(decision.failure)
-    const result = await this.query<{ policy_epoch: string; principal_trust: string }>(
+    const result = await this.query<{ policy_epoch: string; principal_trust: string; recovery_status: string; required_ledger_sequence: string; reconciled_ledger_sequence: string }>(
       `
-        SELECT p.trust AS principal_trust, e.policy_epoch
+        SELECT p.trust AS principal_trust, e.policy_epoch,
+               COALESCE(r.status, 'ready') AS recovery_status,
+               COALESCE(r.required_ledger_sequence, 0) AS required_ledger_sequence,
+               COALESCE(r.reconciled_ledger_sequence, 0) AS reconciled_ledger_sequence
         FROM ${SQL.principals} p
         JOIN ${SQL.grants} g ON g.principal_id = p.principal_id AND g.scope_id = $2
         JOIN ${SQL.policyEpochs} e ON e.scope_id = g.scope_id
+        LEFT JOIN ${MEMORY_SCHEMA}.recovery_guards r ON r.scope_id = g.scope_id
         WHERE p.principal_id = $1
           AND p.trust = 'authenticated'
           AND g.issued_by = 'server_policy'
+          AND g.revoked_at IS NULL
           AND g.actions @> $3::jsonb
           AND (g.expires_at IS NULL OR g.expires_at > now())
         LIMIT 1
@@ -172,6 +197,9 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       [context.principalId, context.scopeId, JSON.stringify([action])],
     )
     if (!result.rows[0]) throw failure('unauthorized', 'The database has no active grant for this memory scope.')
+    if (result.rows[0].recovery_status === 'blocked' || Number(result.rows[0].reconciled_ledger_sequence) < Number(result.rows[0].required_ledger_sequence)) {
+      throw failure('unavailable', 'Memory authority is unavailable until the deletion and revocation ledger is reconciled.', true, { reason: 'restore_reconciliation_pending' })
+    }
     if (Number(result.rows[0].policy_epoch) !== context.policyEpoch || Number(result.rows[0].policy_epoch) !== session.policyEpoch) {
       throw failure('conflict', 'The memory policy changed; retry with a fresh session.', true)
     }
@@ -325,6 +353,32 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     return await this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId)) ? null : version
   }
 
+  /**
+   * Canonical identity remains blocked even after its content/version rows are
+   * physically purged. Deleted assertion tombstones carry the identity only;
+   * they never carry the deleted proposition or source text.
+   */
+  async isCanonicalKeySuppressed(canonicalKey: string): Promise<boolean> {
+    const context = this.scope()
+    const result = await this.query<{ assertion_id: string; current_revision: string; current_status: string; version: unknown | null }>(
+      `
+        SELECT a.assertion_id, a.current_revision, a.current_status, v.version
+        FROM ${SQL.assertions} a
+        LEFT JOIN ${SQL.versions} v
+          ON v.scope_id = a.scope_id AND v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+        WHERE a.scope_id = $1 AND a.canonical_key = $2
+        LIMIT 1
+      `,
+      [context.scopeId, canonicalKey],
+    )
+    const row = result.rows[0]
+    if (!row) return false
+    if (row.current_status === 'deleted') return true
+    if (!row.version) return false
+    const version = parseStoredAssertion(row.version)
+    return this.isVersionSuppressed({ assertionId: version.id, revision: version.revision }, version.evidence.map((edge) => edge.eventId))
+  }
+
   async nextEventSequence(): Promise<number> {
     const context = this.scope()
     const epoch = await this.query<{ scope_id: string }>(
@@ -386,6 +440,9 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     const assertion = input.assertion
     if (assertion.scopeId !== context.scopeId) return { ok: false, failure: { code: 'unauthorized', message: 'The assertion scope does not match the transaction.', retryable: false } }
     if (assertion.status === 'deleted') return { ok: false, failure: { code: 'suppressed', message: 'Deleted memory cannot be committed.', retryable: false } }
+    if (input.canonicalKey && await this.isCanonicalKeySuppressed(input.canonicalKey)) {
+      return { ok: false, failure: { code: 'suppressed', message: 'A privacy-deleted canonical identity cannot be reused.', retryable: false } }
+    }
 
     const eventIds = [...new Set(assertion.evidence.map((edge) => edge.eventId))]
     if (eventIds.length) {
@@ -421,15 +478,22 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
       [assertion.id],
     )
     if (!current.rows[0]) {
-      await this.query(
-        `
-          INSERT INTO ${SQL.assertions}
-            (assertion_id, scope_id, subject_kind, subject_key, slot_id, slot_cardinality, current_revision, current_status, canonical_key)
-          VALUES ($1, $2, $3, $4, $5, $6, 0, 'candidate', $7)
-          ON CONFLICT (assertion_id) DO NOTHING
-        `,
-        [assertion.id, context.scopeId, assertion.subject.kind, subjectKey(assertion.subject), input.slot?.slotId ?? null, input.slot?.cardinality ?? null, input.canonicalKey ?? null],
-      )
+      try {
+        await this.query(
+          `
+            INSERT INTO ${SQL.assertions}
+              (assertion_id, scope_id, subject_kind, subject_key, slot_id, slot_cardinality, current_revision, current_status, canonical_key)
+            VALUES ($1, $2, $3, $4, $5, $6, 0, 'candidate', $7)
+            ON CONFLICT (assertion_id) DO NOTHING
+          `,
+          [assertion.id, context.scopeId, assertion.subject.kind, subjectKey(assertion.subject), input.slot?.slotId ?? null, input.slot?.cardinality ?? null, input.canonicalKey ?? null],
+        )
+      } catch (error) {
+        if (input.canonicalKey && typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+          return { ok: false, failure: { code: 'suppressed', message: 'A privacy-deleted canonical identity cannot be reused.', retryable: false } }
+        }
+        throw error
+      }
       current = await this.query<{ current_revision: string; scope_id: string }>(
         `SELECT current_revision, scope_id FROM ${SQL.assertions} WHERE assertion_id = $1 FOR UPDATE`,
         [assertion.id],
@@ -513,7 +577,12 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
           SELECT job_id
           FROM ${SQL.jobs}
           WHERE scope_id = $1
-            AND state IN ('pending', 'retry', 'running')
+           AND state IN ('pending', 'retry', 'running')
+             AND NOT EXISTS (
+               SELECT 1 FROM ${MEMORY_SCHEMA}.recovery_guards g
+               WHERE g.scope_id = ${SQL.jobs}.scope_id
+                 AND (g.status = 'blocked' OR g.reconciled_ledger_sequence < g.required_ledger_sequence)
+             )
             AND available_at <= $2::timestamptz
             AND (lease_until IS NULL OR lease_until <= $2::timestamptz)
           ORDER BY available_at, created_at
@@ -716,11 +785,21 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
             INSERT INTO ${SQL.grants} (grant_id, principal_id, scope_id, actions, issued_by, expires_at)
             VALUES ($1, $2, $3, $4::jsonb, $5, $6::timestamptz)
             ON CONFLICT (grant_id) DO UPDATE SET principal_id = EXCLUDED.principal_id, scope_id = EXCLUDED.scope_id,
-              actions = EXCLUDED.actions, issued_by = EXCLUDED.issued_by, expires_at = EXCLUDED.expires_at
+              actions = EXCLUDED.actions, issued_by = EXCLUDED.issued_by,
+              expires_at = CASE WHEN gideon_memory.grants.revoked_at IS NULL THEN EXCLUDED.expires_at ELSE gideon_memory.grants.expires_at END,
+              revoked_at = gideon_memory.grants.revoked_at
           `,
           [grant.id, session.principal.id, session.scope.id, canonicalJson(grant.actions), grant.issuedBy, grant.expiresAt],
-        )
+      )
       }
+      await transaction.query(
+        `
+          INSERT INTO ${MEMORY_SCHEMA}.recovery_guards (scope_id, status, required_ledger_sequence, reconciled_ledger_sequence)
+          VALUES ($1, 'ready', 0, 0)
+          ON CONFLICT (scope_id) DO NOTHING
+        `,
+        [session.scope.id],
+      )
     })
   }
 

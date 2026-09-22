@@ -1,4 +1,5 @@
 import type { Pool } from 'pg'
+import { MEMORY_SCHEMA } from './config.ts'
 import { migrationStatus } from './migrations.ts'
 
 export interface MemoryHealth {
@@ -39,5 +40,16 @@ export async function checkMemoryHealth(pool: Pool): Promise<MemoryHealth> {
 export async function checkMemoryReadiness(pool: Pool): Promise<MemoryHealth> {
   const health = await checkMemoryHealth(pool)
   if (health.status === 'unavailable' || health.pendingMigrations !== 0) return { ...health, status: 'unavailable' }
+  try {
+    const guard = await pool.query<{ status: string; required_ledger_sequence: string; reconciled_ledger_sequence: string }>(
+      `SELECT status, required_ledger_sequence, reconciled_ledger_sequence
+       FROM ${MEMORY_SCHEMA}.recovery_guards
+       WHERE status = 'blocked' OR reconciled_ledger_sequence < required_ledger_sequence
+       LIMIT 1`,
+    )
+    if (guard.rows[0]) return { ...health, status: 'unavailable' }
+  } catch {
+    return { ...health, status: 'unavailable' }
+  }
   return health
 }

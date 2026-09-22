@@ -474,6 +474,9 @@ async function persistCommand(
         }
         const stored = parsedStoredSuccess(priorCommand.result)
         if (!stored) throw failure('unavailable', 'The stored command receipt failed validation.', false)
+        if (await transaction.isVersionSuppressed({ assertionId: stored.assertion.id, revision: stored.assertion.revision }, stored.assertion.evidence.map((edge) => edge.eventId))) {
+          throw failure('suppressed', 'The command result was privacy-deleted and cannot be reused.', false)
+        }
         return stored
       }
 
@@ -704,6 +707,10 @@ export async function readAcceptedChangeOverlay(
       if (!version.ok || !reference || typeof reference !== 'object') continue
       const ref = reference as Record<string, unknown>
       if (typeof ref.assertionId !== 'string' || typeof ref.revision !== 'number' || (change.operation !== 'remember' && change.operation !== 'correct')) continue
+      if (await transaction.isVersionSuppressed(
+        { assertionId: ref.assertionId as ExactVersionRef['assertionId'], revision: ref.revision },
+        version.value.evidence.map((edge) => edge.eventId),
+      )) continue
       overlays.push({
         scopeId: session.scope.id,
         changeWatermark: watermarkId(session.scope.id, Number(row.watermark)),

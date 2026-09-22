@@ -7,6 +7,8 @@ const JOBS = `${MEMORY_SCHEMA}.jobs`
 const EVENTS = `${MEMORY_SCHEMA}.events`
 const RECEIPTS = `${MEMORY_SCHEMA}.receipts`
 const EPOCHS = `${MEMORY_SCHEMA}.policy_epochs`
+const SUPPRESSIONS = `${MEMORY_SCHEMA}.deletion_suppressions`
+const RECOVERY_GUARDS = `${MEMORY_SCHEMA}.recovery_guards`
 
 export const DEFAULT_JOB_LEASE_MS = 30_000
 export const MAX_JOB_BATCH = 100
@@ -100,6 +102,15 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
               AND state IN ('pending', 'retry', 'running')
               AND available_at <= $1::timestamptz
               AND (lease_until IS NULL OR lease_until <= $1::timestamptz)
+              AND NOT EXISTS (
+                SELECT 1 FROM ${SUPPRESSIONS} s
+                WHERE s.scope_id = ${JOBS}.scope_id AND s.event_id = ${JOBS}.input_event_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM ${RECOVERY_GUARDS} g
+                WHERE g.scope_id = ${JOBS}.scope_id
+                  AND (g.status = 'blocked' OR g.reconciled_ledger_sequence < g.required_ledger_sequence)
+              )
             ORDER BY available_at, created_at
             FOR UPDATE SKIP LOCKED
             LIMIT $3
@@ -167,13 +178,19 @@ export async function completeJob(
       input_event_id: string
       policy_epoch: string | number
       deletion_epoch: string | number
+      recovery_status: string
+      required_ledger_sequence: string | number
+      reconciled_ledger_sequence: string | number
     }>(
       `
-        SELECT state, worker_id, fence, lease_until, attempts, max_attempts, input_event_id,
-               policy_epoch, deletion_epoch
-        FROM ${JOBS}
-        WHERE job_id = $1 AND scope_id = $2
-        FOR UPDATE
+        SELECT j.state, j.worker_id, j.fence, j.lease_until, j.attempts, j.max_attempts, j.input_event_id,
+               j.policy_epoch, j.deletion_epoch, COALESCE(g.status, 'ready') AS recovery_status,
+               COALESCE(g.required_ledger_sequence, 0) AS required_ledger_sequence,
+               COALESCE(g.reconciled_ledger_sequence, 0) AS reconciled_ledger_sequence
+        FROM ${JOBS} j
+        LEFT JOIN ${RECOVERY_GUARDS} g ON g.scope_id = j.scope_id
+        WHERE j.job_id = $1 AND j.scope_id = $2
+        FOR UPDATE OF j
       `,
       [job.jobId, job.scopeId],
     )
@@ -185,7 +202,8 @@ export async function completeJob(
       `SELECT policy_epoch, deletion_epoch FROM ${EPOCHS} WHERE scope_id = $1 FOR SHARE`,
       [job.scopeId],
     )
-    if (!epoch.rows[0] || Number(epoch.rows[0].policy_epoch) !== Number(row.policy_epoch) || Number(epoch.rows[0].deletion_epoch) !== Number(row.deletion_epoch)) {
+    if (!epoch.rows[0] || Number(epoch.rows[0].policy_epoch) !== Number(row.policy_epoch) || Number(epoch.rows[0].deletion_epoch) !== Number(row.deletion_epoch)
+      || row.recovery_status !== 'ready' || Number(row.reconciled_ledger_sequence) < Number(row.required_ledger_sequence)) {
       const revoked: JobFailure = { code: 'revoked_input', retryable: false }
       await markDead(transaction, job.jobId, revoked)
       return { status: 'dead', failure: revoked }

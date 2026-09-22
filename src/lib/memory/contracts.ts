@@ -425,6 +425,8 @@ export interface PublicForgetCommand {
   commandId: string
   kind: 'forget'
   targetAssertionId: AssertionId | null
+  /** Exact immutable version required for a destructive target. */
+  targetRevision: number | null
   query: string | null
 }
 
@@ -1206,11 +1208,17 @@ export function parsePublicMemoryCommand(input: unknown): ParseResult<PublicMemo
     return invalid(issues)
   }
   if (kind === 'forget') {
-    issues.push(...unknownFields(input, ['schemaVersion', 'commandId', 'kind', 'targetAssertionId', 'query'], '$'))
+    issues.push(...unknownFields(input, ['schemaVersion', 'commandId', 'kind', 'targetAssertionId', 'targetRevision', 'query'], '$'))
     const targetAssertionId = input.targetAssertionId === null ? null : identifier<'assertion'>(input.targetAssertionId, 'Assertion ID', '$.targetAssertionId', issues)
+    const targetRevision = input.targetRevision === undefined || input.targetRevision === null
+      ? null
+      : numberValue(input.targetRevision, '$.targetRevision', issues, 1)
     const query = input.query === null ? null : stringValue(input.query, '$.query', issues, 512)
     if (targetAssertionId === null && query === null) issues.push(issue('$', 'invalid_value', 'Forget needs an exact target or a query.'))
-    if (schemaVersion === MEMORY_CONTRACT_VERSION && commandId && !issues.length) return parseResult({ schemaVersion: MEMORY_CONTRACT_VERSION, commandId, kind, targetAssertionId, query }, issues)
+    if (targetAssertionId !== null && targetRevision === null) issues.push(issue('$.targetRevision', 'invalid_value', 'An exact forget target requires an exact revision.'))
+    if (targetAssertionId === null && targetRevision !== null) issues.push(issue('$.targetRevision', 'inconsistent', 'A revision requires an exact assertion target.'))
+    if (targetAssertionId !== null && query !== null) issues.push(issue('$', 'invalid_value', 'Choose an exact target or a query before creating a forget plan.'))
+    if (schemaVersion === MEMORY_CONTRACT_VERSION && commandId && !issues.length) return parseResult({ schemaVersion: MEMORY_CONTRACT_VERSION, commandId, kind, targetAssertionId, targetRevision, query }, issues)
     return invalid(issues)
   }
   if (kind === 'recall') {

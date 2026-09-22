@@ -136,6 +136,50 @@ Worker, Durable Object, legacy JSON, Supabase, provider, deployment or remote
 migration was enabled. Captured-only events are not returned by the accepted
 overlay; only committed accepted command changes receive a change watermark.
 
+## Stage 05 deletion, revocation, and resurrection prevention
+
+- `backend/memory/src/deletion.ts` is the Node-only control plane for
+  short-lived exact deletion plans, logical suppression, bounded dependency
+  invalidation, physical purge tasks, status receipts, grant revocation,
+  private snapshot leases, pre-dispatch epoch guards, and restore-ledger
+  reconciliation. Query targets must resolve to one exact assertion revision;
+  an ambiguous query creates no plan and an exact authorized target does not
+  require a second confirmation step.
+- `backend/memory/migrations/004-deletion-revocation.sql` adds deletion plans
+  and operations, bounded purge tasks, per-scope deletion/revocation control
+  ledger rows, grant revocation timestamps, recovery guards, private snapshot
+  leases, and an adapter-owned managed-cache table. Suppression foreign keys
+  are removed only so physical purge can retain the non-content tombstone; the
+  suppression rows retain identifiers/epochs, never deleted propositions or
+  source text. Canonical identity tombstones retain a non-content canonical
+  key so a later explicit command cannot recreate a privacy-deleted identity.
+- `backend/memory/src/postgres.ts` applies restore readiness and active-grant
+  gates to authorization, maps canonical-identity unique conflicts to typed
+  `suppressed` failures, and retains suppression checks on exact/current,
+  historical and candidate reads. `backend/memory/src/commands.ts` filters
+  accepted overlays and stored command retries through the same guard.
+- `backend/memory/src/jobs.ts` excludes suppressed/recovery-blocked inputs from
+  new claims and rejects completion after policy/deletion epoch changes. A
+  deletion cancels pending/retry input jobs and leaves a running stale worker
+  unable to publish an assertion.
+- `backend/memory/src/health.ts` reports restore reconciliation as unavailable
+  readiness rather than as an empty memory corpus. `backend/memory/src/index.ts`
+  exports the Stage 05 Node-only APIs; no Worker, Durable Object, legacy JSON,
+  Supabase or browser import was added.
+- `backend/memory/src/postgres.live.test.ts` covers the real PostgreSQL C22/C23
+  deletion/restore race, C24 scope isolation, C25 five-second lease and
+  dispatch cancellation behavior, grant revocation independence, and C29
+  third-party authority-claim handling. It inspects canonical rows, source
+  events, receipts, change feed, projections, managed cache, jobs, tombstones
+  and purge status rather than only a response-shaped result.
+
+Stage 05 is locally verified only. The managed-cache table is the only cache
+surface this adapter can physically purge; browser caches, provider logs,
+already transmitted model content and uncontrolled exported clones are not
+claimed revocable. Backup retention is therefore reported as
+`not_controlled` and restore requires control-ledger replay. No application or
+voice route, deployment, remote migration or real-user deletion drill was run.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
