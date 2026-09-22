@@ -227,6 +227,65 @@ production route or automatic consented checkpoint policy was enabled. Local
 PostgreSQL evidence is not staging or production proof; browser/provider logs,
 remote voice behavior and model interpretations remain outside this stage.
 
+## Stage 07 profiles, warm snapshots, and immediate correction overlays
+
+- `src/lib/memory/projections.ts` is the edge-safe projection core. It builds
+  bounded warm snapshots from current accepted assertion versions while
+  retaining exact assertion revision references, source event ids, basis,
+  scope, conditions, valid time and promotion reason on every profile bullet.
+  Stable profile bullets are separate from active-topic bullets. Only explicit
+  user statements and user corrections can promote a preference or decision;
+  inferred preferences and generated summaries are excluded from profile
+  evidence. Temporary exceptions are not stable profile bullets and expire from
+  the constraints index at their valid-time boundary.
+- The same core includes active `episode_checkpoint` heads, a topic-aware
+  constraints index, bounded lexical term/frequency material, recent accepted
+  changes, input coverage, epoch/dependency metadata, missing-input/conflict
+  diagnostics, and bounded snapshot serialization/parsing. It exposes
+  `buildWarmSnapshot()`, `applyAcceptedCorrectionOverlays()`,
+  `serializeWarmSnapshot()`, `parseWarmSnapshot()`, `WarmSnapshotCache` and
+  `SnapshotTelemetryBuffer`. Cache telemetry is a bounded in-memory control
+  signal with separate retrieved/included/cited/independently-useful counts; it
+  never mutates canonical records or ordinary context selection.
+- Input composition is capped at 256 accepted versions and serialized snapshots
+  at 128 KiB. If input or view material exceeds a bound, the inspector marks
+  the view incomplete and identifies omitted data; canonical assertions remain
+  untouched. Private cache leases expire within five seconds.
+- `backend/memory/src/projections.ts` is the Node-only PostgreSQL adapter. It
+  reads accepted current versions, suppression-visible source edges, recent
+  change-feed entries, current event/change watermarks and policy/deletion
+  epochs. Pure snapshot composition happens after the bounded read transaction;
+  the publish transaction locks/rechecks epochs, watermarks, current input
+  revisions and newer projection generations before writing the existing
+  `projections`, `projection_members` and `managed_cache_entries` tables.
+  Stale computation returns an explicit stale result and does not publish.
+- `encodeProjectionChangeCursor()` and `readProjectionChangeFeed()` provide a
+  bounded HMAC-authenticated cursor bound to principal, scope, policy epoch,
+  deletion epoch and watermark. Invalid, cross-scope, epoch-stale, compacted
+  or ahead cursors return `reset_required`; they never silently reinterpret a
+  cursor for another owner.
+- Warm reads validate the server-bound PostgreSQL session, epochs, private cache
+  identity and snapshot schema. The lease is capped at five seconds, expired or
+  invalidated entries are treated as cold, and an authority outage cannot
+  replace a usable private snapshot with an empty corpus. Stage 05 deletion and
+  revocation already purge these projection/cache/member rows and increment the
+  epochs used by this adapter; no new migration was required.
+- `src/lib/memory/projections.test.ts` provides deterministic edge-safe
+  coverage for explicit-only promotion, stable/active separation, temporary
+  expiry, correction replacement, duplicate-summary exclusion, size/parser
+  bounds, identity/epoch/order/lease behavior, unavailable-authority behavior,
+  invalidation and telemetry. The Stage 07 case in
+  `backend/memory/src/postgres.live.test.ts` exercises real PostgreSQL
+  publication, signed-feed pagination, correction overlays, stale publication,
+  cursor reset, and deletion-driven projection/cache/member removal.
+
+Stage 07 is locally verified only. The projection adapter is exported for later
+server-side retrieval work but is not wired into ordinary HTTP, realtime voice,
+Worker, browser or model context paths. No staging/production migration,
+deployment, provider call, live voice test or real-user cache/deletion drill was
+run. The five-second private cache is an inspectable bounded view, not an
+independent authority and not an indefinite lease.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
@@ -276,4 +335,6 @@ migration, provider, grant broadening, or deployment was added.
 - `backend/memory/src/postgres.live.test.ts`: Stage 03 real PostgreSQL acceptance suite; it is excluded from the ordinary offline suite and run through `npm run memory:postgres:test`.
 - `src/lib/conversation-state.test.ts`: deterministic topic suspension/resumption, exact display-revision references, correction lineage, local constraints, decision reasons, verified outcomes, expiry and full-state restore coverage for Stage 06.
 - `backend/memory/src/postgres.live.test.ts`: Stage 06 real PostgreSQL checkpoint idempotency, revision updates, fresh-session resume, scope isolation and deletion/purge coverage, run through `npm run memory:postgres:test`.
+- `src/lib/memory/projections.test.ts`: Stage 07 edge-safe profile, snapshot, correction-overlay, cache, invalidation, parser-bound and telemetry tests.
+- `backend/memory/src/postgres.live.test.ts`: Stage 07 real PostgreSQL projection preparation/publication, signed change-feed cursor pagination/reset, stale computation rejection and deletion purge coverage, run through `npm run memory:postgres:test`.
 - `backend/memory/README.md`: local disposable PostgreSQL, migration, credential and rollback instructions.
