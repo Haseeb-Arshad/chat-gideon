@@ -1,7 +1,7 @@
 # Stage 05 handoff: privacy deletion, grant revocation, and resurrection prevention
 
 Status: LOCAL_VERIFIED
-Implementation commit or working-tree identifier: pending Stage 05 commit
+Implementation commit or working-tree identifier: commit `a68ee5a` (`feat(memory): add deletion and revocation controls`)
 Date: 2026-09-22
 Environment: Windows 10.0.19045 x64, Node v22.13.0, npm 11.0.0, PostgreSQL 17.5 disposable local cluster, Vitest 4.1.5; no customer or remote database
 
