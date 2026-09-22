@@ -11,6 +11,17 @@ import { claimJobs, completeJob, failJob } from './jobs.ts'
 import { PostgresMemoryStore } from './postgres.ts'
 import { sha256 } from './serialization.ts'
 import { persistEpisodeCheckpoint, resumeEpisodeCheckpoint } from './episodes.ts'
+import {
+  applyAcceptedCorrectionOverlays,
+  type ProjectionChange,
+} from '../../../src/lib/memory/projections.ts'
+import {
+  prepareWarmSnapshot,
+  publishPreparedWarmSnapshot,
+  readProjectionChangeFeed,
+  readWarmSnapshot,
+  rebuildWarmSnapshot,
+} from './projections.ts'
 import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
   createDeletionPlan,
@@ -785,5 +796,92 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
       if (batch.claimed === 0) break
     }
     expect(await resumeEpisodeCheckpoint(postgresSession(resumedSession, store), `episode/${run}/stage06`, { now: '2026-09-21T09:04:00.000Z' })).toMatchObject({ ok: true, status: 'not_found' })
+  }, 20_000)
+
+  it('Stage 07 builds inspectable profiles, paginates signed changes, rejects stale publication, and removes warm views on deletion', async () => {
+    const owner = `user/${run}-stage07-projections`
+    const memorySession = session(owner)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const cursorSecret = 'stage07-test-cursor-secret-0123456789'
+    const first = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage07-quiet-venues`,
+      kind: 'remember',
+      text: 'Quiet venues for work meetings',
+      assertionKind: 'preference',
+      conditions: [{ key: 'activity', operator: 'equals', value: 'work_meeting' }],
+    }, { now: '2026-09-22T10:00:00.000Z' })
+    expect(first).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 1 } })
+    if (!first.ok) return
+
+    const prepared = await prepareWarmSnapshot(durable, { now: '2026-09-22T10:00:01.000Z' })
+    expect(prepared).toMatchObject({ status: 'prepared', prepared: { snapshot: { stableProfile: [{ text: 'Quiet venues for work meetings' }] } } })
+    if (prepared.status !== 'prepared') return
+    const published = await publishPreparedWarmSnapshot(durable, prepared.prepared)
+    expect(published).toMatchObject({ status: 'published', snapshot: { inspector: { inputCoverage: { changeWatermarkTo: 1 } } } })
+
+    const firstPage = await readProjectionChangeFeed(durable, { cursorSecret, limit: 1 })
+    expect(firstPage).toMatchObject({ status: 'ok', changes: [{ assertion: { revision: 1 } }], hasMore: false })
+
+    const correction = await executeExplicitCommand(durable, {
+      schemaVersion: 1,
+      commandId: `command/${run}/stage07-correct-venues`,
+      kind: 'correct',
+      targetAssertionId: first.assertion.id,
+      targetRevision: 1,
+      text: 'Quiet and accessible venues for work meetings',
+      assertionKind: 'preference',
+      conditions: [{ key: 'activity', operator: 'equals', value: 'work_meeting' }],
+    }, { now: '2026-09-22T10:00:02.000Z' })
+    expect(correction).toMatchObject({ ok: true, outcome: 'accepted', assertion: { revision: 2 } })
+    if (!correction.ok) return
+
+    const overlayPage = await readProjectionChangeFeed(durable, { cursor: firstPage.status === 'ok' ? firstPage.nextCursor : null, cursorSecret, limit: 1 })
+    expect(overlayPage).toMatchObject({ status: 'ok', changes: [{ assertion: { assertionId: first.assertion.id, revision: 2 } }] })
+    if (overlayPage.status !== 'ok') return
+    const corrected = applyAcceptedCorrectionOverlays(prepared.prepared.snapshot, overlayPage.changes as readonly ProjectionChange[], '2026-09-22T10:00:02.500Z')
+    expect(corrected.stableProfile.map((bullet) => bullet.text)).toEqual(['Quiet and accessible venues for work meetings'])
+    expect(corrected.stableProfile[0]?.assertion.revision).toBe(2)
+
+    expect(await publishPreparedWarmSnapshot(durable, prepared.prepared)).toEqual({ status: 'stale', reason: 'newer_change' })
+    const refreshDurationsMs: number[] = []
+    for (let index = 0; index < 5; index += 1) {
+      const refreshStartedAt = performance.now()
+      const refreshed = await rebuildWarmSnapshot(durable, { now: new Date(Date.parse('2026-09-22T10:00:03.000Z') + index * 100).toISOString() })
+      refreshDurationsMs.push(performance.now() - refreshStartedAt)
+      expect(refreshed).toMatchObject({ status: 'published', snapshot: { stableProfile: [{ text: 'Quiet and accessible venues for work meetings' }] } })
+    }
+    console.info('[memory-projection-postgres-refresh]', JSON.stringify({
+      sequentialRefreshes: refreshDurationsMs.length,
+      assertionVersions: 1,
+      medianMs: Number([...refreshDurationsMs].sort((left, right) => left - right)[Math.floor(refreshDurationsMs.length / 2)]?.toFixed(2)),
+      maxMs: Number(Math.max(...refreshDurationsMs).toFixed(2)),
+    }))
+    expect(await readWarmSnapshot(durable, { now: '2026-09-22T10:00:03.600Z' })).toMatchObject({ status: 'available', snapshot: { stableProfile: [{ text: 'Quiet and accessible venues for work meetings' }] } })
+
+    const tampered = firstPage.status === 'ok' ? `${firstPage.nextCursor.slice(0, -1)}x` : 'invalid.cursor'
+    expect(await readProjectionChangeFeed(durable, { cursor: tampered, cursorSecret, limit: 1 })).toMatchObject({ status: 'reset_required', reason: 'invalid_cursor' })
+    const other = session(`user/${run}-stage07-other`)
+    await store.provisionTrustedContext(other)
+    expect(await readProjectionChangeFeed(postgresSession(other, store), { cursor: firstPage.status === 'ok' ? firstPage.nextCursor : null, cursorSecret, limit: 1 })).toMatchObject({ status: 'reset_required', reason: 'scope_changed' })
+
+    const planned = await createDeletionPlan(durable, { targetAssertionId: first.assertion.id, targetRevision: 2, query: null }, { now: '2026-09-22T10:00:04.000Z' })
+    expect(planned).toMatchObject({ ok: true })
+    if (!planned.ok) return
+    expect(await executeDeletionPlan(durable, planned.plan.planId, { now: '2026-09-22T10:00:05.000Z' })).toMatchObject({ ok: true, receipt: { reuseBlocked: true } })
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const batch = await runPurgeBatch(store, { now: '2026-09-22T10:00:06.000Z', limit: 50 })
+      if (batch.claimed === 0) break
+    }
+    expect(await readWarmSnapshot(durable, { now: '2026-09-22T10:00:07.000Z' })).toMatchObject({ status: 'cold', snapshot: null })
+    const projectionRows = await database.query<{ projections: string; cache: string; members: string }>(
+      `SELECT
+        (SELECT count(*) FROM gideon_memory.projections WHERE scope_id = $1) AS projections,
+        (SELECT count(*) FROM gideon_memory.managed_cache_entries WHERE scope_id = $1) AS cache,
+        (SELECT count(*) FROM gideon_memory.projection_members WHERE scope_id = $1) AS members`,
+      [memorySession.scope.id],
+    )
+    expect(projectionRows.rows[0]).toEqual({ projections: '0', cache: '0', members: '0' })
   }, 20_000)
 })
