@@ -180,6 +180,53 @@ claimed revocable. Backup retention is therefore reported as
 `not_controlled` and restore requires control-ledger replay. No application or
 voice route, deployment, remote migration or real-user deletion drill was run.
 
+## Stage 06 conversation state, reference resolution, and episode continuity
+
+- `src/lib/conversation-state.ts` is the edge-safe bounded state machine. It
+  stores the active topic and bounded suspended-topic stack, committed recent
+  turns, exact artifact display revisions, stable referent candidates,
+  decisions and rejection reasons, local constraints, open questions,
+  requests/proposals/commitments, verified tool outcomes, correction lineage,
+  checkpoint coverage and expiry. Reducers accept only explicit committed
+  events; speculative turns are never inserted by this module.
+- `resolveArtifactReference()` requires the artifact identity and display
+  revision when an ordinal is carried across a changing display. It returns a
+  bounded ambiguity question or stale-snapshot result rather than guessing.
+  `resolveTopic()` has the same bounded ambiguity behavior for similarly named
+  topics. `conversationContext()` labels state as attributed continuity data,
+  includes recent turns uncovered by a lagging checkpoint, and filters
+  topic-local constraints/decisions/questions to the resumed active topic.
+- `backend/memory/src/episodes.ts` is the Node-only durable checkpoint seam.
+  `persistEpisodeCheckpoint()` writes a server-generated checkpoint event,
+  accepted `episode_checkpoint` assertion version, evidence edges and receipt
+  in one PostgreSQL transaction. `resumeEpisodeCheckpoint()` reads the latest
+  visible exact checkpoint, applies deterministic expiry, and returns a typed
+  resumed/not-found/expired result. Idempotency is keyed by episode and source
+  watermark; the retry path reuses the original event sequence.
+- `src/lib/memory/contracts.ts` now requires the bounded serialized `state`
+  member on `EpisodeCheckpointPayload`. Stage 05 suppression/evidence/purge
+  behavior therefore applies to checkpoints without a new table or migration;
+  checkpoint evidence includes the generated checkpoint event and supplied
+  source events.
+- `src/lib/agent-core.ts`, `src/lib/protocol.ts`,
+  `src/lib/realtime-session.ts`, `src/lib/realtime-client.ts`,
+  `src/lib/openrouter.server.ts`, `src/routes/api.chat.ts`, and
+  `backend/worker/src/api.ts` carry a validated bounded state snapshot through
+  both realtime and HTTP fallback turns. `src/components/AgentPage.tsx`
+  records final user transcripts, committed assistant text, display revisions,
+  selections, and heard-text interruption corrections locally in the snapshot
+  sent with later turns.
+- Tests are in `src/lib/conversation-state.test.ts`, the episode payload case in
+  `src/lib/memory/contracts.test.ts`, and the real PostgreSQL conformance case
+  in `backend/memory/src/postgres.live.test.ts`. No migration, provider call,
+  autonomous reminder, workflow engine, or model extraction path was added.
+
+Stage 06 is locally verified only. The client carries bounded continuity and
+the Node authority exposes authorized checkpoint persistence/resume, but no
+production route or automatic consented checkpoint policy was enabled. Local
+PostgreSQL evidence is not staging or production proof; browser/provider logs,
+remote voice behavior and model interpretations remain outside this stage.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
@@ -227,4 +274,6 @@ migration, provider, grant broadening, or deployment was added.
 - `scripts/memory-baseline.test.ts`: schema loading, all 36 case records, C26 execution, C33 `NOT_IMPLEMENTED`, corpus-size measurements, and local JSON persistence measurement.
 - `docs/memory/reports/stage-01-baseline.json`: generated local evidence artifact. Its latency measurements are local selection or local JSON persistence only, not end-to-end voice latency.
 - `backend/memory/src/postgres.live.test.ts`: Stage 03 real PostgreSQL acceptance suite; it is excluded from the ordinary offline suite and run through `npm run memory:postgres:test`.
+- `src/lib/conversation-state.test.ts`: deterministic topic suspension/resumption, exact display-revision references, correction lineage, local constraints, decision reasons, verified outcomes, expiry and full-state restore coverage for Stage 06.
+- `backend/memory/src/postgres.live.test.ts`: Stage 06 real PostgreSQL checkpoint idempotency, revision updates, fresh-session resume, scope isolation and deletion/purge coverage, run through `npm run memory:postgres:test`.
 - `backend/memory/README.md`: local disposable PostgreSQL, migration, credential and rollback instructions.
