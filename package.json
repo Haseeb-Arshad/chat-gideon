@@ -15,6 +15,7 @@
     "memory:baseline": "vitest run scripts/memory-baseline.test.ts",
     "memory:extraction:eval": "vitest run scripts/memory-extraction-eval.test.ts --maxWorkers=1 --silent=false --disableConsoleIntercept",
     "memory:retrieval:ablation": "vitest run scripts/memory-retrieval-ablation.test.ts --maxWorkers=1 --silent=false --disableConsoleIntercept",
+    "memory:classifier:eval": "vitest run scripts/memory-classifier-eval.test.ts --maxWorkers=1 --silent=false --disableConsoleIntercept",
     "memory:postgres:status": "node --experimental-strip-types scripts/memory-postgres-admin.ts status",
     "memory:postgres:migrate": "node --experimental-strip-types scripts/memory-postgres-admin.ts migrate",
     "memory:postgres:test": "node scripts/memory-postgres-harness.mjs",

@@ -19,3 +19,6 @@ todos.json
 
 # Durable memory written by the local server.
 .gideon
+
+# Stage 11 evaluation provider-response cache (synthetic data only).
+output/memory-classifier-eval
