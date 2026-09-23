@@ -24,7 +24,8 @@ import {
   type MemoryKind,
   type RememberRejection,
 } from './memory'
-import { evaluateGrant, type MemoryAction, type MemorySession } from '../memory'
+import { evaluateGrant, type MemoryAction, type MemorySession, type ReceiptState } from '../memory'
+import type { MemoryFeatureFlags } from '../memory/rollout'
 import { defaultDeps, research, type EnvReader, type ResearchSource } from './research'
 import { buildCard, cardDeps, wikipediaImage, type CardDeps } from './card-builder'
 import { MIN_PICTURES, findPictures, galleryCard, imageDeps } from './images'
@@ -60,6 +61,12 @@ export interface ToolOutcome {
   content: string
   /** One line for the action ledger, or nothing to keep it out of the ledger. */
   summary?: string
+  /** Canonical receipt state; command acceptance is not an indexing claim. */
+  receiptState?: ReceiptState
+  /** Canonical receipt identity, when the authority committed one. */
+  receiptId?: string
+  /** Clarification may leave a ledger row pending without committing a write. */
+  pending?: boolean
   /** Pages the user may want to open themselves: where an answer came from. */
   links?: ResearchSource[]
   /**
@@ -73,6 +80,15 @@ export interface ToolOutcome {
    * card itself has arrived, and only if it was a card rather than none.
    */
   cardPatches?: AsyncIterable<CardPatch>
+}
+
+export interface MemoryToolRuntime {
+  flags: MemoryFeatureFlags
+  execute(
+    name: 'remember' | 'correct' | 'forget' | 'recall',
+    args: Record<string, unknown>,
+    context: { turnId: string; callId: string; latestUserText: string; responseId: string; transcriptHash: string; principalId: string; scopeId: string; policyEpoch: number; timezone: string; conversationState: import('../conversation-state').ConversationState | null; speculative: boolean; signal: AbortSignal },
+  ): Promise<ToolOutcome>
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
@@ -113,8 +129,22 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'What you are trying to remember about.' },
+        depth: { type: 'string', enum: ['deep'], description: 'Only when the user explicitly asks for a thorough search through earlier context.' },
       },
       required: ['query'],
+    },
+    readOnly: true,
+  },
+  {
+    name: 'correct',
+    description: 'Correct one exact stored memory after the user says it was wrong or changed. If more than one matches, ask which one before changing anything.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'A distinctive phrase from the exact memory being corrected.' },
+        text: { type: 'string', description: 'The corrected self-contained statement about the user.' },
+      },
+      required: ['query', 'text'],
     },
   },
   {
@@ -346,6 +376,7 @@ function memoryStorageFailure(name: string): ToolOutcome {
       ok: false,
       content: 'I could not store that because durable memory rejected the write. Nothing was confirmed as stored.',
       summary: 'Memory was not stored',
+      receiptState: 'failed',
     }
   }
   if (name === 'forget') {
@@ -353,12 +384,14 @@ function memoryStorageFailure(name: string): ToolOutcome {
       ok: false,
       content: 'I could not forget that because durable memory rejected the change. Nothing was confirmed as forgotten.',
       summary: 'Memory was not forgotten',
+      receiptState: 'failed',
     }
   }
   return {
     ok: false,
     content: 'I could not read stored memory because durable memory is unavailable.',
     summary: 'Memory could not be read',
+    receiptState: 'failed',
   }
 }
 
@@ -605,6 +638,14 @@ export interface ToolContext {
   store: MemoryStore
   /** Server-bound identity and grants. Model arguments cannot construct this. */
   session?: MemorySession<MemoryStore>
+  memoryRuntime?: MemoryToolRuntime
+  turnId?: string
+  callId?: string
+  latestUserText?: string
+  speculative?: boolean
+  responseId?: string
+  transcriptHash?: string
+  conversationState?: import('../conversation-state').ConversationState | null
   /** From the browser, so "today" means the user's today. */
   timezone: string
   signal: AbortSignal
@@ -620,21 +661,63 @@ export async function runServerTool(
   args: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolOutcome> {
+  if (name === 'remember' || name === 'correct' || name === 'forget' || name === 'recall') {
+    const flags = context.memoryRuntime?.flags
+    const enabled = name === 'recall' ? flags?.recall === true : flags?.commandWrites === true
+    if (context.memoryRuntime && !enabled) {
+      return {
+        ok: false,
+        content: 'That memory capability is not enabled for this session. Nothing was changed.',
+        summary: 'Memory capability unavailable',
+        receiptState: 'failed',
+      }
+    }
+    if (enabled) {
+      const decision = context.session ? evaluateGrant(context.session, name as MemoryAction) : null
+      if (!decision?.allowed) {
+        return {
+          ok: false,
+          content: decision?.failure.message ?? 'Memory is unavailable for this session.',
+          summary: 'Memory operation was not authorized',
+          receiptState: 'failed',
+        }
+      }
+      if (context.speculative === true && name !== 'recall') {
+        return { ok: false, content: 'That unfinished thought was not allowed to change memory.', summary: 'Memory change was not applied', receiptState: 'failed' }
+      }
+      if (!context.memoryRuntime) return memoryStorageFailure(name)
+      return context.memoryRuntime.execute(name, args, {
+        turnId: context.turnId ?? 'legacy-turn',
+        callId: context.callId ?? 'legacy-call',
+        latestUserText: context.latestUserText ?? '',
+        responseId: context.responseId ?? context.turnId ?? 'legacy-response',
+        transcriptHash: context.transcriptHash ?? '',
+        principalId: context.session!.principal.id,
+        scopeId: context.session!.scope.id,
+        policyEpoch: context.session!.policyEpoch,
+        timezone: context.timezone,
+        conversationState: context.conversationState ?? null,
+        signal: context.signal,
+        speculative: context.speculative === true,
+      })
+    }
+  }
   switch (name) {
     case 'get_time':
       return describeTime(context.timezone)
     case 'remember':
+    case 'correct':
     case 'recall':
     case 'forget':
       if (context.session) {
         const action = name as MemoryAction
         const decision = evaluateGrant(context.session, action)
         if (!decision.allowed) return { ok: false, content: decision.failure.message, summary: 'Memory operation was not authorized' }
-        return runMemoryTool(name, args, context.session.store)
+        return runMemoryTool(name === 'correct' ? 'remember' : name, name === 'correct' ? { ...args, replaces: text(args, 'query') } : args, context.session.store)
       }
       // Compatibility for existing unit/baseline adapters. Production hosts
       // bind a session before model-visible memory tools are reached.
-      return runMemoryTool(name, args, context.store)
+      return runMemoryTool(name === 'correct' ? 'remember' : name, name === 'correct' ? { ...args, replaces: text(args, 'query') } : args, context.store)
     case 'research':
       return runResearch(args, context)
     case 'show_images':

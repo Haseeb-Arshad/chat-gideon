@@ -18,8 +18,8 @@ import type { ScreenState } from './stage-judge'
 import type { ConversationState } from './conversation-state'
 
 export const REALTIME_PATH = '/api/realtime'
-/** 3: cards are sent as blocks, and grow by `card_patch`. */
-export const REALTIME_PROTOCOL_VERSION = 3
+/** 4: cards are sent as blocks, grow by `card_patch`, and carry provenance. */
+export const REALTIME_PROTOCOL_VERSION = 4
 
 export interface TurnMessage {
   role: 'user' | 'assistant'
@@ -47,7 +47,34 @@ export type ClientFrame =
       /** Bounded, attributed continuity supplied for this turn. */
       conversationState?: ConversationState
     }
-  | { t: 'speak'; id: string; seq: number; text: string }
+  | { t: 'speak'; id: string; seq: number; text: string; turnId?: string; responseId?: string; startChar?: number; endChar?: number }
+  | {
+      t: 'observation'
+      id: string
+      turnId: string
+      responseId: string
+      kind: 'playback_reported'
+      segmentId: string
+      startChar: number
+      endChar: number
+    }
+  | {
+      t: 'observation'
+      id: string
+      turnId: string
+      responseId: string
+      kind: 'playback_interrupted'
+      startChar: number
+      endChar: number
+    }
+  | {
+      t: 'observation'
+      id: string
+      turnId: string
+      kind: 'displayed'
+      artifactId: string
+      displayRevision: number
+    }
   | { t: 'cancel'; id: string }
   /** Echo BOTH fields from tool_request: id is the original turn, call is its tool call. */
   | { t: 'tool_reply'; id: string; call: string; ok: boolean; content: string }
@@ -66,13 +93,13 @@ export type ServerFrame =
       tools: string[]
     }
   /** The upstream request has been accepted; first token is imminent. */
-  | { t: 'start'; id: string }
+  | { t: 'start'; id: string; responseId?: string }
   /** An incremental piece of assistant text. */
-  | { t: 'delta'; id: string; text: string }
+  | { t: 'delta'; id: string; text: string; responseId?: string; segmentId?: string; startChar?: number; endChar?: number }
   /** The turn finished cleanly. `text` is the full assistant message. */
-  | { t: 'done'; id: string; text: string }
+  | { t: 'done'; id: string; text: string; responseId?: string }
   /** Header frame for audio; over WebSocket the binary frame follows immediately. */
-  | { t: 'audio'; id: string; seq: number; mime: string; bytes: number }
+  | { t: 'audio'; id: string; seq: number; mime: string; bytes: number; responseId?: string; segmentId?: string; startChar?: number; endChar?: number }
   /**
    * GIDEON did something. One line per action, for the ledger the user can
    * read back — an agent that acts has to be auditable.
@@ -90,19 +117,21 @@ export type ServerFrame =
       detail?: string
       /** Where the result came from, for the user to open if they want to. */
       links?: Array<{ title: string; url: string; publishedDate?: string }>
+      receiptState?: 'captured' | 'accepted' | 'indexed' | 'pending' | 'failed'
+      receiptId?: string
     }
   /**
    * Something GIDEON looked up, laid out for the screen, or null when there is
    * nothing worth showing. May arrive after `done`, because it is drawn beside
    * the spoken answer rather than before it.
    */
-  | { t: 'card'; id: string; call: string; card: CardV2 | null }
+  | { t: 'card'; id: string; call: string; card: CardV2 | null; artifactId?: string; displayRevision?: number }
   /**
    * A card on screen growing: blocks added or replaced by id, blocks taken
    * away, its sources when they changed. Always after the `card` it patches,
    * and like it may arrive after `done`.
    */
-  | ({ t: 'card_patch'; id: string; call: string } & CardPatch)
+  | ({ t: 'card_patch'; id: string; call: string; artifactId?: string; displayRevision?: number } & CardPatch)
   /**
    * The conversation has moved away from what is on screen, so the cards step
    * aside; or it has come back to a card, so that card comes forward.

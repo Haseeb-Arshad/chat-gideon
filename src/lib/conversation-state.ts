@@ -306,7 +306,7 @@ export type ConversationEvent =
       type: 'interrupted'
       turnId: string
       sourceRevision: number
-      heardText: string
+      heardText: string | null
       sourceSequence: number
     }
 
@@ -603,7 +603,7 @@ export function reduceConversationState(state: ConversationState, event: Convers
       next = { ...state, toolOutcomes: replaceById(state.toolOutcomes, event.outcome, (item) => item.outcomeId, MAX_TOOL_OUTCOMES), sourceSequence: sequenceOf(state, event.outcome.sourceSequence), sourceWatermark: watermark(sequenceOf(state, event.outcome.sourceSequence)) }
       break
     case 'interrupted': {
-      const heard = text(event.heardText, 8_000)
+      const heard = event.heardText === null ? null : text(event.heardText, 8_000)
       next = {
         ...state,
         recentTurns: state.recentTurns.map((turn) => turn.turnId === event.turnId && turn.revision === event.sourceRevision

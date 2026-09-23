@@ -21,6 +21,11 @@ export const SIDE_MAX = 3
 export interface StageEntry {
   /** The turn and the tool call it came from, so a card finds its pane. */
   id: string
+  /** Stable server-issued artifact identity, present after a card lands. */
+  artifactId?: string
+  /** Server-issued display version, incremented when the card grows. */
+  displayRevision?: number
+  sourceTurnId?: string
   /** What is being looked up, shown while the search runs. */
   query: string
   /** What kind of search is running, for the pane shown before the card. */

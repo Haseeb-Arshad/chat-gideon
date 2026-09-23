@@ -49,20 +49,27 @@ Stages 01–02 establish this map. It is a repository map and boundary record, n
 
 This layout is intentionally compatible with the prompt pack's later split: an edge-safe core can be extracted without moving the existing HTTP/Worker adapters, and PostgreSQL remains behind a server adapter rather than entering the client-facing core.
 
-## Feature-flag names reserved for later stages
+## Feature-flag names and current wiring state
 
-These names are documented now but not wired as working capabilities. New production-facing behavior remains off until its own stage and verification gate.
+These names are server-side controls. Stage 09 wires the Node HTTP/realtime
+adapter behind them, but defaults remain off and production remains gated by
+the separately authorized Stage 15 cutover. A flag being present is not proof
+that its capability is enabled or production-verified.
 
-| Capability | Reserved environment flag | Stage 01 state |
+| Capability | Environment flag | Current state |
 |---|---|---|
-| Capture committed conversation evidence | `GIDEON_MEMORY_CAPTURE_ENABLED` | Not wired |
-| Canonical command writes | `GIDEON_MEMORY_COMMAND_WRITES_ENABLED` | Not wired; legacy tools remain the current path |
-| Memory recall/context injection | `GIDEON_MEMORY_RECALL_ENABLED` | Not wired; current legacy recall remains unchanged except for failed receipts |
-| Automatic/background learning | `GIDEON_MEMORY_LEARNING_ENABLED` | Not wired |
-| Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Not wired |
-| Jev classification | `GIDEON_MEMORY_JEV_ENABLED` | Not wired |
+| Capture committed conversation evidence | `GIDEON_MEMORY_CAPTURE_ENABLED=1` | Stage 09 Node HTTP/realtime only; default off |
+| Canonical command writes | `GIDEON_MEMORY_COMMAND_WRITES_ENABLED=1` | Stage 09 Node HTTP/realtime only; default off |
+| Memory recall/context injection | `GIDEON_MEMORY_RECALL_ENABLED=1` | Stage 09 Node HTTP/realtime only; default off |
+| Stable owner rollout cohort | `GIDEON_MEMORY_ROLLOUT_PERCENT=0..100` | Stage 09 server-selected FNV owner bucket; unset/malformed means 0 |
+| Production cutover gate | `GIDEON_MEMORY_STAGE15_CUTOVER=1` | Required in `NODE_ENV=production`; Stage 15 owns authorization |
+| Automatic/background learning | `GIDEON_MEMORY_LEARNING_ENABLED` | Not wired; Stage 10 |
+| Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Stage 08 adapter exists; no provider configured by default |
+| Jev classification | `GIDEON_MEMORY_JEV_ENABLED` | Not wired; optional Stage 11 |
 
-No flag is evidence that its enabled behavior exists. Server-side scope and rollout ownership will be defined by the stages that implement each capability.
+The three Stage 09 capability flags are independent: enabling one does not
+enable capture, command writes, or recall. The rollout owner is derived from a
+server-bound owner and is never accepted from request or browser data.
 
 ## Stage 03 PostgreSQL authority and worker boundary
 
@@ -357,6 +364,117 @@ Stage 08 is locally verified only after the ledger is marked `LOCAL_VERIFIED`
 and the handoff records the final test run. No staging/production migration,
 provider/model call, deployment, route integration, live voice check or
 real-user privacy drill is performed. Stage 09 owns app and voice integration.
+
+## Stage 09 ChatGideon HTTP, realtime voice, cards, and action ledger
+
+Stage 09 is locally verified only. It connects the Stage 08 retrieval and
+Stage 03–07 authority seams to the Node HTTP and realtime application paths
+without changing the Worker authority or enabling production behavior.
+
+### Shared application adapter and rollout
+
+- `src/server/node-memory-integration.ts` is the shared Node adapter used by
+  both `src/lib/openrouter.server.ts` and `src/server/realtime-host.ts`. It
+  resolves the signed `gideon-owner` cookie, binds the authenticated
+  `MemorySession<PostgresMemoryStore>`, selects the server-owned rollout
+  cohort, and lazily creates the existing PostgreSQL store. No client owner,
+  scope, grant or policy epoch is accepted as authority.
+- `src/lib/memory/rollout.ts` keeps capture, canonical command writes and
+  recall independent. A missing or malformed `GIDEON_MEMORY_ROLLOUT_PERCENT`
+  is zero; unauthenticated/missing owners are disabled; production requires
+  `GIDEON_MEMORY_STAGE15_CUTOVER=1`. With all capabilities off, no PostgreSQL
+  pool is created by the Node adapter.
+- A missing database configuration or unavailable database becomes a typed
+  unavailable memory result. The adapter does not create an empty replacement
+  corpus and does not report a successful save after a timeout.
+
+### Turn binding and structured recall
+
+- `src/lib/memory/turn-runtime.ts` defines the shared turn binding: client
+  `turnId`, server-issued `responseId`, principal/scope/policy epoch,
+  timezone, exact latest-user transcript SHA-256, speculative bit, depth and
+  bounded `ConversationState`.
+- `src/lib/agent-core.ts` injects the attributed Stage 08 `ContextPack` as
+  untrusted evidence, with coverage/unavailable status and identity/binding
+  checks. It does not turn retrieved text into tool authority. Legacy direct
+  memory injection remains only for callers without the canonical runtime.
+- Speculative recall is bound to owner, scope, policy epoch, response/turn and
+  exact transcript. A stale or mismatched result is discarded, and speculative
+  turns never capture events or execute durable commands.
+
+### Canonical capture and commands
+
+- Committed user capture is performed once after the latest user message is
+  known. `buildCommittedUserEvent()` creates one authenticated `user_statement`
+  event with a deterministic event/idempotency key and an exact source span;
+  it never treats browser-provided assistant history as evidence. PostgreSQL
+  sequence assignment occurs inside the capture transaction when requested.
+- `src/lib/tools/registry.ts` routes `remember`, `correct`, `forget` and deep
+  `recall` through `MemoryTurnRuntime` when the canonical runtime exists.
+  Ambiguous correction/forget requests remain pending and ask for a choice;
+  accepted commands expose their receipt ID/state; failures are explicit.
+  Runtime presence plus a disabled individual capability fails closed rather
+  than silently falling back to legacy mutation. The old direct `MemoryStore`
+  compatibility path remains for non-canonical callers and existing tests.
+- `backend/memory/src/commands.ts` validates exact source spans and includes
+  them in command hashes/events/evidence. `backend/memory/src/postgres.ts`
+  compares semantic event content for idempotency and allocates a sequence in
+  the transaction, so retries do not duplicate a committed capture.
+- `src/lib/conversation-state.ts` and `src/components/AgentPage.tsx` record
+  final verified tool outcomes separately from speech delivery. An
+  interruption can invalidate pending speech without erasing a completed
+  action; a pending action is not treated as accepted.
+
+### Text, audio, card, and observation provenance
+
+- `src/lib/protocol.ts` is protocol version 4. Server frames carry response
+  IDs, text segment character ranges, action receipt state/ID, and card
+  artifact IDs/display revisions. Client speak and observation frames carry
+  only bounded provenance claims that the server can validate.
+- `src/lib/realtime-session.ts` and `src/lib/realtime-client.ts` reject forged
+  audio spans, issue server-owned audio segment IDs, preserve late terminal
+  receipts after interruption, and accept only observations tied to issued
+  response/segment/artifact records. HTTP fallback keeps the same frame
+  contract, while browser tool fulfilment remains socket-only.
+- `src/lib/delivery-observations.ts` is a bounded, deduplicated ledger. It
+  distinguishes generated text, sent audio, playback-reported ranges,
+  interruption points and displayed artifact revisions. An interruption has
+  conservative bounds; generated text is never automatically marked heard or
+  agreed. `src/lib/voice-queue.ts` carries exact source ranges into speak calls.
+- Cards receive stable server artifact IDs and monotonic revisions. The page
+  reports displayed revisions into conversation state, allowing historical
+  ordinal references to resolve against the visible artifact snapshot rather
+  than the latest mutable card.
+
+### Changed paths and compatibility
+
+| Concern | Paths | Compatibility/boundary |
+|---|---|---|
+| Rollout and turn contracts | `src/lib/memory/rollout.ts`, `src/lib/memory/turn-runtime.ts` | Edge-safe types; no client authority; production default off |
+| Node HTTP integration | `src/lib/openrouter.server.ts`, `src/server/node-memory-integration.ts`, `src/server/memory-session.ts` | Signed Node owner and PostgreSQL only when enabled; unavailable is typed |
+| Node realtime integration | `src/server/realtime-host.ts`, `src/lib/realtime-session.ts` | Same adapter as HTTP; no Worker import of `pg` |
+| Agent/context/action path | `src/lib/agent-core.ts`, `src/lib/tools/registry.ts`, `src/lib/conversation-state.ts` | Structured evidence is not policy; legacy compatibility remains when no canonical runtime |
+| Transport provenance | `src/lib/protocol.ts`, `src/lib/realtime-client.ts`, `src/lib/delivery-observations.ts`, `src/lib/voice-queue.ts` | Version 4 metadata is optional in compatibility callbacks but validated when present |
+| UI cards/resources/voice | `src/components/AgentPage.tsx`, `src/components/ResourcesPanel.tsx`, `src/components/stage/Stage.tsx` | Stable artifact/display revisions and receipt states; no visual redesign |
+| PostgreSQL event/command semantics | `backend/memory/src/serialization.ts`, `backend/memory/src/postgres.ts`, `backend/memory/src/commands.ts` | Existing migrations/authority retained; no new production migration |
+| Tests | `src/lib/memory/*.test.ts`, `src/lib/*delivery*.test.ts`, `src/lib/openrouter-memory-integration.test.ts`, `src/server/node-memory-integration.test.ts`, `src/lib/agent-core.test.ts`, `src/lib/realtime-delivery.test.ts` | Local control-flow and disposable-authority evidence only |
+
+The Worker continues using its prior local/ephemeral/ Durable Object memory
+paths; Stage 09 does not make the Node PostgreSQL adapter edge-safe. The
+existing account/session and memory authority contracts remain the source of
+identity, consent, deletion and policy epoch truth.
+
+### Stage 09 acceptance boundary
+
+The implementation covers the local control paths for C01, C03, C15, C16,
+C17, C18, C19, C25 and C34: stable artifact/card revisions, conservative
+interruption state, independent action receipts, exact delivery provenance,
+forged-segment rejection, speculative isolation, structured retrieval wiring,
+typed outage handling and conversation-state continuity. The handoff records
+the executable tests for each case. No case is promoted to staging or
+production proof. Cross-socket invalidation/reconnect validation, a real
+voice/browser/provider run, Worker/PostgreSQL cutover and automatic
+commitment extraction remain later-stage work.
 
 ## Stage 01 receipt contract
 

@@ -25,7 +25,7 @@ describe('skill manifests', () => {
       expect(skill.useWhen.length, skill.tool).toBeGreaterThan(0)
     }
     for (const schema of TOOL_SCHEMAS.filter((each) => each.readOnly)) expect(SIDE_EFFECT_TOOLS.has(schema.name as ToolName), schema.name).toBe(false)
-    expect([...SIDE_EFFECT_TOOLS].sort()).toEqual(['forget', 'offer_link', 'remember', 'set_timer'])
+    expect([...SIDE_EFFECT_TOOLS].sort()).toEqual(['correct', 'forget', 'offer_link', 'remember', 'set_timer'])
   })
 
   it('make every description in the same shape: the job, what for, what never for and instead, then how to speak', () => {

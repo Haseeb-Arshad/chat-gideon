@@ -29,6 +29,11 @@ describe('splitSpeakable', () => {
     expect(chunks.map((chunk) => chunk.text)).toEqual(['One.', 'Two.', 'Three.'])
     expect(chunks.at(-1)?.end).toBe(value.length)
   })
+  it('keeps exact trimmed source spans for server-bound speech alignment', () => {
+    const value = '  Hello there.   Then goodbye.  '
+    const { chunks } = splitSpeakable(value, { flush: true })
+    expect(chunks.map(({ startChar, endChar }) => value.slice(startChar, endChar))).toEqual(chunks.map(({ text }) => text))
+  })
   it('flushes the trailing fragment when the reply is complete', () => {
     expect(texts('All done', { flush: true })).toEqual(['All done'])
     expect(splitSpeakable('All done', { flush: true }).remainder).toBe('')

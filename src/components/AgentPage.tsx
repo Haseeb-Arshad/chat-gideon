@@ -87,8 +87,8 @@ type PauseReason = 'quiet' | 'blocked' | 'failed' | null
 type StageMode = 'open' | 'tucking' | 'tucked'
 /** Something a turn did to the screen, held back while that turn is only a guess. */
 type StageEvent =
-  | { call: string; card: CardV2 | null }
-  | { call: string; patch: CardPatch }
+  | { call: string; card: CardV2 | null; artifactId?: string; displayRevision?: number }
+  | { call: string; patch: CardPatch; artifactId?: string; displayRevision?: number }
   | { move: StageMove }
 
 /**
@@ -175,6 +175,8 @@ function eyePhaseFor(phase: Phase): EyePhase {
  */
 interface RunningTurn {
   id: string
+  /** Server-issued response correlation; never derived from client text. */
+  responseId?: string
   /** The user text this reply is an answer to. */
   text: string
   timeline: TurnTimeline
@@ -639,7 +641,7 @@ export function AgentPage() {
   const record = useCallback(
     (
       key: string | null,
-      entry: { title?: string; detail: string; ok?: boolean; pending?: boolean; links?: ResourceLink[] },
+      entry: { title?: string; detail: string; ok?: boolean; pending?: boolean; receiptState?: Resource['receiptState']; links?: ResourceLink[] },
     ) => {
       setResources((current) => {
         const existing = key ? current.find((resource) => resource.id === key) : undefined
@@ -650,6 +652,7 @@ export function AgentPage() {
           detail: entry.detail,
           ok: entry.ok ?? true,
           pending: entry.pending ?? false,
+          receiptState: entry.receiptState ?? existing?.receiptState,
           at: Date.now(),
           links: links.filter(
             (link, index) => links.findIndex((other) => other.url === link.url) === index,
@@ -693,6 +696,7 @@ export function AgentPage() {
   const latestTurnRef = useRef<string | null>(null)
   /** What a guess did to the screen, held until the guess is kept. */
   const heldRef = useRef(new Map<string, StageEvent[]>())
+  const reportedArtifactRevisionsRef = useRef(new Map<string, number>())
   /**
    * Searches still running when the cards were put away. Their cards land
    * quietly on the shelf rather than pulling everything back into the middle.
@@ -709,7 +713,7 @@ export function AgentPage() {
   const recordArtifactDisplay = useCallback((sourceTurnId: string) => {
     const items = stageEntriesRef.current.flatMap((entry) =>
       entry.card && !entry.leaving
-        ? [{ stableId: entry.id, label: entry.card.title, kind: entry.card.recipe }]
+        ? [{ stableId: entry.artifactId || entry.id, label: entry.card.title, kind: entry.card.recipe }]
         : [],
     )
     if (!items.length) return
@@ -730,6 +734,24 @@ export function AgentPage() {
         sourceTurnId,
         sourceSequence: current.sourceSequence + 1,
         status: 'visible',
+      },
+    })
+  }, [recordConversationEvent])
+
+  const recordActionOutcome = useCallback((turnId: string, action: ActionEvent) => {
+    if (action.pending) return
+    recordConversationEvent({
+      type: 'tool_outcome',
+      outcome: {
+        outcomeId: `tool/${turnId}/${action.call}`,
+        requestId: null,
+        toolName: action.name,
+        summary: action.summary.slice(0, 240),
+        sourceTurnId: turnId,
+        sourceSequence: conversationStateRef.current.sourceSequence + 1,
+        status: action.ok ? 'verified' : 'failed',
+        receiptId: action.receiptId ?? null,
+        derivedFrom: [],
       },
     })
   }, [recordConversationEvent])
@@ -861,7 +883,7 @@ export function AgentPage() {
     (id: string, query: string, hint: StageEntry['hint']) => {
       if (stageEntriesRef.current.some((entry) => entry.id === id)) return
       updateStage((current) =>
-        [...current, { id, query, hint, card: null, leaving: false }].slice(-MAX_STAGE),
+        [...current, { id, query, hint, card: null, leaving: false, sourceTurnId: id.split(':', 1)[0] }].slice(-MAX_STAGE),
       )
       openOn(id)
     },
@@ -870,29 +892,37 @@ export function AgentPage() {
 
   /** A card landing on its searching pane, or on its own if it never had one. */
   const placeCard = useCallback(
-    (id: string, card: CardV2 | null) => {
+    (id: string, card: CardV2 | null, metadata?: { artifactId?: string; displayRevision?: number }) => {
       cancelLater(`wait:${id}`)
       if (!card) {
         dropCard(id)
         return
       }
-      const exists = stageEntriesRef.current.some((entry) => entry.id === id)
+      const stableId = metadata?.artifactId || id
+      const exists = stageEntriesRef.current.some((entry) => entry.id === id || entry.id === stableId)
+      const wasQuiet = quietRef.current.delete(id)
+      if (wasQuiet) quietRef.current.add(stableId)
       // The same thing asked for twice draws the same card twice. The newer one
       // takes the older one's place rather than sitting beside it on the shelf.
       const title = card.title.toLowerCase()
       const earlier = (entry: StageEntry) =>
-        entry.id !== id && entry.card?.recipe === card.recipe && entry.card.title.toLowerCase() === title
+        entry.id !== stableId && entry.card?.recipe === card.recipe && entry.card.title.toLowerCase() === title
       updateStage((current) =>
         exists
           ? current
               .filter((entry) => !earlier(entry))
               .map((entry) =>
-                entry.id === id ? { ...entry, card, query: card.query || entry.query } : entry,
+                entry.id === id || entry.id === stableId
+                  ? { ...entry, id: stableId, artifactId: metadata?.artifactId || entry.artifactId, displayRevision: metadata?.displayRevision ?? entry.displayRevision, sourceTurnId: entry.sourceTurnId || id.split(':', 1)[0], card, query: card.query || entry.query }
+                  : entry,
               )
           : [
               ...current.filter((entry) => !earlier(entry)),
               {
-                id,
+                id: stableId,
+                artifactId: metadata?.artifactId,
+                displayRevision: metadata?.displayRevision,
+                sourceTurnId: id.split(':', 1)[0],
                 query: card.query,
                 hint: card.recipe === 'gallery' ? ('pictures' as const) : ('web' as const),
                 card,
@@ -901,12 +931,14 @@ export function AgentPage() {
             ].slice(-MAX_STAGE),
       )
       // Put away while it was still being looked for, so it waits on the shelf.
-      if (quietRef.current.has(id)) {
-        quietRef.current.delete(id)
+      if (quietRef.current.has(stableId)) {
+        quietRef.current.delete(stableId)
         return
       }
-      openOn(id)
-      recordArtifactDisplay(id.split(':', 1)[0] || id)
+      openOn(stableId)
+      const sourceTurnId = stageEntriesRef.current.find((entry) => entry.id === id)?.sourceTurnId
+        ?? id.split(':', 1)[0]
+      recordArtifactDisplay(sourceTurnId || id)
     },
     [cancelLater, dropCard, openOn, recordArtifactDisplay, updateStage],
   )
@@ -917,11 +949,13 @@ export function AgentPage() {
    * card always comes first, so there is nothing to wait for.
    */
   const patchCard = useCallback(
-    (id: string, patch: CardPatch) => {
+    (id: string, patch: CardPatch, metadata?: { artifactId?: string; displayRevision?: number }) => {
       if (!stageEntriesRef.current.some((entry) => entry.id === id && entry.card && !entry.leaving)) return
       updateStage((current) =>
         current.map((entry) =>
-          entry.id === id && entry.card ? { ...entry, card: applyPatch(entry.card, patch) } : entry,
+          entry.id === id && entry.card
+            ? { ...entry, displayRevision: metadata?.displayRevision ?? entry.displayRevision, card: applyPatch(entry.card, patch) }
+            : entry,
         ),
       )
       recordArtifactDisplay(id.split(':', 1)[0] || id)
@@ -971,11 +1005,11 @@ export function AgentPage() {
   const deliver = useCallback(
     (turnId: string, event: StageEvent) => {
       if ('patch' in event) {
-        patchCard(`${turnId}:${event.call}`, event.patch)
+        patchCard(event.artifactId || `${turnId}:${event.call}`, event.patch, event)
         return
       }
       if (!('move' in event)) {
-        placeCard(`${turnId}:${event.call}`, event.card)
+        placeCard(`${turnId}:${event.call}`, event.card, event)
         return
       }
       // A judgement about an older turn describes a conversation that has
@@ -999,6 +1033,18 @@ export function AgentPage() {
     held.set(turnId, [...(held.get(turnId) ?? []), event])
     if (held.size > 8) held.delete(held.keys().next().value as string)
   }
+
+  useEffect(() => {
+    const link = linkRef.current
+    if (!link) return
+    for (const entry of stage) {
+      if (!entry.card || entry.leaving || !entry.artifactId || !entry.displayRevision || !entry.sourceTurnId) continue
+      const last = reportedArtifactRevisionsRef.current.get(entry.artifactId) ?? 0
+      if (entry.displayRevision <= last) continue
+      reportedArtifactRevisionsRef.current.set(entry.artifactId, entry.displayRevision)
+      link.reportArtifactDisplayed(entry.sourceTurnId, entry.artifactId, entry.displayRevision)
+    }
+  }, [stage])
 
   // Open while the cards are in the room, including while they slide out: the
   // face waits for them to go before it heads home.
@@ -1076,16 +1122,18 @@ export function AgentPage() {
         title: staging ? action.detail : action.summary,
         detail: staging
           ? action.summary
-          : action.name === 'remember' || action.name === 'forget'
+          : action.name === 'remember' || action.name === 'correct' || action.name === 'forget'
             ? 'Memory'
             : 'Done',
         ok: action.ok,
         pending: action.pending,
+        receiptState: action.receiptState,
         links: action.links.flatMap((link) => {
           const host = hostOf(link.url)
           return host ? [{ id: `${id}:${link.url}`, url: link.url, title: link.title || host, host }] : []
         }),
       })
+      recordActionOutcome(turn.id, action)
       setWorking(action.pending ? action.summary : null)
       if (!staging) return
       if (action.pending) {
@@ -1096,7 +1144,7 @@ export function AgentPage() {
         waitForCard(id)
       }
     },
-    [dropCard, openSearch, record, waitForCard],
+    [dropCard, openSearch, record, recordActionOutcome, waitForCard],
   )
 
   // -- Browser-run tools ---------------------------------------------------
@@ -1150,11 +1198,27 @@ export function AgentPage() {
   useEffect(() => {
     const link = new RealtimeLink({
       onConfig: (next) => setConfig(next),
+      onOrphanedAction: (turnId, action) => {
+        if (action.pending) return
+        recordActionOutcome(turnId, action)
+        const id = `${turnId}:${action.call}`
+        const memoryAction = ['remember', 'correct', 'forget', 'recall'].includes(action.name)
+        record(id, {
+          title: action.summary,
+          detail: memoryAction ? 'Memory' : 'Action result',
+          ok: action.ok,
+          receiptState: action.receiptState,
+          links: action.links.flatMap((item) => {
+            const host = hostOf(item.url)
+            return host ? [{ id: `${id}:${item.url}`, url: item.url, title: item.title || host, host }] : []
+          }),
+        })
+      },
       runClientTool: (name, args) =>
         toolsRef.current?.run(name, args) ??
         Promise.resolve({ ok: false, content: 'The page is not ready to do that.' }),
-      onCard: (turnId, call, card) => stageEventRef.current(turnId, { call, card }),
-      onCardPatch: (turnId, call, patch) => stageEventRef.current(turnId, { call, patch }),
+      onCard: (turnId, call, card, metadata) => stageEventRef.current(turnId, { call, card, ...metadata }),
+      onCardPatch: (turnId, call, patch, metadata) => stageEventRef.current(turnId, { call, patch, ...metadata }),
       onStage: (turnId, move) => stageEventRef.current(turnId, { move }),
     })
     linkRef.current = link
@@ -1171,7 +1235,7 @@ export function AgentPage() {
       link.dispose()
       linkRef.current = null
     }
-  }, [])
+  }, [record, recordActionOutcome])
 
   // -- Restore and persist -------------------------------------------------
 
@@ -1336,8 +1400,9 @@ export function AgentPage() {
     const turn = turnRef.current
     if (!turn || turn.speculative) return
 
-    const heard = turn.voice?.spokenChars ?? 0
-    const spoken = turn.complete.slice(0, heard).trimEnd()
+    const playbackOffset = turn.voice?.spokenChars ?? 0
+    const spoken = turn.complete.slice(0, playbackOffset).trimEnd()
+    if (turn.responseId) linkRef.current?.reportPlaybackInterrupted(turn.id, turn.responseId, Math.min(playbackOffset, turn.complete.length))
 
     turn.timeline.interrupted = true
     logRef.current.push(turn.timeline.summary())
@@ -1347,9 +1412,8 @@ export function AgentPage() {
     captureRef.current?.setDucking(false)
     levelRef.current = 0
 
-    // A reply that had finished arriving is already in the history, in full.
-    // It is replaced by what was heard rather than joined by it, and dropped
-    // outright if not a word of it was.
+    // The transcript follows the device's playback-clock estimate. This is
+    // useful conversational context, but not proof of what a person heard.
     const history = messagesRef.current
     const settledAt = turn.messageId
       ? history.findIndex((message) => message.id === turn.messageId)
@@ -1377,7 +1441,7 @@ export function AgentPage() {
         type: 'interrupted',
         turnId: turn.id,
         sourceRevision: 1,
-        heardText: spoken,
+        heardText: null,
         sourceSequence: conversationStateRef.current.sourceSequence + 1,
       })
       const assistantMessage: Message = {
@@ -1508,10 +1572,13 @@ export function AgentPage() {
       if (!link) return
 
       let publishedCaption = ''
+      let reportedPlaybackThrough = 0
       const voice =
         voiceModeRef.current === 'active'
           ? new VoiceQueue({
-              request: (seq, chunk, signal) => link.speak(turn.id, seq, chunk, signal),
+              request: (seq, chunk, signal, span) => link.speak(
+                turn.id, seq, chunk, signal, turn.responseId, span.startChar, span.endChar,
+              ),
               onSpeakingChange: (isSpeaking) => {
                 if (isSpeaking) {
                   turn.timeline.mark('first_sample')
@@ -1527,6 +1594,10 @@ export function AgentPage() {
               },
               onProgress: (chars) => {
                 if (turn.cancelled || turnRef.current !== turn) return
+                if (turn.responseId && chars > reportedPlaybackThrough) {
+                  link.reportPlayback(turn.id, turn.responseId, reportedPlaybackThrough, chars)
+                  reportedPlaybackThrough = chars
+                }
                 const visible = playbackCaption(turn.complete, chars)
                 if (visible === publishedCaption) return
                 publishedCaption = visible
@@ -1646,8 +1717,12 @@ export function AgentPage() {
         turn.id,
         context.map(({ role, content }) => ({ role, content })),
         {
-          onDelta: (delta) => {
+          onStart: (metadata) => {
+            if (metadata?.responseId) turn.responseId = metadata.responseId
+          },
+          onDelta: (delta, metadata) => {
             if (turn.cancelled) return
+            if (metadata?.responseId) turn.responseId = metadata.responseId
             turn.timeline.mark('first_token')
             turn.complete += delta
 
@@ -1668,8 +1743,9 @@ export function AgentPage() {
             }
             showAction(turn, action)
           },
-          onDone: (finalText) => {
+          onDone: (finalText, metadata) => {
             if (turn.cancelled) return
+            if (metadata?.responseId) turn.responseId = metadata.responseId
             setWorking(null)
             turn.complete = finalText || turn.complete
             turn.finished = true

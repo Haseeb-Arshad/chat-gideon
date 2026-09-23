@@ -29,6 +29,9 @@ export interface SpeakableChunk {
   text: string
   /** Index in the fed text immediately after this chunk. */
   end: number
+  /** Exact source span occupied by `text`, excluding consumed whitespace. */
+  startChar: number
+  endChar: number
 }
 
 /**
@@ -52,7 +55,9 @@ export function splitSpeakable(
     const text = raw.trim()
     consumed = upTo
     if (text) {
-      chunks.push({ text, end: consumed })
+      const leading = raw.length - raw.trimStart().length
+      const trailing = raw.trimEnd().length
+      chunks.push({ text, end: consumed, startChar: consumed - raw.length + leading, endChar: consumed - raw.length + trailing })
       opening = false
     }
   }
@@ -98,7 +103,7 @@ export function splitSpeakable(
 }
 
 export interface VoiceQueueOptions {
-  request: (seq: number, text: string, signal: AbortSignal) => Promise<Blob>
+  request: (seq: number, text: string, signal: AbortSignal, span: { startChar: number; endChar: number }) => Promise<Blob>
   onSpeakingChange?: (speaking: boolean) => void
   /** 0–1 playback amplitude, driven by the audio itself. */
   onLevel?: (level: number) => void
@@ -115,6 +120,7 @@ interface QueueItem {
   seq: number
   text: string
   startChar: number
+  endChar: number
   audio: Promise<{ ok: true; blob: Blob } | { ok: false; error: unknown }>
 }
 
@@ -221,24 +227,25 @@ export class VoiceQueue {
 
     let cursor = 0
     for (const chunk of chunks) {
-      this.enqueue(chunk.text, this.base + cursor)
+      this.enqueue(chunk.text, this.base + chunk.startChar, this.base + chunk.endChar)
       cursor = chunk.end
     }
     this.base += cursor
     this.buffer = remainder
   }
 
-  private enqueue(text: string, startChar: number) {
+  private enqueue(text: string, startChar: number, endChar: number) {
     const seq = this.seq++
     if (seq === 0) this.options.onFirstRequest?.()
     const item: QueueItem = {
       seq,
       text,
       startChar,
+      endChar,
       // Observe failures immediately, even while an earlier request blocks the
       // ordered drain. Keep the original error rather than replacing it with
       // a cancellation or leaking an unhandled rejection.
-      audio: this.generate(seq, text).then(
+      audio: this.generate(seq, text, startChar, endChar).then(
         (blob) => ({ ok: true as const, blob }),
         (error: unknown) => ({ ok: false as const, error }),
       ),
@@ -248,11 +255,11 @@ export class VoiceQueue {
   }
 
   /** Generation runs ahead of playback, bounded by MAX_INFLIGHT. */
-  private async generate(seq: number, text: string): Promise<Blob> {
+  private async generate(seq: number, text: string, startChar: number, endChar: number): Promise<Blob> {
     await this.acquire()
     try {
       if (this.controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      return await this.options.request(seq, text, this.controller.signal)
+      return await this.options.request(seq, text, this.controller.signal, { startChar, endChar })
     } finally {
       this.release()
     }

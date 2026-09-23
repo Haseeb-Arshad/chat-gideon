@@ -21,7 +21,10 @@ export function sha256(value: unknown): string {
 }
 
 export function eventContentHash(scopeId: string, event: EventEnvelope): string {
-  const { id: _id, receivedAt: _receivedAt, ...semantic } = event
+  // Event sequence is a server-allocated ordering field, not source content.
+  // Excluding it lets a retried capture keep one idempotency key while the
+  // transaction assigns the next available per-scope sequence exactly once.
+  const { id: _id, receivedAt: _receivedAt, sequence: _sequence, ...semantic } = event
   return sha256({ scopeId, event: semantic })
 }
 

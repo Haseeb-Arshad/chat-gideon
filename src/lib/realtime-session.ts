@@ -28,6 +28,8 @@ import { readConversationState } from './conversation-state'
 import type { CoarseLocation } from './location'
 import type { MemoryStore } from './tools/memory'
 import type { MemorySession } from './memory'
+import type { MemoryTurnRuntime } from './memory/turn-runtime'
+import { DeliveryObservationLedger } from './delivery-observations'
 import {
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
@@ -62,6 +64,8 @@ export interface SessionOptions {
   memoryStore?: MemoryStore
   /** Server-bound identity/grants for model-visible memory tools. */
   memorySession?: MemorySession<MemoryStore>
+  /** Canonical server-selected memory adapter; never client-supplied. */
+  memoryRuntime?: MemoryTurnRuntime
   /** Roughly where the user is, from the host's address lookup when the socket opened. */
   location?: CoarseLocation | null
 }
@@ -91,6 +95,8 @@ export function createRealtimeSession(
   const metered = rateLimited(options.host ?? null)
   /** Aborts keyed by turn id, so a cancel only kills the turn it names. */
   const turns = new Map<string, AbortController>()
+  /** Bounded provenance for this socket only; reports never become memory. */
+  const delivery = new DeliveryObservationLedger()
   /** Tool calls the browser has been asked to run and has not answered yet. */
   const pendingTools = new Map<string, PendingTool>()
   let closed = false
@@ -222,6 +228,7 @@ export function createRealtimeSession(
         speculative: frame.speculative === true,
         memoryStore: options.memoryStore,
         memorySession: options.memorySession,
+        memoryRuntime: options.memoryRuntime,
         screen: readScreen(frame.screen),
         conversationState: readConversationState(frame.conversationState),
         // The device's own answer, once a tool has had to ask, is surer than the address lookup.
@@ -230,8 +237,29 @@ export function createRealtimeSession(
           located = location
         },
       })) {
-        if (closed || controller.signal.aborted) return
+        const durableToolReceipt = event.t === 'action' && event.pending !== true
+        if (closed || (controller.signal.aborted && !durableToolReceipt)) return
+        if (event.t === 'start' && event.responseId) {
+          delivery.beginResponse(event.id, event.responseId)
+        } else if (event.t === 'delta' && event.responseId && event.segmentId
+          && Number.isSafeInteger(event.startChar) && Number.isSafeInteger(event.endChar)) {
+          delivery.appendTextSegment({
+            turnId: event.id,
+            responseId: event.responseId,
+            segmentId: event.segmentId,
+            startChar: event.startChar!,
+            endChar: event.endChar!,
+            text: event.text,
+          })
+        } else if (event.t === 'done' && event.responseId) {
+          delivery.completeResponse(event.id, event.responseId, event.text)
+        } else if (event.t === 'card' && event.artifactId && event.displayRevision) {
+          delivery.issueArtifact(event.id, event.artifactId, event.displayRevision)
+        } else if (event.t === 'card_patch' && event.artifactId && event.displayRevision) {
+          delivery.issueArtifact(event.id, event.artifactId, event.displayRevision)
+        }
         send(event)
+        if (controller.signal.aborted && durableToolReceipt) return
       }
     } finally {
       turns.delete(frame.id)
@@ -254,6 +282,23 @@ export function createRealtimeSession(
       return
     }
 
+    const provenanceSupplied = frame.turnId !== undefined || frame.responseId !== undefined
+      || frame.startChar !== undefined || frame.endChar !== undefined
+    if (provenanceSupplied) {
+      const response = typeof frame.turnId === 'string' && typeof frame.responseId === 'string'
+        ? delivery.response(frame.turnId, frame.responseId)
+        : null
+      if (!response || !Number.isSafeInteger(frame.startChar) || !Number.isSafeInteger(frame.endChar)
+        || frame.startChar! < 0 || frame.endChar! <= frame.startChar!
+        || response.text.slice(frame.startChar, frame.endChar) !== text) {
+        send({
+          t: 'error', id: frame.id, code: 'invalid_delivery_binding',
+          message: 'That spoken segment did not match the generated reply.', retryable: false,
+        })
+        return
+      }
+    }
+
     const controller = controllerFor(frame.id)
     try {
       const result = await fetchVoice(text, controller.signal)
@@ -271,6 +316,27 @@ export function createRealtimeSession(
         return
       }
 
+      let audioProvenance: { responseId: string; segmentId: string; startChar: number; endChar: number } | undefined
+      if (provenanceSupplied) {
+        const segmentId = crypto.randomUUID()
+        const segment = {
+          turnId: frame.turnId!,
+          responseId: frame.responseId!,
+          segmentId,
+          startChar: frame.startChar!,
+          endChar: frame.endChar!,
+          text,
+        }
+        if (!delivery.issueAudioSegment(segment)) {
+          send({
+            t: 'error', id: frame.id, code: 'invalid_delivery_binding',
+            message: 'That spoken segment could not be tied to the generated reply.', retryable: false,
+          })
+          return
+        }
+        audioProvenance = { responseId: segment.responseId, segmentId, startChar: segment.startChar, endChar: segment.endChar }
+      }
+
       // Header first, binary immediately after. WebSocket preserves the order.
       send({
         t: 'audio',
@@ -278,6 +344,7 @@ export function createRealtimeSession(
         seq: frame.seq,
         mime: result.mime,
         bytes: result.body.byteLength,
+        ...audioProvenance,
       })
       try {
         sink.sendBinary(new Uint8Array(result.body))
@@ -317,6 +384,9 @@ export function createRealtimeSession(
         case 'speak':
           if (!allowed(frame.id, 'speak')) return
           return guarded(frame.id, runSpeak(frame))
+        case 'observation':
+          delivery.accept(frame)
+          return
         case 'tool_reply': {
           settleTool(toolKey(frame.id, frame.call), {
             ok: Boolean(frame.ok),

@@ -14,7 +14,7 @@
  * sentences it has been shown has only recognised them.
  */
 
-export type ToolName = 'get_time' | 'remember' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'show_map' | 'set_timer' | 'offer_link'
+export type ToolName = 'get_time' | 'remember' | 'correct' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'show_map' | 'set_timer' | 'offer_link'
 
 export interface SkillManifest {
   tool: ToolName
@@ -63,6 +63,27 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
     counterExamples: [
       { text: 'remind me in five minutes to stir the soup', use: 'set_timer' },
       { text: 'what is my brother called', use: 'recall' },
+    ],
+    sideEffects: true,
+  },
+  correct: {
+    tool: 'correct',
+    job: 'Replace one exact stored memory after the user says its wording or value is wrong.',
+    useWhen: [
+      'the user says a remembered fact, preference, plan or name is wrong or has changed',
+      'the user gives corrected wording for one memory and expects the old version to stop being current',
+    ],
+    neverFor: [
+      { when: 'a new fact that has not replaced a named old memory', use: 'remember' },
+      { when: 'removing a memory entirely', use: 'forget' },
+      { when: 'asking what was remembered', use: 'recall' },
+    ],
+    voice: 'Correct the exact memory and wait for its receipt before claiming the old wording was replaced.',
+    examples: ['I moved to Lahore, not Islamabad', 'correct that: I prefer concise answers', 'my appointment is on Thursday, not Wednesday'],
+    counterExamples: [
+      { text: 'I also play cello', use: 'remember' },
+      { text: 'forget where I work', use: 'forget' },
+      { text: 'what do you remember about my work', use: 'recall' },
     ],
     sideEffects: true,
   },

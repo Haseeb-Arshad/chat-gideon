@@ -697,6 +697,8 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
 
 export interface CaptureOptions {
   now?: string
+  /** Allocate a unique scope sequence inside the authorized transaction. */
+  assignSequence?: boolean
   injectFailureAfterEventInsert?: boolean
 }
 
@@ -826,8 +828,8 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
     try {
       return await store.runTransaction(async (transaction) => {
         await transaction.assertTrustedContext(session)
-        const existing = await transaction.findEventRecordByIdempotency(event.idempotencyKey)
-        const incomingHash = eventContentHash(session.scope.id, event)
+        const existing = await transaction.findEventRecordByIdempotency(parsed.value.idempotencyKey)
+        const incomingHash = eventContentHash(session.scope.id, parsed.value)
         if (existing) {
           if (existing.content_hash !== incomingHash) {
             return receiptFailure(existing.event_id as EventEnvelope['id'], now, {
@@ -840,12 +842,15 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
           const existingReceipt = await transaction.readReceiptByEvent(existing.event_id)
           return existingReceipt ?? receiptCaptured(existing.event_id as EventEnvelope['id'], now)
         }
-        const insertResult = await transaction.insertEvent(event)
+        const committedEvent = options.assignSequence
+          ? { ...parsed.value, sequence: await transaction.nextEventSequence() }
+          : parsed.value
+        const insertResult = await transaction.insertEvent(committedEvent)
         if (insertResult !== 'inserted') throw failure('conflict', 'The event was concurrently claimed; retry the same idempotency key.', true)
         if (options.injectFailureAfterEventInsert) throw new Error('injected capture crash after event insert')
-        const receipt = receiptCaptured(event.id, now)
-        await transaction.insertCapturedReceipt(receipt, event.id)
-        await transaction.insertCaptureJob(event)
+        const receipt = receiptCaptured(committedEvent.id, now)
+        await transaction.insertCapturedReceipt(receipt, committedEvent.id)
+        await transaction.insertCaptureJob(committedEvent)
         return receipt
       })
     } catch (error) {

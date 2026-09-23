@@ -22,9 +22,9 @@ import {
  * argument. Worker code may use this small module because it has no Node
  * imports. The Node-specific cookie resolver lives in node-memory-session.ts.
  */
-export interface ServerMemorySessionInput {
+export interface ServerMemorySessionInput<Store = MemoryStore> {
   owner: string
-  store: MemoryStore
+  store: Store
   channel: ClientChannel
   authority: SessionAuthority
   clientId?: string
@@ -61,7 +61,7 @@ function grantsFor(scopeId: ScopeId): readonly Grant[] {
  * This is intentionally the only constructor used by HTTP, Worker, and
  * realtime adapters. It does not accept a scope or grant list as input.
  */
-export function createServerMemorySession(input: ServerMemorySessionInput): MemorySession<MemoryStore> {
+export function createServerMemorySession<Store = MemoryStore>(input: ServerMemorySessionInput<Store>): MemorySession<Store> {
   const owner = ownerId(input.owner, 'memory owner')
   const ephemeral = input.authority === 'ephemeral_request'
   const trust = ephemeral ? 'ephemeral' : 'authenticated'

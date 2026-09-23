@@ -13,6 +13,7 @@ import {
   type MemoryFailure,
   type MemoryReceipt,
   type MemorySession,
+  type SourceSpan,
   type PublicMemoryCommand,
   type PublicRememberCommand,
   type PublicCorrectCommand,
@@ -39,6 +40,8 @@ export interface ExplicitCommandOptions {
   now?: string
   interpretedAt?: string
   slot?: CanonicalSlot | null
+  /** Server-built evidence for the committed user turn; never a model argument. */
+  sourceSpan?: SourceSpan | null
   /** Test-only failure injection before the transaction commits. */
   injectFailureAfterAssertion?: boolean
   /** Test-only simulation of a lost response after the transaction commits. */
@@ -188,8 +191,8 @@ function normalizedCommand(command: PublicMemoryCommand): Record<string, unknown
   return { ...command }
 }
 
-function commandHash(session: PostgresSession, command: PublicMemoryCommand, slot: CanonicalSlot | null): string {
-  return sha256({ scopeId: session.scope.id, subject: session.subject, command: normalizedCommand(command), slot })
+function commandHash(session: PostgresSession, command: PublicMemoryCommand, slot: CanonicalSlot | null, sourceSpan: SourceSpan | null): string {
+  return sha256({ scopeId: session.scope.id, subject: session.subject, command: normalizedCommand(command), slot, sourceSpan })
 }
 
 function canonicalKey(session: PostgresSession, command: PublicRememberCommand | PublicCorrectCommand, slot: CanonicalSlot | null): string {
@@ -370,6 +373,7 @@ function buildEvent(
   now: string,
   validTime: ValidTime,
   relation: TemporalRelation,
+  sourceSpan: SourceSpan | null,
 ): import('../../../src/lib/memory/contracts.ts').EventEnvelope {
   const isCorrection = command.kind === 'correct'
   return {
@@ -392,9 +396,10 @@ function buildEvent(
       policyVersion: `policy/${session.policyEpoch}` as RevisionId,
       purpose: 'memory_capture',
     },
-    sourceSpans: [],
+    sourceSpans: sourceSpan ? [sourceSpan] : [],
     payload: {
       commandId: command.commandId,
+      ...(sourceSpan ? { sourceRevision: sourceSpan.document.revision } : {}),
       text: command.text,
       assertionKind: command.assertionKind,
       conditions: normalizedConditions(command.conditions).map((condition) => ({
@@ -420,6 +425,7 @@ function buildAssertion(
   revision: number,
   prior: AssertionVersion | null,
   slot: CanonicalSlot | null,
+  sourceSpan: SourceSpan | null,
 ): AssertionVersion {
   return {
     schemaVersion: 1,
@@ -436,7 +442,7 @@ function buildAssertion(
     polarity: command.polarity ?? 'positive',
     status: 'accepted',
     time: { validTime, receivedAt: now, interpretedAt, relation },
-    evidence: [{ eventId: eventId as import('../../../src/lib/memory/contracts.ts').EventId, span: null, relation: 'supports' }],
+    evidence: [{ eventId: eventId as import('../../../src/lib/memory/contracts.ts').EventId, span: sourceSpan, relation: 'supports' }],
     dependencies: prior
       ? [{ type: 'assertion', id: prior.id, revision: revisionId(prior.id, prior.revision) }]
       : [],
@@ -456,8 +462,21 @@ async function persistCommand(
   assertCommandTime(command, now, interpretedAt)
   const validTime = commandValidTime(command)
   const relation = commandRelation(command)
+  const sourceSpan = options.sourceSpan ?? null
+  if (sourceSpan) {
+    const quote = sourceSpan.quote
+    const validSource = quote !== null
+      && sourceSpan.start === 0
+      && sourceSpan.end === quote.length
+      && sourceSpan.textHash === sha256(quote)
+      && sourceSpan.document.contentHash === sha256(quote)
+    if (!validSource) {
+      const operationFailure: MemoryFailure = { code: 'validation', message: 'The committed source revision failed validation.', retryable: false }
+      return { ok: false, commandId: command.commandId, receipt: failedReceipt(eventIdFor(session.scope.id, command.commandId) as import('../../../src/lib/memory/contracts.ts').EventId, now, operationFailure), failure: operationFailure }
+    }
+  }
   const eventId = eventIdFor(session.scope.id, command.commandId)
-  const hash = commandHash(session, command, slot)
+  const hash = commandHash(session, command, slot, sourceSpan)
   const canonical = canonicalKey(session, command, slot)
 
   let result: ExplicitCommandResult
@@ -533,7 +552,7 @@ async function persistCommand(
             assertion: duplicate,
           }
           const sequence = await transaction.nextEventSequence()
-          const event = buildEvent(session, command, eventId, sequence, now, validTime, relation)
+          const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan)
           if (await transaction.insertEvent(event) !== 'inserted') throw failure('conflict', 'The command event was concurrently claimed; retry the same command.', true)
           await transaction.query(
             `INSERT INTO ${SQL.commands} (scope_id, command_id, command_hash, operation, event_id, assertion_id, assertion_revision, outcome, change_watermark, receipt, result)
@@ -552,9 +571,9 @@ async function persistCommand(
       }
 
       const sequence = await transaction.nextEventSequence()
-      const event = buildEvent(session, command, eventId, sequence, now, validTime, relation)
+      const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan)
       if (await transaction.insertEvent(event) !== 'inserted') throw failure('conflict', 'The command event was concurrently claimed; retry the same command.', true)
-      const assertion = buildAssertion(session, command, event.id, now, interpretedAt, validTime, relation, assertionId, revision, prior, targetSlot)
+      const assertion = buildAssertion(session, command, event.id, now, interpretedAt, validTime, relation, assertionId, revision, prior, targetSlot, sourceSpan)
       const commit: AssertionCommit = {
         assertion,
         expectedRevision: prior ? prior.revision : null,

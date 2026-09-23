@@ -12,7 +12,7 @@ This ledger starts with no implementation stage claimed complete. The foundation
 | 06 Conversation state, reference resolution, and episode continuity | LOCAL_VERIFIED | `src/lib/conversation-state.test.ts` + contract tests 25/25; `npm run memory:postgres:test` 1 file / 15 tests; offline suite 83 files / 936 tests; TypeScript; Cloudflare/application/realtime builds; diff check | Not run; no deployment, remote migration, provider, live voice, or real-user deletion drill | `docs/memory/handoffs/06-conversation-state.md` |
 | 07 Profiles, warm snapshots, and immediate correction overlays | LOCAL_VERIFIED | Projection tests 11/11; focused regression 3 files / 36 tests; disposable PostgreSQL suite 1 file / 16 tests; offline suite 84 files / 947 tests; TypeScript; Cloudflare/application/realtime builds; bounded composition and refresh measurements; diff check | Not run; projection authority remains isolated, with no deployment, remote migration, provider, live voice or real-user proof | `docs/memory/handoffs/07-profiles-and-snapshots.md` |
 | 08 Hybrid recall, evidence fallback, applicable constraints, and context packs | LOCAL_VERIFIED | Core retrieval 19/19; paired ablation 1/1; disposable PostgreSQL 19/19; offline suite 86 files / 967 tests; TypeScript; Cloudflare, application/realtime builds; `git diff --check` | Not run; migration 005/provider/route remains local-only | `docs/memory/handoffs/08-retrieval-and-composition.md` |
-| 09 Integrate memory into HTTP, realtime voice, cards, and the action ledger | NOT_STARTED | Not run | Not run | Not created |
+| 09 Integrate memory into HTTP, realtime voice, cards, and the action ledger | LOCAL_VERIFIED | Offline suite 92 files / 985 tests; Stage 09 focused transport/runtime tests 6 files / 37 tests; disposable PostgreSQL authority suite 19/19 on clean rerun; TypeScript, application/realtime build, Cloudflare build, and `git diff --check` passed | Not run; no deployment, production cutover, remote migration, provider, or real voice/browser proof authorized | `docs/memory/handoffs/09-chatgideon-and-voice-integration.md` |
 | 10 Conservative extraction, conditional preferences, and bounded maintenance | NOT_STARTED | Not run | Not run | Not created |
 | 11 Jev classification adapter and adoption decision | NOT_STARTED | Not run | Not run | Not created |
 | 12 Inspector, user controls, corrections, forgetting, and export | NOT_STARTED | Not run | Not run | Not created |
@@ -27,11 +27,12 @@ Allowed status labels: NOT_STARTED, IN_PROGRESS, BLOCKED, LOCAL_VERIFIED, STAGIN
 
 ## Current blockers
 
-No Stage 03–08 local blocker remains. Stage 08 has no production embedding
-provider configured; deterministic vectors only verify control flow. Staging /
-production database migration, application cutover, remote-provider execution,
-and live voice proof remain intentionally out of scope and are not implied by
-LOCAL_VERIFIED.
+No Stage 03–09 local blocker remains. Stage 08 has no production embedding
+provider configured; deterministic vectors only verify control flow. Stage 09
+has no production memory cutover, Worker PostgreSQL wiring, remote provider,
+staging/production database migration, deployed application, or live
+voice/browser proof. These remain intentionally out of scope and are not
+implied by LOCAL_VERIFIED.
 
 ## Resume instructions
 

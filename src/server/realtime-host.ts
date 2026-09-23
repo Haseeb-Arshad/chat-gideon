@@ -13,6 +13,7 @@ import { REALTIME_PATH } from '../lib/protocol'
 import { callerKey, isLocalRequest, isTrustedAddress, limiter, originAllowed, rateLimited } from '../lib/guard'
 import { createRealtimeSession } from '../lib/realtime-session'
 import { resolveNodeMemorySession } from './node-memory-session'
+import { resolveNodeMemoryIntegration } from './node-memory-integration'
 
 /** Minimal structural view of `ws`, which ships without type declarations. */
 interface NodeWebSocket {
@@ -182,6 +183,9 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
                   caller,
                   host,
                   memorySession: resolveNodeMemorySession({
+                    headers: { get: (name: string) => headerValue(request, name) },
+                  }, 'websocket'),
+                  memoryRuntime: resolveNodeMemoryIntegration({
                     headers: { get: (name: string) => headerValue(request, name) },
                   }, 'websocket'),
                 },

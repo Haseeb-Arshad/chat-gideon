@@ -46,12 +46,24 @@ export interface ActionEvent {
   /** What is being worked on, such as the question being researched. */
   detail: string
   links: Array<{ title: string; url: string; publishedDate?: string }>
+  receiptState?: 'captured' | 'accepted' | 'indexed' | 'pending' | 'failed'
+  receiptId?: string
+}
+
+export interface TurnStartMetadata {
+  responseId?: string
+}
+
+export interface TurnDeltaMetadata extends TurnStartMetadata {
+  segmentId?: string
+  startChar?: number
+  endChar?: number
 }
 
 export interface TurnHandlers {
-  onStart?: () => void
-  onDelta: (text: string) => void
-  onDone: (text: string) => void
+  onStart?: (metadata?: TurnStartMetadata) => void
+  onDelta: (text: string, metadata?: TurnDeltaMetadata) => void
+  onDone: (text: string, metadata?: TurnStartMetadata) => void
   onError: (message: string, retryable: boolean) => void
   /** GIDEON did something worth showing in the ledger. */
   onAction?: (action: ActionEvent) => void
@@ -101,6 +113,8 @@ interface PendingAudio {
   resolve: (blob: Blob) => void
   reject: (error: Error) => void
   mime: string
+  expected?: { turnId: string; responseId: string; startChar: number; endChar: number }
+  issued?: { turnId: string; responseId: string; segmentId: string; startChar: number; endChar: number }
   /** Detaches the caller's abort listener once this pending no longer needs it. */
   cleanup: () => void
 }
@@ -132,11 +146,14 @@ export class RealtimeLink {
    * the side that actually owns the timers and the screen.
    */
   private readonly speculativeTurns = new Set<string>()
+  private readonly discardedSpeculativeTurns = new Set<string>()
   private readonly audio = new Map<string, PendingAudio>()
+  private readonly issuedAudioSegments = new Map<string, { turnId: string; responseId: string; segmentId: string; startChar: number; endChar: number; reportedThrough: number }>()
   private pendingAudioKey: string | null = null
 
   private onTransportChange: ((transport: LinkTransport) => void) | null = null
   private onConfig: ((config: LinkConfig) => void) | null = null
+  private onOrphanedAction: ((turnId: string, action: ActionEvent) => void) | null = null
   /**
    * Fulfils tools the server asks the browser to run. Absent on the HTTP
    * fallback, where the server has no way to ask in the first place.
@@ -149,20 +166,22 @@ export class RealtimeLink {
    * handlers: a card is drawn beside the reply and often arrives after `done`,
    * by which point the turn has already been let go.
    */
-  private onCard: ((turnId: string, call: string, card: CardV2 | null) => void) | null = null
-  private onCardPatch: ((turnId: string, call: string, patch: CardPatch) => void) | null = null
+  private onCard: ((turnId: string, call: string, card: CardV2 | null, metadata?: { artifactId?: string; displayRevision?: number }) => void) | null = null
+  private onCardPatch: ((turnId: string, call: string, patch: CardPatch, metadata?: { artifactId?: string; displayRevision?: number }) => void) | null = null
   private onStage: ((turnId: string, move: StageMove) => void) | null = null
 
   constructor(options: {
     onTransportChange?: (transport: LinkTransport) => void
     onConfig?: (config: LinkConfig) => void
+    onOrphanedAction?: (turnId: string, action: ActionEvent) => void
     runClientTool?: (name: string, args: unknown) => Promise<{ ok: boolean; content: string }>
-    onCard?: (turnId: string, call: string, card: CardV2 | null) => void
-    onCardPatch?: (turnId: string, call: string, patch: CardPatch) => void
+    onCard?: (turnId: string, call: string, card: CardV2 | null, metadata?: { artifactId?: string; displayRevision?: number }) => void
+    onCardPatch?: (turnId: string, call: string, patch: CardPatch, metadata?: { artifactId?: string; displayRevision?: number }) => void
     onStage?: (turnId: string, move: StageMove) => void
   } = {}) {
     this.onTransportChange = options.onTransportChange ?? null
     this.onConfig = options.onConfig ?? null
+    this.onOrphanedAction = options.onOrphanedAction ?? null
     this.runClientTool = options.runClientTool ?? null
     this.onCard = options.onCard ?? null
     this.onCardPatch = options.onCardPatch ?? null
@@ -311,6 +330,8 @@ export class RealtimeLink {
     this.accountRelease = null
     this.turns.clear()
     this.socketTurns.clear()
+    this.speculativeTurns.clear()
+    this.discardedSpeculativeTurns.clear()
     this.refreshPending = false
     for (const controller of this.httpControllers.values()) controller.abort()
     this.httpControllers.clear()
@@ -342,6 +363,12 @@ export class RealtimeLink {
     if (options.speculative) this.speculativeTurns.add(id)
 
     const forget = () => {
+      if (this.speculativeTurns.has(id)) {
+        this.discardedSpeculativeTurns.add(id)
+        while (this.discardedSpeculativeTurns.size > 128) {
+          this.discardedSpeculativeTurns.delete(this.discardedSpeculativeTurns.values().next().value as string)
+        }
+      }
       this.turns.delete(id)
       this.speculativeTurns.delete(id)
       this.socketTurns.delete(id)
@@ -383,7 +410,15 @@ export class RealtimeLink {
   }
 
   /** Requests spoken audio for one chunk of the reply. */
-  async speak(turnId: string, seq: number, text: string, signal: AbortSignal): Promise<Blob> {
+  async speak(
+    turnId: string,
+    seq: number,
+    text: string,
+    signal: AbortSignal,
+    responseId?: string,
+    startChar?: number,
+    endChar?: number,
+  ): Promise<Blob> {
     if (this.disposed) throw new DOMException('Aborted', 'AbortError')
     if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
       const key = `${turnId}#${seq}`
@@ -410,9 +445,17 @@ export class RealtimeLink {
           resolve: (blob) => settled(() => resolve(blob)),
           reject: (error) => settled(() => reject(error)),
           mime: 'audio/mpeg',
+          ...(responseId && Number.isSafeInteger(startChar) && Number.isSafeInteger(endChar)
+            ? { expected: { turnId, responseId, startChar: startChar!, endChar: endChar! } }
+            : {}),
           cleanup: () => signal.removeEventListener('abort', onAbort),
         })
-        this.send({ t: 'speak', id: key, seq, text })
+        this.send({
+          t: 'speak', id: key, seq, text,
+          ...(responseId && Number.isSafeInteger(startChar) && Number.isSafeInteger(endChar)
+            ? { turnId, responseId, startChar, endChar }
+            : {}),
+        })
       })
     }
 
@@ -427,6 +470,38 @@ export class RealtimeLink {
     })
     if (!response.ok) throw new Error(await readErrorMessage(response))
     return response.blob()
+  }
+
+  /** A client playback-clock report, never proof that a person heard the words. */
+  reportPlayback(turnId: string, responseId: string, startChar: number, endChar: number) {
+    if (this.transport !== 'socket' || !this.socket || !Number.isSafeInteger(startChar)
+      || !Number.isSafeInteger(endChar) || startChar < 0 || endChar <= startChar) return
+    for (const segment of this.issuedAudioSegments.values()) {
+      if (segment.turnId !== turnId || segment.responseId !== responseId) continue
+      const start = Math.max(startChar, segment.startChar, segment.reportedThrough)
+      const end = Math.min(endChar, segment.endChar)
+      if (end <= start) continue
+      segment.reportedThrough = end
+      this.send({
+        t: 'observation', id: crypto.randomUUID(), turnId, responseId,
+        kind: 'playback_reported', segmentId: segment.segmentId, startChar: start, endChar: end,
+      })
+    }
+  }
+
+  reportPlaybackInterrupted(turnId: string, responseId: string, atChar: number) {
+    if (this.transport !== 'socket' || !this.socket || !Number.isSafeInteger(atChar) || atChar < 0) return
+    this.send({
+      t: 'observation', id: crypto.randomUUID(), turnId, responseId,
+      kind: 'playback_interrupted', startChar: atChar, endChar: atChar,
+    })
+  }
+
+  reportArtifactDisplayed(turnId: string, artifactId: string, displayRevision: number) {
+    if (this.transport !== 'socket' || !this.socket || !artifactId || !Number.isSafeInteger(displayRevision)) return
+    this.send({
+      t: 'observation', id: crypto.randomUUID(), turnId, kind: 'displayed', artifactId, displayRevision,
+    })
   }
 
   private awaitAccountForRequest(signal?: AbortSignal): Promise<void> {
@@ -501,8 +576,8 @@ export class RealtimeLink {
           tools: Array.isArray(frame.tools) ? frame.tools : [],
         })
         return
-      case 'action':
-        this.turns.get(frame.id)?.onAction?.({
+      case 'action': {
+        const action: ActionEvent = {
           call: frame.call,
           name: frame.name,
           summary: frame.summary,
@@ -510,16 +585,28 @@ export class RealtimeLink {
           pending: frame.pending === true,
           detail: typeof frame.detail === 'string' ? frame.detail : '',
           links: Array.isArray(frame.links) ? frame.links : [],
-        })
+          ...(frame.receiptState ? { receiptState: frame.receiptState } : {}),
+          ...(frame.receiptId ? { receiptId: frame.receiptId } : {}),
+        }
+        const handlers = this.turns.get(frame.id)
+        if (handlers) handlers.onAction?.(action)
+        else if (!this.discardedSpeculativeTurns.has(frame.id)) this.onOrphanedAction?.(frame.id, action)
         return
+      }
       case 'card':
         // Read for its shape here, where it arrives: a card that cannot be drawn
         // is no card, and dissolves its searching pane like a declined one.
-        this.onCard?.(frame.id, frame.call, readCard(frame.card))
+        this.onCard?.(frame.id, frame.call, readCard(frame.card), {
+          ...(frame.artifactId ? { artifactId: frame.artifactId } : {}),
+          ...(frame.displayRevision ? { displayRevision: frame.displayRevision } : {}),
+        })
         return
       case 'card_patch': {
         const patch = readPatch(frame)
-        if (patch) this.onCardPatch?.(frame.id, frame.call, patch)
+        if (patch) this.onCardPatch?.(frame.id, frame.call, patch, {
+          ...(frame.artifactId ? { artifactId: frame.artifactId } : {}),
+          ...(frame.displayRevision ? { displayRevision: frame.displayRevision } : {}),
+        })
         return
       }
       case 'stage':
@@ -535,21 +622,55 @@ export class RealtimeLink {
         this.pendingAudioKey = `${frame.id}`
         {
           const pending = this.audio.get(this.pendingAudioKey)
-          if (pending) pending.mime = frame.mime
+          if (pending) {
+            pending.mime = frame.mime
+            if (pending.expected) {
+              const matches = frame.responseId === pending.expected.responseId
+                && frame.segmentId && frame.startChar === pending.expected.startChar
+                && frame.endChar === pending.expected.endChar
+              if (!matches) {
+                this.audio.delete(this.pendingAudioKey)
+                this.pendingAudioKey = null
+                pending.reject(new Error('The spoken segment had invalid server provenance.'))
+                return
+              }
+              const issued = {
+                ...pending.expected,
+                segmentId: frame.segmentId!,
+              }
+              pending.issued = issued
+              this.issuedAudioSegments.set(issued.segmentId, { ...issued, reportedThrough: issued.startChar })
+              while (this.issuedAudioSegments.size > 256) {
+                this.issuedAudioSegments.delete(this.issuedAudioSegments.keys().next().value as string)
+              }
+            }
+          }
         }
         return
       case 'start':
-        this.turns.get(frame.id)?.onStart?.()
+        if (frame.responseId) this.turns.get(frame.id)?.onStart?.({ responseId: frame.responseId })
+        else this.turns.get(frame.id)?.onStart?.()
         return
       case 'delta':
-        this.turns.get(frame.id)?.onDelta(frame.text)
+        {
+          const metadata = {
+            ...(frame.responseId ? { responseId: frame.responseId } : {}),
+            ...(frame.segmentId ? { segmentId: frame.segmentId } : {}),
+            ...(frame.startChar !== undefined ? { startChar: frame.startChar } : {}),
+            ...(frame.endChar !== undefined ? { endChar: frame.endChar } : {}),
+          }
+          if (Object.keys(metadata).length) this.turns.get(frame.id)?.onDelta(frame.text, metadata)
+          else this.turns.get(frame.id)?.onDelta(frame.text)
+        }
         return
       case 'done': {
         const handlers = this.turns.get(frame.id)
         this.turns.delete(frame.id)
         this.speculativeTurns.delete(frame.id)
+        this.discardedSpeculativeTurns.delete(frame.id)
         this.socketTurns.delete(frame.id)
-        handlers?.onDone(frame.text)
+        if (frame.responseId) handlers?.onDone(frame.text, { responseId: frame.responseId })
+        else handlers?.onDone(frame.text)
         this.drainRefresh()
         return
       }
@@ -565,6 +686,7 @@ export class RealtimeLink {
           const handlers = this.turns.get(frame.id)
           this.turns.delete(frame.id)
           this.speculativeTurns.delete(frame.id)
+          this.discardedSpeculativeTurns.delete(frame.id)
           this.socketTurns.delete(frame.id)
           handlers?.onError(frame.message, frame.retryable)
           this.drainRefresh()

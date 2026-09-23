@@ -28,6 +28,8 @@ export interface Resource {
   ok: boolean
   /** Still happening; replaced in place when the result arrives. */
   pending: boolean
+  /** Canonical command receipt, independent of the assistant's spoken reply. */
+  receiptState?: 'captured' | 'accepted' | 'indexed' | 'pending' | 'failed'
   at: number
   links: ResourceLink[]
 }

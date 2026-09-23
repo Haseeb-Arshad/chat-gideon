@@ -117,11 +117,20 @@ describe('a card growing after the reply', () => {
 
     // The reply is over; the card is not, and the loop is still waiting for it.
     card.resolve(CARD)
-    expect(await next(turn)).toEqual({ t: 'card', id: 't1', call: 'call_0', card: CARD })
+    expect(await next(turn)).toMatchObject({
+      t: 'card', id: 't1', call: 'call_0', card: CARD,
+      artifactId: expect.any(String), displayRevision: 1,
+    })
 
     summary.resolve()
-    expect(await next(turn)).toEqual({ t: 'card_patch', id: 't1', call: 'call_0', ...SUMMARY })
-    expect(await next(turn)).toEqual({ t: 'card_patch', id: 't1', call: 'call_0', ...FINAL })
+    expect(await next(turn)).toMatchObject({
+      t: 'card_patch', id: 't1', call: 'call_0', ...SUMMARY,
+      artifactId: expect.any(String), displayRevision: 2,
+    })
+    expect(await next(turn)).toMatchObject({
+      t: 'card_patch', id: 't1', call: 'call_0', ...FINAL,
+      artifactId: expect.any(String), displayRevision: 3,
+    })
     expect(await next(turn)).toBeNull()
   })
 
