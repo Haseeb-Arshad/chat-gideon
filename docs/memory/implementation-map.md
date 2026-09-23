@@ -68,9 +68,11 @@ that its capability is enabled or production-verified.
 | Runner interval | `GIDEON_MEMORY_BACKGROUND_INTERVAL_MS` | Stage 10; clamped to 1 s–10 min, default 10 s |
 | Extractor selection | `GIDEON_MEMORY_EXTRACTOR=rules\|model` | Stage 10; `rules` (local, no network) unless `model` **and** the spend switch below are both set |
 | Remote extraction spend switch | `GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED=1` | Stage 10; required for any paid model extraction; never set by default |
-| Extractor model | `GIDEON_MEMORY_EXTRACTOR_MODEL` | Stage 10; defaults to `openai/gpt-5.6-luna` when the model extractor is enabled |
+| Extractor model | `GIDEON_MEMORY_EXTRACTOR_MODEL` | Stage 10; defaults to `openai/gpt-6-luna` (changed in Stage 11 at the user's instruction) when the model extractor is enabled |
 | Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Stage 08 adapter exists; no provider configured by default |
-| Jev classification | `GIDEON_MEMORY_JEV_ENABLED` | Not wired; optional Stage 11 |
+| Classifier-assisted learning | `GIDEON_MEMORY_CLASSIFIER_MODE=shadow\|enforce` | Stage 11; unset = off. Needs `GIDEON_MEMORY_CLASSIFIER_REMOTE_ALLOWED=1`; production gated. See ADR 0001 |
+| Classifier provider / workflow | `GIDEON_MEMORY_CLASSIFIER_PROVIDER=jev\|substitute`, `GIDEON_MEMORY_CLASSIFIER_WORKFLOW=verify\|gate` | Stage 11; defaults `jev`, `verify`; Jev needs `TYPESAFE_API_KEY` (absent) |
+| Pinned classifier models | `GIDEON_MEMORY_JEV_MODEL`, `GIDEON_MEMORY_CLASSIFIER_MODEL` | Stage 11; defaults `jev-1.13.0`, `openai/gpt-6-luna` |
 
 The three Stage 09 capability flags are independent: enabling one does not
 enable capture, command writes, or recall. The rollout owner is derived from a
@@ -532,6 +534,39 @@ with a regression test; see `handoffs/10-background-learning.md` for detail.
 - Evaluation: `npm run memory:extraction:eval` over
   `scripts/fixtures/memory-extraction-dev.json`, report at
   `docs/memory/reports/stage-10-extraction-eval.json`.
+
+## Stage 11 optional classification (Jev) and adoption decision
+
+- `src/lib/memory/classification.ts` (edge-safe): Choice/Noul/Score contract in
+  TypeSafe's shape, bounded request validation, strict answer parsing, the four
+  allowed memory question families (candidacy, temporary vs durable, relation
+  to retrieved memories, activity) and conservative verdicts.
+- `src/lib/memory/classified-extractor.ts` (edge-safe): wraps any extractor
+  in `verify` or `gate` mode. It can only refuse, hold for review (`review:
+  'abstain'`) or narrow to the current task; failures abstain. The trace rides
+  in the extractor output (`classificationTraceOf`).
+- `src/lib/memory/learning.ts`: optional `review` on candidates and
+  `knownMemories` on windows; `decideCandidate(..., { sourceText })` checks the
+  whole source sentence for special-category topics (reader repair).
+- `backend/memory/src/typesafe-classifier.ts`: server-only Jev adapter
+  (`POST https://api.typesafe.ai/v1/systemone`, pinned `jev-1.13.0`).
+  `backend/memory/src/llm-classifier.ts`: OpenRouter substitute, labeled
+  `llm_substitute`, never reported as Jev.
+- `backend/memory/src/learning.ts`: `shadow` extractor recording reason codes
+  only (`compareShadow`, `learning_decisions.action = 'shadow'`) and the
+  scope-bound `includeKnownMemories` read; `backend/memory/migrations/008-classifier-shadow.sql`.
+- `src/server/node-memory-integration.ts`: `learningExtractorsFromEnv()` feeds
+  the background runner only.
+- Evaluation: `npm run memory:classifier:eval` (offline by default; live needs
+  `MEMORY_CLASSIFIER_EVAL_PHASE=dev|heldout` and `MEMORY_CLASSIFIER_EVAL_LIVE=1`,
+  refuses any model but `openai/gpt-6-luna`, caches responses under the ignored
+  `output/memory-classifier-eval/`, stops at $0.25). Fixtures
+  `scripts/fixtures/memory-classifier-{dev,heldout,thresholds}.json`; reports
+  `docs/memory/reports/stage-11-{dev,heldout}.json`; decision
+  `docs/memory/decisions/0001-jev-classification.md`.
+
+Stage 11 is locally verified with a measured deferral: no Jev call was made
+(no key), and every classifier mode is off by default.
 
 ## Stage 01 receipt contract
 
