@@ -27,6 +27,8 @@ import { processLearningJob, promoteLearnedCandidates, shadowReextract } from '.
 import { runMemoryMaintenance } from './background.ts'
 import { RULE_EXTRACTOR } from '../../../src/lib/memory/rule-extractor.ts'
 import type { MemoryExtractor } from '../../../src/lib/memory/learning.ts'
+import type { MemoryClassifier } from '../../../src/lib/memory/classification.ts'
+import { createClassifiedExtractor } from '../../../src/lib/memory/classified-extractor.ts'
 import { createRetrievalRequest } from '../../../src/lib/memory/retrieval.ts'
 import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
@@ -1432,5 +1434,132 @@ describe.skipIf(!enabled)('Stage 10 background learning on PostgreSQL', () => {
     expect(warm.status).toBe('available')
     expect(JSON.stringify(warm)).toContain('Prefers window seats')
     expect(JSON.stringify(warm)).not.toContain('MAINTPROBE')
+  })
+})
+
+describe.skipIf(!enabled)('Stage 11 optional classification on PostgreSQL', () => {
+  const run = `stage11-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 8, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+  const noUsage = { inputTokens: 0, outputTokens: 0, costMicros: 0 }
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  function userTurn(memorySession: ReturnType<typeof session>, tag: string, sequence: number, text: string, receivedAt: string): EventEnvelope {
+    return { ...eventFor(memorySession, `${run}-${tag}`, sequence, receivedAt), conversationId: `conversation/${run}/${tag}` as EventEnvelope['conversationId'], payload: { text } }
+  }
+
+  async function claimFor(memorySession: ReturnType<typeof session>, event: EventEnvelope) {
+    expect(await captureCommittedEvent(store, memorySession, event, { now: event.receivedAt, assignSequence: true })).toMatchObject({ ok: true })
+    const [job] = await claimJobs(store, { workerId: `${run}-learner`, scopeId: memorySession.scope.id, kinds: ['interpret_event'], limit: 1, now: event.receivedAt })
+    expect(job?.inputEventId).toBe(event.id)
+    return job!
+  }
+
+  function fixtureClassifier(id: string, answer: (key: string) => unknown, seen?: string[]): MemoryClassifier {
+    return {
+      id, version: '1', model: 'fixture', placement: 'local', provider: 'fixture',
+      async classify(request) {
+        seen?.push(JSON.stringify(request))
+        const answers: Record<string, unknown> = {}
+        for (const key of Object.keys(request.questions)) answers[key] = answer(key)
+        return { ok: true, answers: answers as never, model: 'fixture', usage: noUsage, latencyMs: 1 }
+      },
+    }
+  }
+
+  const act = (choice: string) => {
+    const options = ['self_statement', 'quoted', 'hypothetical', 'joke', 'question', 'assistant_echo', 'task_instruction']
+    return { type: 'choice', choice, probabilities: Object.fromEntries(options.map((option) => [option, option === choice ? 0.94 : 0.01])), confidence: 0.9 }
+  }
+  const durability = (choice: string) => {
+    const options = ['durable', 'temporary', 'not_memory']
+    return { type: 'choice', choice, probabilities: Object.fromEntries(options.map((option) => [option, option === choice ? 0.9 : 0.05])), confidence: 0.9 }
+  }
+
+  it('C30: with Jev unavailable, explicit remember is deterministic and accepted; ambiguous capture stays pending', async () => {
+    const memorySession = session(`user/${run}-c30`)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    // A learning job whose classifier hangs is in flight while the user explicitly remembers.
+    const hanging: MemoryClassifier = {
+      id: 'jev-down', version: '1', model: 'jev-1.13.0', placement: 'remote', provider: 'fixture',
+      classify: (_request, signal) => new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, failure: { code: 'timeout', retryable: true }, usage: noUsage, latencyMs: 300 }))),
+    }
+    const job = await claimFor(memorySession, userTurn(memorySession, 'c30', 1, 'I prefer aisle seats on long flights.', '2026-09-23T09:00:00.000Z'))
+    const learning = processLearningJob(store, job, { extractor: createClassifiedExtractor({ base: RULE_EXTRACTOR, classifier: hanging, mode: 'verify', classifierTimeoutMs: 300 }), now: '2026-09-23T09:00:00.000Z' })
+    const started = Date.now()
+    const remembered = await executeExplicitCommand(durable, {
+      schemaVersion: 1, commandId: `command/${run}/c30-remember`, kind: 'remember', text: 'I prefer vegetarian meals', assertionKind: 'preference', conditions: [],
+    }, { now: '2026-09-23T09:00:01.000Z' })
+    const explicitMs = Date.now() - started
+    expect(remembered).toMatchObject({ ok: true, outcome: 'accepted', receipt: { state: 'accepted' } })
+    // The classifier timed out: the automatic interpretation abstains instead of inventing confidence.
+    expect(await learning).toMatchObject({ status: 'completed', decisions: [{ action: 'add', reason: 'classifier_abstained' }] })
+    expect(explicitMs).toBeLessThan(Date.now() - started)
+    const rows = await database.query<{ status: string; text: string }>(
+      `SELECT a.current_status AS status, v.version->'payload'->>'text' AS text FROM gideon_memory.assertions a
+       JOIN gideon_memory.assertion_versions v ON v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+       WHERE a.scope_id = $1 ORDER BY text`,
+      [memorySession.scope.id],
+    )
+    expect(rows.rows).toEqual([
+      { status: 'accepted', text: 'I prefer vegetarian meals' },
+      { status: 'candidate', text: 'User said: I prefer aisle seats on long flights' },
+    ])
+    // The captured turn is not reported as an accepted memory, and recall does not surface it.
+    const receipt = await store.forSession(memorySession).transaction((transaction) => transaction.readReceiptByEvent(job.inputEventId))
+    expect(receipt?.state).not.toBe('accepted')
+    // Recall may show the user's own words as source evidence, never as an accepted memory.
+    const recalled = await retrieveMemory(durable, retrievalInput('aisle seats'))
+    const lines = (recalled.pack?.text ?? '').split('\n').filter((line) => line.includes('aisle seats'))
+    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.every((line) => line.includes('[source evidence only;'))).toBe(true)
+  })
+
+  it('shadow mode writes exactly what the base extractor writes and records only reason codes', async () => {
+    const memorySession = session(`user/${run}-shadow`)
+    await store.provisionTrustedContext(memorySession)
+    const refusing = fixtureClassifier('shadow-fixture', (key) => key.endsWith('_claim') ? { type: 'noul', noul: 0.05 } : key.endsWith('_act') ? act('joke') : durability('not_memory'))
+    const shadowExtractor = createClassifiedExtractor({ base: RULE_EXTRACTOR, classifier: refusing, mode: 'verify' })
+    const job = await claimFor(memorySession, userTurn(memorySession, 'shadow', 1, 'I love Mondays at the office.', '2026-09-23T10:00:00.000Z'))
+    const outcome = await processLearningJob(store, job, { extractor: RULE_EXTRACTOR, shadow: shadowExtractor, now: '2026-09-23T10:00:00.000Z' })
+    expect(outcome).toMatchObject({ status: 'completed', decisions: [{ action: 'add', reason: 'self_statement' }] })
+    const decisions = await database.query<{ action: string; reason: string; extractor_id: string }>(
+      `SELECT action, reason, extractor_id FROM gideon_memory.learning_decisions WHERE scope_id = $1 ORDER BY action`, [memorySession.scope.id])
+    expect(decisions.rows).toEqual([
+      { action: 'add', reason: 'self_statement', extractor_id: 'gideon-rules' },
+      { action: 'shadow', reason: 'shadow_refuse', extractor_id: 'gideon-rules+shadow-fixture+verify' },
+    ])
+    const leaked = await database.query(`SELECT 1 FROM gideon_memory.learning_decisions WHERE scope_id = $1 AND row_to_json(learning_decisions)::text ILIKE '%Monday%'`, [memorySession.scope.id])
+    expect(leaked.rows).toHaveLength(0)
+    // A failing shadow never fails the job.
+    const second = await claimFor(memorySession, userTurn(memorySession, 'shadow', 2, 'I prefer tea to coffee.', '2026-09-23T10:01:00.000Z'))
+    const throwingShadow: MemoryExtractor = { ...RULE_EXTRACTOR, id: 'shadow-broken', extract: async () => { throw new Error('down') } }
+    expect(await processLearningJob(store, second, { extractor: RULE_EXTRACTOR, shadow: throwingShadow, now: '2026-09-23T10:01:00.000Z' })).toMatchObject({ status: 'completed', decisions: [{ action: 'add' }] })
+    const failed = await database.query(`SELECT reason FROM gideon_memory.learning_decisions WHERE scope_id = $1 AND action = 'shadow' AND extractor_id = 'shadow-broken'`, [memorySession.scope.id])
+    expect(failed.rows).toEqual([{ reason: 'shadow_failed' }])
+  })
+
+  it('the relation stage only sees the bound scope\'s current memories, as opaque handles', async () => {
+    const owner = session(`user/${run}-rel-a`)
+    const other = session(`user/${run}-rel-b`)
+    await store.provisionTrustedContext(owner)
+    await store.provisionTrustedContext(other)
+    await executeExplicitCommand(postgresSession(owner, store), { schemaVersion: 1, commandId: `command/${run}/rel-a`, kind: 'remember', text: 'I live in Lahore', assertionKind: 'fact', conditions: [] }, { now: '2026-09-23T11:00:00.000Z' })
+    await executeExplicitCommand(postgresSession(other, store), { schemaVersion: 1, commandId: `command/${run}/rel-b`, kind: 'remember', text: 'I live in Islamabad', assertionKind: 'fact', conditions: [] }, { now: '2026-09-23T11:00:00.000Z' })
+    const seen: string[] = []
+    const relationAware = fixtureClassifier('relation-fixture', (key) => key.endsWith('_claim') ? { type: 'noul', noul: 0.95 }
+      : key.endsWith('_act') ? act('self_statement')
+      : key.endsWith('_durability') ? durability('durable')
+      : { type: 'choice', choice: 'changed', probabilities: { same: 0.02, changed: 0.95, exception: 0.02, unrelated: 0.01 }, confidence: 0.9 }, seen)
+    const job = await claimFor(owner, userTurn(owner, 'rel', 1, 'I live in Karachi these days.', '2026-09-23T11:05:00.000Z'))
+    const outcome = await processLearningJob(store, job, { extractor: createClassifiedExtractor({ base: RULE_EXTRACTOR, classifier: relationAware, mode: 'verify' }), includeKnownMemories: true, now: '2026-09-23T11:05:00.000Z' })
+    expect(outcome).toMatchObject({ status: 'completed', decisions: [{ action: 'add', reason: 'classifier_abstained' }] })
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toContain('Lahore')
+    expect(seen.join('\n')).not.toMatch(/Islamabad|assertion\/|user\//u)
   })
 })

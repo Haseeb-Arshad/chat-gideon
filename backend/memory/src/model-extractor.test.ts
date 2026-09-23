@@ -25,7 +25,7 @@ describe('Stage 10 model extractor plumbing (fixture provider, no network)', () 
     expect(extractor).toMatchObject({ model: DEFAULT_EXTRACTOR_MODEL, placement: 'remote' })
     const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
     const body = JSON.parse(String(init.body))
-    expect(body).toMatchObject({ model: 'openai/gpt-5.6-luna', temperature: 0, response_format: { type: 'json_object' } })
+    expect(body).toMatchObject({ model: 'openai/gpt-6-luna', temperature: 0, reasoning: { effort: 'minimal' }, response_format: { type: 'json_object' } })
     expect(JSON.parse(body.messages[1].content)).toEqual({ priorTurns: ['Hi'], userTurn: window.text })
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer fixture-key')
     expect(usage).toEqual({ inputUnits: 120, outputUnits: 40, costMicros: 21 })

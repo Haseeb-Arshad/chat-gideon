@@ -11,7 +11,7 @@ import { LEARNING_SCHEMA_VERSION, type ExtractionWindow, type MemoryExtractor } 
  * shared validator drops anything that is not literally in the user's text.
  */
 
-export const DEFAULT_EXTRACTOR_MODEL = 'openai/gpt-5.6-luna'
+export const DEFAULT_EXTRACTOR_MODEL = 'openai/gpt-6-luna'
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 const PROMPT_VERSION = 'extract-2026-09-23'
 
@@ -63,6 +63,8 @@ export function createModelExtractor(options: ModelExtractorOptions): MemoryExtr
           model,
           temperature: 0,
           max_tokens: options.maxOutputTokens ?? 600,
+          // Reasoning models spend hidden tokens; extraction is short and bounded.
+          reasoning: { effort: 'minimal' },
           response_format: { type: 'json_object' },
           usage: { include: true },
           messages: [

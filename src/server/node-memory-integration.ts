@@ -8,13 +8,17 @@ import {
   retrieveMemory,
   createPostgresMemoryStore,
   createModelExtractor,
+  createSubstituteClassifier,
+  createTypeSafeClassifier,
   startMemoryBackground,
   type MemoryBackgroundHandle,
   type PostgresMemoryStore,
 } from '../../backend/memory/src/index.ts'
 import type { MemoryExtractor } from '../lib/memory/learning'
+import type { MemoryClassifier } from '../lib/memory/classification'
+import { createClassifiedExtractor } from '../lib/memory/classified-extractor'
 import { RULE_EXTRACTOR } from '../lib/memory/rule-extractor'
-import { memoryBackgroundEnabled, memoryFeatureFlags, memoryLearningEnabled } from '../lib/memory/rollout'
+import { memoryBackgroundEnabled, memoryClassifierPlan, memoryFeatureFlags, memoryLearningEnabled } from '../lib/memory/rollout'
 import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
 import type { ConversationState } from '../lib/conversation-state'
 import {
@@ -55,6 +59,28 @@ function extractorFromEnv(env: NodeJS.ProcessEnv): MemoryExtractor {
   return RULE_EXTRACTOR
 }
 
+/**
+ * Stage 11: an optional classifier around the extractor. Default off; see
+ * docs/memory/decisions/0001-jev-classification.md for why. In `shadow` the
+ * classified workflow only records disagreement codes; in `enforce` it
+ * reviews what the base extractor writes. It never runs on a voice turn.
+ */
+export function learningExtractorsFromEnv(env: NodeJS.ProcessEnv): { extractor: MemoryExtractor; shadowExtractor?: MemoryExtractor; includeKnownMemories: boolean } {
+  const base = extractorFromEnv(env)
+  const plan = memoryClassifierPlan(env)
+  let classifier: MemoryClassifier | null = null
+  if (plan?.provider === 'jev' && env.TYPESAFE_API_KEY?.trim()) {
+    classifier = createTypeSafeClassifier({ apiKey: env.TYPESAFE_API_KEY.trim(), model: env.GIDEON_MEMORY_JEV_MODEL })
+  } else if (plan?.provider === 'substitute' && env.OPENROUTER_API_KEY?.trim()) {
+    classifier = createSubstituteClassifier({ apiKey: env.OPENROUTER_API_KEY.trim(), model: env.GIDEON_MEMORY_CLASSIFIER_MODEL, siteUrl: env.OPENROUTER_SITE_URL })
+  }
+  if (!plan || !classifier) return { extractor: base, includeKnownMemories: false }
+  const classified = createClassifiedExtractor({ base, classifier, mode: plan.workflow })
+  return plan.mode === 'enforce'
+    ? { extractor: classified, includeKnownMemories: plan.workflow === 'verify' }
+    : { extractor: base, shadowExtractor: classified, includeKnownMemories: plan.workflow === 'verify' }
+}
+
 /** Starts the bounded maintenance runner once per process when enabled. */
 function ensureBackground(store: PostgresMemoryStore): void {
   const globals = globalThis as PgGlobal
@@ -62,7 +88,7 @@ function ensureBackground(store: PostgresMemoryStore): void {
   const env = process.env
   globals[BACKGROUND] = startMemoryBackground(store, {
     workerId: `node/${process.pid}`,
-    extractor: extractorFromEnv(env),
+    ...learningExtractorsFromEnv(env),
     learning: env.GIDEON_MEMORY_LEARNING_ENABLED === '1',
     learningEnabledFor: (scopeId) => memoryLearningEnabled(process.env, scopeId),
     intervalMs: Number(env.GIDEON_MEMORY_BACKGROUND_INTERVAL_MS) || undefined,

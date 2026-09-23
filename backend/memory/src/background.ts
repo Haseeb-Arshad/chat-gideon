@@ -38,6 +38,10 @@ export const DEFAULT_MAINTENANCE_LIMITS: MaintenanceLimits = Object.freeze({
 export interface MaintenanceOptions {
   workerId: string
   extractor: MemoryExtractor
+  /** Stage 11 shadow extractor; records disagreement codes only. */
+  shadowExtractor?: MemoryExtractor
+  /** Give the extractor the scope's current memories for a relation stage. */
+  includeKnownMemories?: boolean
   /** Global switch for implicit learning; purge and projections run regardless. */
   learning: boolean
   /** Per-owner rollout decision, evaluated by the server, never by request data. */
@@ -155,7 +159,14 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
         if (outcome?.status === 'skipped') report.learning.skipped += 1
         continue
       }
-      const outcome = await processLearningJob(store, job, { extractor: options.extractor, now, budget: options.budget, signal: options.signal }).catch(() => null)
+      const outcome = await processLearningJob(store, job, {
+        extractor: options.extractor,
+        now,
+        budget: options.budget,
+        signal: options.signal,
+        shadow: options.shadowExtractor,
+        includeKnownMemories: options.includeKnownMemories,
+      }).catch(() => null)
       report.learning.processed += 1
       if (!outcome) report.learning.failed += 1
       else if (outcome.status === 'completed') {

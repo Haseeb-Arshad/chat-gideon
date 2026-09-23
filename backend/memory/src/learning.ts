@@ -83,6 +83,7 @@ export const DEFAULT_LEARNING_BUDGET: LearningBudget = Object.freeze({
 /** Learning stops before the durable quota is full so explicit remember keeps headroom. */
 export const LEARNING_QUOTA_RESERVE = 0.1
 const MAX_EXISTING_FOR_RECONCILIATION = 300
+const MAX_KNOWN_IN_WINDOW = 24
 const DEFAULT_EXTRACTION_TIMEOUT_MS = 20_000
 
 export interface LearningJobOptions {
@@ -93,6 +94,18 @@ export interface LearningJobOptions {
   signal?: AbortSignal
   /** Learning is off for this owner: close the job without reading or extracting. */
   disabled?: boolean
+  /**
+   * Stage 11 shadow: runs after the writing extractor, outside every
+   * transaction, and only records disagreement codes. It never writes memory
+   * and its failure never affects the job.
+   */
+  shadow?: MemoryExtractor
+  /**
+   * Adds the scope's current memories (bounded, text only, opaque handles) to
+   * the window for a classifier's relation stage. Only for extractors that
+   * use it: it widens what a remote provider sees.
+   */
+  includeKnownMemories?: boolean
 }
 
 export type LearningJobOutcome =
@@ -338,6 +351,51 @@ async function attachEvidence(tx: Tx, scopeId: string, target: ExistingMemory, e
   )
 }
 
+type DecisionClass = 'accept' | 'hold' | 'support' | 'refuse'
+
+function decisionClass(decision: LearningDecision): DecisionClass {
+  if (decision.action === 'add') return decision.status === 'accepted' ? 'accept' : 'hold'
+  if (decision.action === 'corroborate') return 'support'
+  if (decision.action === 'dispute') return 'hold'
+  return 'refuse'
+}
+
+function overlaps(left: ExtractionCandidate, right: ExtractionCandidate): boolean {
+  return left.evidence.start < right.evidence.end && right.evidence.start < left.evidence.end
+}
+
+/**
+ * Reason codes describing how a shadow extractor's outcome would differ from
+ * the writing extractor's, matched by overlapping evidence spans. Shadow-only
+ * proposals use indexes from 32; a failed shadow run is one `shadow_failed`.
+ */
+export function compareShadow(
+  written: readonly ExtractionCandidate[],
+  shadow: readonly ExtractionCandidate[] | null,
+  existing: readonly ExistingMemory[],
+): { index: number; reason: string }[] {
+  if (!shadow) return [{ index: -1, reason: 'shadow_failed' }]
+  const decide = (candidate: ExtractionCandidate) => decisionClass(decideCandidate(candidate, existing, { activeTopicKnown: false }))
+  const used = new Set<number>()
+  const records: { index: number; reason: string }[] = []
+  written.slice(0, 32).forEach((candidate, index) => {
+    const match = shadow.findIndex((other, position) => !used.has(position) && overlaps(candidate, other))
+    if (match < 0) {
+      records.push({ index, reason: 'shadow_missing' })
+      return
+    }
+    used.add(match)
+    const mine = decide(candidate)
+    const theirs = decide(shadow[match]!)
+    records.push({ index, reason: mine === theirs ? 'shadow_agree' : `shadow_${theirs}` })
+  })
+  shadow.forEach((candidate, position) => {
+    if (used.has(position) || records.length >= 60) return
+    records.push({ index: 32 + Math.min(position, 31), reason: `shadow_extra_${decide(candidate)}` })
+  })
+  return records
+}
+
 /**
  * Processes one claimed `interpret_event` job end to end. Returns what
  * happened; the job row is always left completed, requeued, retried or dead.
@@ -365,8 +423,15 @@ export async function processLearningJob(
 
   if (options.disabled) return closeWithoutExtraction('learning_disabled')
   if (job.kind !== 'interpret_event') return closeWithoutExtraction('not_an_interpretation_job')
-  const window = await loadWindow(store, job)
-  if (!window) return closeWithoutExtraction('not_a_committed_user_turn')
+  const loaded = await loadWindow(store, job)
+  if (!loaded) return closeWithoutExtraction('not_a_committed_user_turn')
+  let window = loaded
+  if (options.includeKnownMemories) {
+    // Scope is bound by the job's context before anything is read; the
+    // classifier sees opaque handles, never assertion ids.
+    const known = await scoped(store, job).runTransaction((tx) => currentMemories(tx, job.scopeId))
+    window = { ...loaded, knownMemories: known.filter((memory) => memory.status === 'accepted').slice(0, MAX_KNOWN_IN_WINDOW).map((memory, index) => ({ handle: `k${index}`, text: memory.text })) }
+  }
   const screen = screenWindow(window)
   if (!screen.ok) return closeWithoutExtraction(screen.reason)
   if (extractor.placement === 'remote' && window.priorTurns.some((turn) => !turn.text)) return closeWithoutExtraction('invalid_window')
@@ -402,6 +467,19 @@ export async function processLearningJob(
   }
   const validated = validateExtractorOutput(window, output)
 
+  // Shadow extraction: its own deadline, never retried, never written.
+  let shadow: { extractor: MemoryExtractor; candidates: readonly ExtractionCandidate[] | null } | null = null
+  if (options.shadow) {
+    try {
+      const signals = [AbortSignal.timeout(options.timeoutMs ?? DEFAULT_EXTRACTION_TIMEOUT_MS), ...(options.signal ? [options.signal] : [])]
+      const result = await options.shadow.extract(window, AbortSignal.any(signals))
+      usage = { inputUnits: usage.inputUnits + result.usage.inputUnits, outputUnits: usage.outputUnits + result.usage.outputUnits, costMicros: usage.costMicros + result.usage.costMicros }
+      shadow = { extractor: options.shadow, candidates: validateExtractorOutput(window, result.output).candidates }
+    } catch {
+      shadow = { extractor: options.shadow, candidates: null }
+    }
+  }
+
   return scoped(store, job).runTransaction(async (tx): Promise<LearningJobOutcome> => {
     const check = await checkRunningJob(tx, job, now)
     if (check.status === 'lease_lost') return { status: 'lease_lost' }
@@ -429,6 +507,12 @@ export async function processLearningJob(
     const existing = await currentMemories(tx, job.scopeId)
     const outcomes: { action: string; reason: string; assertionId: string | null }[] = []
     let firstAccepted: AssertionVersion | null = null
+    if (shadow) {
+      // Both sides are judged by the same reconciler against the same snapshot.
+      for (const record of compareShadow(validated.candidates, shadow.candidates, [...existing])) {
+        await recordDecision(tx, job, shadow.extractor, record.index, 'shadow', record.reason, null)
+      }
+    }
 
     for (const rejected of validated.rejected) {
       await recordDecision(tx, job, extractor, Math.max(rejected.index, -1), 'reject', rejected.reason, null)

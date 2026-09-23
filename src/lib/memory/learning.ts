@@ -43,6 +43,12 @@ export interface ExtractionWindow {
   receivedAt: string
   text: string
   priorTurns: readonly { eventId: string; text: string }[]
+  /**
+   * Current memories of the same, already authorized scope that code retrieved
+   * as possibly related (Stage 11 relation stage). Opaque handles only; a
+   * classifier can describe a relation but never picks a write target.
+   */
+  knownMemories?: readonly { handle: string; text: string }[]
 }
 
 export interface CandidateEvidence {
@@ -65,6 +71,12 @@ export interface ExtractionCandidate {
   evidence: CandidateEvidence
   operation: ProposedOperation
   targetAssertionId: string | null
+  /**
+   * Optional conservative review from a classifier (Stage 11). `reject`
+   * refuses the candidate and `abstain` holds it for review; neither can
+   * make a candidate more likely to be accepted.
+   */
+  review?: 'reject' | 'abstain'
 }
 
 export interface ExtractorUsage {
@@ -193,6 +205,11 @@ export function validateExtractorOutput(window: ExtractionWindow, output: unknow
     const target = raw.targetAssertionId === undefined || raw.targetAssertionId === null ? null : typeof raw.targetAssertionId === 'string' && raw.targetAssertionId.length <= 160 ? raw.targetAssertionId : undefined
     const validTime = parseValidTime(raw.validTime)
     const evidence = isRecord(raw.evidence) ? raw.evidence : null
+    const review = raw.review === undefined || raw.review === null ? null : oneOf(raw.review, ['reject', 'abstain'] as const) ?? undefined
+    if (review === undefined) {
+      rejected.push({ index, reason: 'invalid_shape' })
+      return
+    }
     if (!kind || !speechAct || !polarity || !scope || !relation || !operation || !text || target === undefined || !validTime || !evidence) {
       rejected.push({ index, reason: 'invalid_shape' })
       return
@@ -227,6 +244,7 @@ export function validateExtractorOutput(window: ExtractionWindow, output: unknow
       conditions: conditions as Condition[],
       evidence: { start: start as number, end: end as number, quote: evidence.quote as string },
       targetAssertionId: target,
+      ...(review ? { review } : {}),
     })
   })
   return { candidates, rejected }
@@ -265,6 +283,8 @@ export type LearningReason =
   | 'local_scope_without_topic'
   | 'no_op_proposed'
   | 'change_requires_review'
+  | 'classifier_rejected'
+  | 'classifier_abstained'
 
 export type LearningDecision =
   | { action: 'add'; status: 'accepted' | 'candidate'; basis: 'explicit_user_statement' | 'inference'; reason: LearningReason; candidate: ExtractionCandidate }
@@ -346,6 +366,7 @@ export function decideCandidate(candidate: ExtractionCandidate, existing: readon
   const refused = REFUSED_ACTS[candidate.speechAct]
   if (refused) return { action: 'reject', reason: refused, candidate }
   if (candidate.operation === 'no_op') return { action: 'reject', reason: 'no_op_proposed', candidate }
+  if (candidate.review === 'reject') return { action: 'reject', reason: 'classifier_rejected', candidate }
   const sensitive = sensitiveCategories(`${candidate.text} ${candidate.evidence.quote}`)
   if (sensitive.length) return { action: 'reject', reason: 'sensitive_category', sensitive, candidate }
   if (candidate.scope === 'local' && !candidate.conditions.length && !options.activeTopicKnown) {
@@ -373,6 +394,13 @@ export function decideCandidate(candidate: ExtractionCandidate, existing: readon
     if (!target) return { action: 'reject', reason: 'target_not_found', candidate }
     // Learning may flag disagreement but never rewrites user-authored memory.
     return { action: 'dispute', target, reason: USER_AUTHORED.has(target.basis) ? 'user_authored_target_protected' : 'contradicts_existing', candidate }
+  }
+
+  if (candidate.review === 'abstain' && candidate.speechAct !== 'temporary_instruction') {
+    // The classifier could not confirm a durable claim: hold it for review.
+    // An unconfirmed clause does not corroborate existing memory either,
+    // because corroboration counts toward promotion.
+    return { action: 'add', status: 'candidate', basis: 'explicit_user_statement', reason: 'classifier_abstained', candidate: { ...candidate, polarity } }
   }
 
   if (best) {

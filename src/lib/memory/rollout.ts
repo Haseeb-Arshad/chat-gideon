@@ -67,3 +67,28 @@ export function memoryBackgroundEnabled(env: MemoryRolloutEnvironment): boolean 
   if (env.NODE_ENV === 'production' && env.GIDEON_MEMORY_STAGE15_CUTOVER !== '1') return false
   return env.GIDEON_MEMORY_BACKGROUND_ENABLED === '1'
 }
+
+export interface MemoryClassifierPlan {
+  /** `shadow` records disagreements only; `enforce` lets the classifier review writes. */
+  mode: 'shadow' | 'enforce'
+  provider: 'jev' | 'substitute'
+  workflow: 'verify' | 'gate'
+}
+
+/**
+ * Stage 11 classification is off unless a mode is chosen and the separate
+ * remote spend switch is set: every call sends private turns to a provider.
+ * Unknown values fall back to off, never to a guessed provider. Production
+ * stays behind the Stage 15 cutover like the rest of background learning.
+ */
+export function memoryClassifierPlan(env: MemoryRolloutEnvironment): MemoryClassifierPlan | null {
+  if (env.NODE_ENV === 'production' && env.GIDEON_MEMORY_STAGE15_CUTOVER !== '1') return null
+  const mode = env.GIDEON_MEMORY_CLASSIFIER_MODE
+  if (mode !== 'shadow' && mode !== 'enforce') return null
+  if (env.GIDEON_MEMORY_CLASSIFIER_REMOTE_ALLOWED !== '1') return null
+  const provider = (env.GIDEON_MEMORY_CLASSIFIER_PROVIDER ?? 'jev') as string
+  if (provider !== 'jev' && provider !== 'substitute') return null
+  const workflow = (env.GIDEON_MEMORY_CLASSIFIER_WORKFLOW ?? 'verify') as string
+  if (workflow !== 'verify' && workflow !== 'gate') return null
+  return Object.freeze({ mode, provider, workflow })
+}
