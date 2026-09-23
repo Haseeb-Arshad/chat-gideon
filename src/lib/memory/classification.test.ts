@@ -68,7 +68,7 @@ function answerAll(act: string, durability: string, claim: number, relation = 'u
 async function run(extractor: MemoryExtractor, input: ExtractionWindow) {
   const { output, usage: spent } = await extractor.extract(input, new AbortController().signal)
   const validated = validateExtractorOutput(input, output)
-  const decisions = validated.candidates.map((candidate) => decideCandidate(candidate, [], { activeTopicKnown: false }))
+  const decisions = validated.candidates.map((candidate) => decideCandidate(candidate, [], { activeTopicKnown: false, sourceText: input.text }))
   return { output, validated, decisions, spent, trace: classificationTraceOf(output) }
 }
 

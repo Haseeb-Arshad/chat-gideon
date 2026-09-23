@@ -1,0 +1,4550 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-23T19:32:37.398Z",
+  "phase": "dev",
+  "scope": "Development split used for threshold selection. Not a held-out result.",
+  "runtime": {
+    "node": "v22.13.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "spend": {
+    "usd": 0,
+    "calls": 0,
+    "cacheHits": 5851,
+    "capUsd": 0.25
+  },
+  "thresholds": {
+    "chosen": {
+      "keepClaimMin": 0.9,
+      "rejectClaimMax": 0.1,
+      "minChoiceConfidence": 0.5,
+      "gateSkipMax": 0.3,
+      "activityMinConfidence": 0.6
+    },
+    "grid": [
+      {
+        "thresholds": {
+          "keepClaimMin": 0.9,
+          "rejectClaimMax": 0.1,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.9,
+          "rejectClaimMax": 0.2,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.9,
+          "rejectClaimMax": 0.3,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.8,
+          "rejectClaimMax": 0.1,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.8,
+          "rejectClaimMax": 0.2,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.8,
+          "rejectClaimMax": 0.3,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.7,
+          "rejectClaimMax": 0.1,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.7,
+          "rejectClaimMax": 0.2,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.7,
+          "rejectClaimMax": 0.3,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      },
+      {
+        "thresholds": {
+          "keepClaimMin": 0.6,
+          "rejectClaimMax": 0.1,
+          "minChoiceConfidence": 0.5,
+          "gateSkipMax": 0.1,
+          "activityMinConfidence": 0.6
+        },
+        "objective": 42.5
+      }
+    ],
+    "gateEvidence": {
+      "minPositiveGateProbability": 0.99
+    }
+  },
+  "arms": {
+    "rules": {
+      "status": "MEASURED",
+      "extractor": {
+        "id": "gideon-rules",
+        "model": null,
+        "placement": "local"
+      },
+      "cases": 73,
+      "expected": 45,
+      "produced": 32,
+      "accepted": 27,
+      "candidates": 5,
+      "recall": 0.644,
+      "acceptedPrecision": 0.889,
+      "falseAccepted": 3,
+      "falseAcceptanceRatePerCase": 0.041,
+      "refusalCategoryFalseMemories": 2,
+      "forbiddenHits": 0,
+      "spuriousCandidates": 0,
+      "missed": 16,
+      "escalations": 0,
+      "escalationRate": 0,
+      "errors": 0,
+      "classifierFailures": {},
+      "perClass": {
+        "accepted_general": {
+          "expected": 35,
+          "produced": 27,
+          "correct": 24,
+          "precision": 0.889,
+          "recall": 0.686
+        },
+        "candidate_general": {
+          "expected": 4,
+          "produced": 2,
+          "correct": 2,
+          "precision": 1,
+          "recall": 0.5
+        },
+        "candidate_local": {
+          "expected": 6,
+          "produced": 3,
+          "correct": 3,
+          "precision": 1,
+          "recall": 0.5
+        }
+      },
+      "perCategory": {
+        "self_statement": {
+          "cases": 19,
+          "falseAccepted": 0,
+          "missed": 4,
+          "correct": 16
+        },
+        "negation": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 4
+        },
+        "decision": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 1
+        },
+        "quoted": {
+          "cases": 7,
+          "falseAccepted": 1,
+          "missed": 0,
+          "correct": 0
+        },
+        "hypothetical": {
+          "cases": 6,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "joke": {
+          "cases": 3,
+          "falseAccepted": 1,
+          "missed": 0,
+          "correct": 0
+        },
+        "question": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "assistant_suggestion": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "sensitive": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "secret": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary_instruction": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 3,
+          "correct": 4
+        },
+        "change": {
+          "cases": 4,
+          "falseAccepted": 1,
+          "missed": 2,
+          "correct": 2
+        },
+        "hard_implicit": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 3,
+          "correct": 0
+        },
+        "speech_correction": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "memory_withdrawal": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "no_claim": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "entity_ambiguity": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "asr_noise": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 2
+        },
+        "duplicate": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        }
+      },
+      "calibration": null,
+      "latencyMs": {
+        "p50": null,
+        "p95": null,
+        "casesWithCalls": 0,
+        "providerCallsPerCase": 0,
+        "note": "serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency."
+      },
+      "costMicros": 0,
+      "perCase": [
+        {
+          "id": "en-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-pref-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-neg-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-constraint-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-decision-1",
+          "category": "decision",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-two-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-3",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-sensitive-1",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-sensitive-2",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-secret-1",
+          "category": "secret",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-change-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-occupation-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-implicit-2",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-speech-1",
+          "category": "speech_correction",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-scope-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-pref-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-pref-2",
+          "category": "negation",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-fact-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-correction-1",
+          "category": "speech_correction",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-correction-2",
+          "category": "change",
+          "outcome": [],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-time-1",
+          "category": "temporary",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-time-2",
+          "category": "temporary_instruction",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-entity-1",
+          "category": "entity_ambiguity",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-entity-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-joke-1",
+          "category": "joke",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-joke-2",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-asr-1",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-asr-2",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-3",
+          "category": "quoted",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ur-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ur-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-cs-1",
+          "category": "temporary_instruction",
+          "outcome": [],
+          "missed": [
+            "candidate_local",
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-cs-2",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-2",
+          "category": "duplicate",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-3",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        }
+      ]
+    },
+    "model": {
+      "status": "MEASURED",
+      "extractor": {
+        "id": "gideon-model-extractor",
+        "model": "openai/gpt-6-luna",
+        "placement": "remote"
+      },
+      "cases": 73,
+      "expected": 45,
+      "produced": 45,
+      "accepted": 35,
+      "candidates": 10,
+      "recall": 0.756,
+      "acceptedPrecision": 0.829,
+      "falseAccepted": 6,
+      "falseAcceptanceRatePerCase": 0.082,
+      "refusalCategoryFalseMemories": 0,
+      "forbiddenHits": 0,
+      "spuriousCandidates": 5,
+      "missed": 11,
+      "escalations": 0,
+      "escalationRate": 0,
+      "errors": 0,
+      "classifierFailures": {},
+      "perClass": {
+        "accepted_general": {
+          "expected": 35,
+          "produced": 34,
+          "correct": 29,
+          "precision": 0.853,
+          "recall": 0.829
+        },
+        "candidate_general": {
+          "expected": 4,
+          "produced": 2,
+          "correct": 0,
+          "precision": 0,
+          "recall": 0
+        },
+        "candidate_local": {
+          "expected": 6,
+          "produced": 8,
+          "correct": 5,
+          "precision": 0.625,
+          "recall": 0.833
+        }
+      },
+      "perCategory": {
+        "self_statement": {
+          "cases": 19,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 18
+        },
+        "negation": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 5
+        },
+        "decision": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "quoted": {
+          "cases": 7,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "hypothetical": {
+          "cases": 6,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "joke": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "question": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "assistant_suggestion": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "sensitive": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "secret": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary_instruction": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 5
+        },
+        "change": {
+          "cases": 4,
+          "falseAccepted": 5,
+          "missed": 4,
+          "correct": 0
+        },
+        "hard_implicit": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 3
+        },
+        "speech_correction": {
+          "cases": 2,
+          "falseAccepted": 1,
+          "missed": 0,
+          "correct": 1
+        },
+        "memory_withdrawal": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "no_claim": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "entity_ambiguity": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 1
+        },
+        "asr_noise": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 1
+        },
+        "duplicate": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        }
+      },
+      "calibration": null,
+      "latencyMs": {
+        "p50": 2868,
+        "p95": 5330,
+        "casesWithCalls": 70,
+        "providerCallsPerCase": 1,
+        "note": "serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency."
+      },
+      "costMicros": 6900,
+      "perCase": [
+        {
+          "id": "en-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-pref-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-neg-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-constraint-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-constraint-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-decision-1",
+          "category": "decision",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-two-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-quote-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-hypo-3",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-sensitive-1",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-sensitive-2",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-secret-1",
+          "category": "secret",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-change-1",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-occupation-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-implicit-2",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-speech-1",
+          "category": "speech_correction",
+          "outcome": [
+            "false_accept:accepted_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-scope-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "cs-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-2",
+          "category": "no_claim",
+          "outcome": [
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-pref-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-correction-1",
+          "category": "speech_correction",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-correction-2",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general",
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-time-1",
+          "category": "temporary",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-time-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-entity-1",
+          "category": "entity_ambiguity",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-entity-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-joke-2",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-asr-1",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-asr-2",
+          "category": "asr_noise",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ru-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ur-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-ur-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-cs-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-cs-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-1",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-2",
+          "category": "duplicate",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-rel-3",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-none-1",
+          "category": "no_claim",
+          "outcome": [
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "d-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        }
+      ]
+    },
+    "model_verify_substitute": {
+      "status": "MEASURED",
+      "extractor": {
+        "id": "gideon-model-extractor+llm-substitute-classifier+verify",
+        "model": "openai/gpt-6-luna+openai/gpt-6-luna",
+        "placement": "remote"
+      },
+      "cases": 73,
+      "expected": 45,
+      "produced": 42,
+      "accepted": 23,
+      "candidates": 19,
+      "recall": 0.711,
+      "acceptedPrecision": 1,
+      "falseAccepted": 0,
+      "falseAcceptanceRatePerCase": 0,
+      "refusalCategoryFalseMemories": 0,
+      "forbiddenHits": 0,
+      "spuriousCandidates": 10,
+      "missed": 13,
+      "escalations": 12,
+      "escalationRate": 0.286,
+      "errors": 0,
+      "classifierFailures": {},
+      "perClass": {
+        "accepted_general": {
+          "expected": 35,
+          "produced": 23,
+          "correct": 23,
+          "precision": 1,
+          "recall": 0.657
+        },
+        "candidate_general": {
+          "expected": 4,
+          "produced": 13,
+          "correct": 4,
+          "precision": 0.308,
+          "recall": 1
+        },
+        "candidate_local": {
+          "expected": 6,
+          "produced": 6,
+          "correct": 5,
+          "precision": 0.833,
+          "recall": 0.833
+        }
+      },
+      "perCategory": {
+        "self_statement": {
+          "cases": 19,
+          "falseAccepted": 0,
+          "missed": 5,
+          "correct": 15
+        },
+        "negation": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 4
+        },
+        "decision": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "quoted": {
+          "cases": 7,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "hypothetical": {
+          "cases": 6,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "joke": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "question": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "assistant_suggestion": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "sensitive": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "secret": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary_instruction": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 5
+        },
+        "change": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 4
+        },
+        "hard_implicit": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 2
+        },
+        "speech_correction": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "memory_withdrawal": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "no_claim": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "entity_ambiguity": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 1
+        },
+        "asr_noise": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 1
+        },
+        "duplicate": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        }
+      },
+      "calibration": {
+        "proposals": 49,
+        "brier": 0.279,
+        "ece": 0.276,
+        "riskCoverage": [
+          {
+            "coverage": 0.25,
+            "n": 12,
+            "risk": 0.167
+          },
+          {
+            "coverage": 0.5,
+            "n": 25,
+            "risk": 0.12
+          },
+          {
+            "coverage": 0.75,
+            "n": 37,
+            "risk": 0.216
+          },
+          {
+            "coverage": 1,
+            "n": 49,
+            "risk": 0.286
+          }
+        ]
+      },
+      "latencyMs": {
+        "p50": 5298,
+        "p95": 9593,
+        "casesWithCalls": 70,
+        "providerCallsPerCase": 1.66,
+        "note": "serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency."
+      },
+      "costMicros": 13350,
+      "perCase": [
+        {
+          "id": "en-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-pref-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-2",
+          "category": "negation",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-constraint-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-constraint-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-decision-1",
+          "category": "decision",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-two-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-quote-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-quote-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-3",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-sensitive-1",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-sensitive-2",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-secret-1",
+          "category": "secret",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-instruction-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-change-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-occupation-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-implicit-2",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-speech-1",
+          "category": "speech_correction",
+          "outcome": [
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "ru-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-scope-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "cs-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-pref-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-correction-1",
+          "category": "speech_correction",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-correction-2",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general",
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-time-1",
+          "category": "temporary",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-time-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-entity-1",
+          "category": "entity_ambiguity",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-entity-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-joke-2",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-asr-1",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-asr-2",
+          "category": "asr_noise",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-ru-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-ur-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ur-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-cs-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-cs-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-2",
+          "category": "duplicate",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-3",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        }
+      ]
+    },
+    "gate_substitute_model": {
+      "status": "MEASURED",
+      "extractor": {
+        "id": "gideon-model-extractor+llm-substitute-classifier+gate",
+        "model": "openai/gpt-6-luna+openai/gpt-6-luna",
+        "placement": "remote"
+      },
+      "cases": 73,
+      "expected": 45,
+      "produced": 43,
+      "accepted": 35,
+      "candidates": 8,
+      "recall": 0.756,
+      "acceptedPrecision": 0.829,
+      "falseAccepted": 6,
+      "falseAcceptanceRatePerCase": 0.082,
+      "refusalCategoryFalseMemories": 0,
+      "forbiddenHits": 0,
+      "spuriousCandidates": 3,
+      "missed": 11,
+      "escalations": 0,
+      "escalationRate": 0,
+      "errors": 0,
+      "classifierFailures": {},
+      "perClass": {
+        "accepted_general": {
+          "expected": 35,
+          "produced": 34,
+          "correct": 29,
+          "precision": 0.853,
+          "recall": 0.829
+        },
+        "candidate_general": {
+          "expected": 4,
+          "produced": 2,
+          "correct": 0,
+          "precision": 0,
+          "recall": 0
+        },
+        "candidate_local": {
+          "expected": 6,
+          "produced": 6,
+          "correct": 5,
+          "precision": 0.833,
+          "recall": 0.833
+        }
+      },
+      "perCategory": {
+        "self_statement": {
+          "cases": 19,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 18
+        },
+        "negation": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 5
+        },
+        "decision": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "quoted": {
+          "cases": 7,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "hypothetical": {
+          "cases": 6,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "joke": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "question": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "assistant_suggestion": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "sensitive": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "secret": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary_instruction": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 5
+        },
+        "change": {
+          "cases": 4,
+          "falseAccepted": 5,
+          "missed": 4,
+          "correct": 0
+        },
+        "hard_implicit": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 3
+        },
+        "speech_correction": {
+          "cases": 2,
+          "falseAccepted": 1,
+          "missed": 0,
+          "correct": 1
+        },
+        "memory_withdrawal": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "no_claim": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "entity_ambiguity": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 1
+        },
+        "asr_noise": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 1
+        },
+        "duplicate": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        }
+      },
+      "calibration": null,
+      "latencyMs": {
+        "p50": 4638,
+        "p95": 8904,
+        "casesWithCalls": 70,
+        "providerCallsPerCase": 1.84,
+        "note": "serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency."
+      },
+      "costMicros": 9578,
+      "perCase": [
+        {
+          "id": "en-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-pref-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-constraint-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-constraint-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-decision-1",
+          "category": "decision",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-two-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-quote-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-quote-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-hypo-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-hypo-3",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-sensitive-1",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-sensitive-2",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-secret-1",
+          "category": "secret",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-instruction-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-change-1",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-occupation-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-implicit-2",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-speech-1",
+          "category": "speech_correction",
+          "outcome": [
+            "false_accept:accepted_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-scope-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-pref-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-correction-1",
+          "category": "speech_correction",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-correction-2",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general",
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-time-1",
+          "category": "temporary",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-time-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-entity-1",
+          "category": "entity_ambiguity",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-entity-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-joke-2",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-asr-1",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-asr-2",
+          "category": "asr_noise",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ur-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ur-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-cs-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-cs-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-1",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-2",
+          "category": "duplicate",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-3",
+          "category": "change",
+          "outcome": [
+            "false_accept:accepted_general"
+          ],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        }
+      ]
+    },
+    "rules_verify_substitute": {
+      "status": "MEASURED",
+      "extractor": {
+        "id": "gideon-rules+llm-substitute-classifier+verify",
+        "model": "local+openai/gpt-6-luna",
+        "placement": "remote"
+      },
+      "cases": 73,
+      "expected": 45,
+      "produced": 30,
+      "accepted": 16,
+      "candidates": 14,
+      "recall": 0.489,
+      "acceptedPrecision": 1,
+      "falseAccepted": 0,
+      "falseAcceptanceRatePerCase": 0,
+      "refusalCategoryFalseMemories": 0,
+      "forbiddenHits": 0,
+      "spuriousCandidates": 8,
+      "missed": 23,
+      "escalations": 8,
+      "escalationRate": 0.267,
+      "errors": 0,
+      "classifierFailures": {},
+      "perClass": {
+        "accepted_general": {
+          "expected": 35,
+          "produced": 16,
+          "correct": 16,
+          "precision": 1,
+          "recall": 0.457
+        },
+        "candidate_general": {
+          "expected": 4,
+          "produced": 10,
+          "correct": 3,
+          "precision": 0.3,
+          "recall": 0.75
+        },
+        "candidate_local": {
+          "expected": 6,
+          "produced": 4,
+          "correct": 3,
+          "precision": 0.75,
+          "recall": 0.5
+        }
+      },
+      "perCategory": {
+        "self_statement": {
+          "cases": 19,
+          "falseAccepted": 0,
+          "missed": 9,
+          "correct": 11
+        },
+        "negation": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 2,
+          "correct": 3
+        },
+        "decision": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "quoted": {
+          "cases": 7,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "hypothetical": {
+          "cases": 6,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "joke": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "question": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "assistant_suggestion": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "sensitive": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "secret": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary_instruction": {
+          "cases": 5,
+          "falseAccepted": 0,
+          "missed": 4,
+          "correct": 3
+        },
+        "change": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 3
+        },
+        "hard_implicit": {
+          "cases": 3,
+          "falseAccepted": 0,
+          "missed": 3,
+          "correct": 0
+        },
+        "speech_correction": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "memory_withdrawal": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "no_claim": {
+          "cases": 4,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        },
+        "temporary": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "entity_ambiguity": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 1,
+          "correct": 0
+        },
+        "asr_noise": {
+          "cases": 2,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 2
+        },
+        "duplicate": {
+          "cases": 1,
+          "falseAccepted": 0,
+          "missed": 0,
+          "correct": 0
+        }
+      },
+      "calibration": {
+        "proposals": 34,
+        "brier": 0.199,
+        "ece": 0.194,
+        "riskCoverage": [
+          {
+            "coverage": 0.25,
+            "n": 9,
+            "risk": 0
+          },
+          {
+            "coverage": 0.5,
+            "n": 17,
+            "risk": 0.176
+          },
+          {
+            "coverage": 0.75,
+            "n": 26,
+            "risk": 0.154
+          },
+          {
+            "coverage": 1,
+            "n": 34,
+            "risk": 0.265
+          }
+        ]
+      },
+      "latencyMs": {
+        "p50": 2994,
+        "p95": 7961,
+        "casesWithCalls": 32,
+        "providerCallsPerCase": 0.46,
+        "note": "serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency."
+      },
+      "costMicros": 4449,
+      "perCase": [
+        {
+          "id": "en-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-pref-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-neg-2",
+          "category": "negation",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-constraint-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-decision-1",
+          "category": "decision",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-two-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general",
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-quote-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-quote-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-hypo-3",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-sensitive-1",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-sensitive-2",
+          "category": "sensitive",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-secret-1",
+          "category": "secret",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-instruction-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-instruction-2",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-change-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-occupation-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-implicit-2",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-speech-1",
+          "category": "speech_correction",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "ru-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-neg-1",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-fact-2",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "ru-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "ru-implicit-1",
+          "category": "hard_implicit",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "cs-scope-1",
+          "category": "temporary_instruction",
+          "outcome": [
+            "ok:candidate_local",
+            "spurious_candidate:candidate_local"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-pref-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "cs-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "cs-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "en-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "ru-forget-1",
+          "category": "memory_withdrawal",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": null
+        },
+        {
+          "id": "en-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "en-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-pref-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-pref-2",
+          "category": "negation",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-fact-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-constraint-1",
+          "category": "self_statement",
+          "outcome": [
+            "spurious_candidate:candidate_general"
+          ],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-correction-1",
+          "category": "speech_correction",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-correction-2",
+          "category": "change",
+          "outcome": [],
+          "missed": [
+            "candidate_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-time-1",
+          "category": "temporary",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-time-2",
+          "category": "temporary_instruction",
+          "outcome": [],
+          "missed": [
+            "candidate_local"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-entity-1",
+          "category": "entity_ambiguity",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-entity-2",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-quote-1",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-joke-1",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-joke-2",
+          "category": "joke",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-hypo-1",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-question-1",
+          "category": "question",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-assistant-1",
+          "category": "assistant_suggestion",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-asr-1",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-asr-2",
+          "category": "asr_noise",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-1",
+          "category": "self_statement",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-2",
+          "category": "negation",
+          "outcome": [
+            "ok:accepted_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ru-3",
+          "category": "quoted",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-ur-1",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-ur-2",
+          "category": "hypothetical",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-cs-1",
+          "category": "temporary_instruction",
+          "outcome": [],
+          "missed": [
+            "candidate_local",
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-cs-2",
+          "category": "self_statement",
+          "outcome": [],
+          "missed": [
+            "accepted_general"
+          ],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-rel-1",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-rel-2",
+          "category": "duplicate",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-rel-3",
+          "category": "change",
+          "outcome": [
+            "ok:candidate_general"
+          ],
+          "missed": [],
+          "error": null,
+          "classifier": "ok"
+        },
+        {
+          "id": "d-none-1",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        },
+        {
+          "id": "d-none-2",
+          "category": "no_claim",
+          "outcome": [],
+          "missed": [],
+          "error": null,
+          "classifier": "skipped_no_candidates"
+        }
+      ]
+    },
+    "model_verify_jev": {
+      "status": "BLOCKED",
+      "reason": "TYPESAFE_API_KEY is not configured; no Jev call was made"
+    },
+    "gate_jev_model": {
+      "status": "BLOCKED",
+      "reason": "TYPESAFE_API_KEY is not configured; no Jev call was made"
+    },
+    "rules_verify_jev": {
+      "status": "BLOCKED",
+      "reason": "TYPESAFE_API_KEY is not configured; no Jev call was made"
+    }
+  },
+  "activity": {
+    "cases": 12,
+    "coverage": 0.917,
+    "selectiveAccuracy": 1,
+    "recallOfLabeled": 1,
+    "labelledUnknownAsTask": 0,
+    "rawArgmaxAccuracy": 1,
+    "failures": 0,
+    "baselineRules": {
+      "coverage": 0,
+      "note": "the app sends activity.kind = null; no rule interpreter exists"
+    }
+  }
+}

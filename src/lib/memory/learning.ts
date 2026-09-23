@@ -344,6 +344,16 @@ function sameConditions(left: readonly Condition[], right: readonly Condition[])
 
 export const NEAR_DUPLICATE_THRESHOLD = 0.75
 
+/** The sentence (bounded by . ! ? ؟ ۔ or a newline) that contains a span. */
+export function sentenceAround(text: string, start: number, end: number): string {
+  const boundary = /[.!?؟۔\n]/u
+  let from = Math.max(0, Math.min(start, text.length))
+  let to = Math.max(from, Math.min(end, text.length))
+  while (from > 0 && !boundary.test(text[from - 1]!)) from -= 1
+  while (to < text.length && !boundary.test(text[to]!)) to += 1
+  return text.slice(from, to)
+}
+
 const REFUSED_ACTS: Partial<Record<SpeechAct, LearningReason>> = {
   quoted: 'not_users_claim',
   hypothetical: 'hypothetical',
@@ -362,12 +372,20 @@ const USER_AUTHORED: ReadonlySet<SourceBasis> = new Set(['explicit_user_statemen
  * is already scope-bound), and learned text never supersedes a memory the user
  * stated or corrected (C32). Disagreement becomes a dispute, not a rewrite.
  */
-export function decideCandidate(candidate: ExtractionCandidate, existing: readonly ExistingMemory[], options: { activeTopicKnown: boolean }): LearningDecision {
+export function decideCandidate(
+  candidate: ExtractionCandidate,
+  existing: readonly ExistingMemory[],
+  options: { activeTopicKnown: boolean; sourceText?: string },
+): LearningDecision {
   const refused = REFUSED_ACTS[candidate.speechAct]
   if (refused) return { action: 'reject', reason: refused, candidate }
   if (candidate.operation === 'no_op') return { action: 'reject', reason: 'no_op_proposed', candidate }
   if (candidate.review === 'reject') return { action: 'reject', reason: 'classifier_rejected', candidate }
-  const sensitive = sensitiveCategories(`${candidate.text} ${candidate.evidence.quote}`)
+  // The whole sentence around the evidence counts: an extractor that quotes
+  // only "I love sweets" from "I am a diabetic and I love sweets" must not
+  // launder the health context out of the check.
+  const sentence = options.sourceText ? sentenceAround(options.sourceText, candidate.evidence.start, candidate.evidence.end) : ''
+  const sensitive = sensitiveCategories(`${candidate.text} ${candidate.evidence.quote} ${sentence}`)
   if (sensitive.length) return { action: 'reject', reason: 'sensitive_category', sensitive, candidate }
   if (candidate.scope === 'local' && !candidate.conditions.length && !options.activeTopicKnown) {
     // A local instruction with nothing to scope it to must not become global.

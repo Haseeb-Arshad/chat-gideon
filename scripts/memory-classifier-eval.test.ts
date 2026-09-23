@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { arch, platform } from 'node:os'
@@ -74,6 +75,8 @@ const normalize = (text: string) => text.normalize('NFKC').toLocaleLowerCase('un
 interface CacheEntry { status: number; body: string; latencyMs: number; costUsd: number }
 const cache: Record<string, CacheEntry> = existsSync(CACHE_PATH) ? JSON.parse(readFileSync(CACHE_PATH, 'utf8')) : {}
 const spend = { usd: 0, calls: 0, cacheHits: 0 }
+/** Provider time per case: recorded latency of each call, live or replayed from cache. */
+const caseCalls = new AsyncLocalStorage<{ ms: number; calls: number }>()
 
 function saveCache(): void {
   mkdirSync(dirname(CACHE_PATH), { recursive: true })
@@ -100,6 +103,8 @@ function cachedFetch(): typeof fetch {
     const hit = cache[key]
     if (hit) {
       spend.cacheHits += 1
+      const current = caseCalls.getStore()
+      if (current) { current.ms += hit.latencyMs; current.calls += 1 }
       return new Response(hit.body, { status: hit.status, headers: { 'content-type': 'application/json', 'x-cached-latency': String(hit.latencyMs) } })
     }
     if (!live) throw new Error('live provider calls are disabled (set MEMORY_CLASSIFIER_EVAL_LIVE=1)')
@@ -108,6 +113,8 @@ function cachedFetch(): typeof fetch {
     const response = await globalThis.fetch(input, init)
     const text = await response.text()
     const latencyMs = Math.round(performance.now() - started)
+    const current = caseCalls.getStore()
+    if (current) { current.ms += latencyMs; current.calls += 1 }
     let costUsd = 0
     try { costUsd = Number((JSON.parse(text) as { usage?: { cost?: number } }).usage?.cost ?? 0) || 0 } catch { costUsd = 0 }
     spend.usd += costUsd
@@ -130,6 +137,8 @@ interface CaseResult {
   screened: boolean
   error: string | null
   wallMs: number
+  providerMs: number
+  providerCalls: number
   costMicros: number
   trace: ClassificationTrace | null
   proposals: { text: string; claim: number | null; verdict: string | null; truth: 0 | 1 }[]
@@ -166,11 +175,14 @@ function proposalTruth(item: Case, text: string): 0 | 1 {
 
 async function runCase(extractor: MemoryExtractor, item: Case): Promise<CaseResult> {
   const window = windowFor(item)
-  const base: CaseResult = { id: item.id, category: item.category, language: item.language, produced: [], screened: false, error: null, wallMs: 0, costMicros: 0, trace: null, proposals: [] }
+  const base: CaseResult = { id: item.id, category: item.category, language: item.language, produced: [], screened: false, error: null, wallMs: 0, providerMs: 0, providerCalls: 0, costMicros: 0, trace: null, proposals: [] }
   if (!screenWindow(window).ok) return { ...base, screened: true }
   const started = performance.now()
   try {
-    const { output, usage } = await extractor.extract(window, AbortSignal.timeout(30_000))
+    const calls = { ms: 0, calls: 0 }
+    const { output, usage } = await caseCalls.run(calls, () => extractor.extract(window, AbortSignal.timeout(30_000)))
+    base.providerMs = calls.ms
+    base.providerCalls = calls.calls
     base.wallMs = Math.round(performance.now() - started)
     base.costMicros = usage.costMicros
     base.trace = classificationTraceOf(output)
@@ -179,7 +191,7 @@ async function runCase(extractor: MemoryExtractor, item: Case): Promise<CaseResu
     validated.candidates.forEach((candidate, index) => {
       const verdict = base.trace?.verdicts.find((entry) => entry.index === index)
       base.proposals.push({ text: candidate.text, claim: verdict?.claim ?? null, verdict: verdict?.verdict ?? null, truth: proposalTruth(item, candidate.text) })
-      const decision = decideCandidate(candidate, existing, { activeTopicKnown: false })
+      const decision = decideCandidate(candidate, existing, { activeTopicKnown: false, sourceText: item.text })
       if (decision.action === 'add') base.produced.push({ kind: decision.candidate.kind, polarity: decision.candidate.polarity, scope: decision.candidate.scope, status: decision.status, text: decision.candidate.text, reason: decision.reason })
     })
   } catch (error) {
@@ -277,7 +289,8 @@ function score(cases: readonly Case[], results: readonly CaseResult[]) {
     const covered = ranked.slice(0, Math.max(1, Math.round(coverage * ranked.length)))
     return { coverage, n: covered.length, risk: covered.length ? round(covered.filter((proposal) => proposal.truth === 0).length / covered.length) : null }
   })
-  const walls = results.filter((result) => !result.screened).map((result) => result.wallMs)
+  const walls = results.filter((result) => result.providerCalls > 0).map((result) => result.providerMs)
+  const callCounts = results.filter((result) => !result.screened).map((result) => result.providerCalls)
   return {
     cases: cases.length,
     expected: expectedTotal,
@@ -299,7 +312,7 @@ function score(cases: readonly Case[], results: readonly CaseResult[]) {
     perClass: Object.fromEntries(Object.entries(perClass).map(([name, value]) => [name, { ...value, precision: round(value.produced ? value.correct / value.produced : 1), recall: round(value.expected ? value.correct / value.expected : 1) }])),
     perCategory,
     calibration: proposals.length ? { proposals: proposals.length, brier: round(brier!), ece: round(ece!), riskCoverage } : null,
-    latencyMs: { p50: percentile(walls, 0.5), p95: percentile(walls, 0.95), note: 'wall time per case from this workstation, including cached replays at recorded latency; not deployment-region latency' },
+    latencyMs: { p50: percentile(walls, 0.5), p95: percentile(walls, 0.95), casesWithCalls: walls.length, providerCallsPerCase: round(callCounts.reduce((sum, value) => sum + value, 0) / Math.max(1, callCounts.length), 2), note: 'serial provider time per case measured from this workstation (Pakistan) to OpenRouter when the response was first fetched; cached replays reuse that measurement. Not deployment-region latency.' },
     costMicros: results.reduce((sum, result) => sum + result.costMicros, 0),
     perCase,
   }

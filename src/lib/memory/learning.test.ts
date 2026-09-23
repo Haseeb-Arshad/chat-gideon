@@ -208,3 +208,24 @@ describe('Stage 10 shadow re-extraction diff', () => {
     expect(diff.polarityChanged).toEqual([])
   })
 })
+
+describe('Stage 11 reader repair: sensitive context around a narrow quote', () => {
+  it('rejects a clause whose sentence carries a special-category topic even when the quote omits it', () => {
+    const text = 'I am a diabetic and I love sweets.'
+    const input = window(text)
+    const start = text.indexOf('I love sweets')
+    const narrow = validateExtractorOutput(input, { candidates: [{
+      kind: 'preference', text: 'User loves sweets', speechAct: 'self_statement', polarity: 'positive', scope: 'general',
+      conditions: [], relation: 'ordinary', operation: 'add', evidence: { start, end: start + 'I love sweets'.length, quote: 'I love sweets' },
+    }] }).candidates[0]!
+    expect(decideCandidate(narrow, [], { activeTopicKnown: false })).toMatchObject({ action: 'add' })
+    expect(decideCandidate(narrow, [], { activeTopicKnown: false, sourceText: text })).toMatchObject({ action: 'reject', reason: 'sensitive_category', sensitive: ['health'] })
+    // Only the containing sentence counts, not unrelated sentences of the turn.
+    const two = 'I love sweets. My friend is diabetic.'
+    const first = validateExtractorOutput(window(two), { candidates: [{
+      kind: 'preference', text: 'User loves sweets', speechAct: 'self_statement', polarity: 'positive', scope: 'general',
+      conditions: [], relation: 'ordinary', operation: 'add', evidence: { start: 0, end: 13, quote: 'I love sweets' },
+    }] }).candidates[0]!
+    expect(decideCandidate(first, [], { activeTopicKnown: false, sourceText: two })).toMatchObject({ action: 'add' })
+  })
+})

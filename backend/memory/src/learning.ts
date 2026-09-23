@@ -373,9 +373,10 @@ export function compareShadow(
   written: readonly ExtractionCandidate[],
   shadow: readonly ExtractionCandidate[] | null,
   existing: readonly ExistingMemory[],
+  sourceText = '',
 ): { index: number; reason: string }[] {
   if (!shadow) return [{ index: -1, reason: 'shadow_failed' }]
-  const decide = (candidate: ExtractionCandidate) => decisionClass(decideCandidate(candidate, existing, { activeTopicKnown: false }))
+  const decide = (candidate: ExtractionCandidate) => decisionClass(decideCandidate(candidate, existing, { activeTopicKnown: false, sourceText }))
   const used = new Set<number>()
   const records: { index: number; reason: string }[] = []
   written.slice(0, 32).forEach((candidate, index) => {
@@ -509,7 +510,7 @@ export async function processLearningJob(
     let firstAccepted: AssertionVersion | null = null
     if (shadow) {
       // Both sides are judged by the same reconciler against the same snapshot.
-      for (const record of compareShadow(validated.candidates, shadow.candidates, [...existing])) {
+      for (const record of compareShadow(validated.candidates, shadow.candidates, [...existing], window.text)) {
         await recordDecision(tx, job, shadow.extractor, record.index, 'shadow', record.reason, null)
       }
     }
@@ -519,7 +520,7 @@ export async function processLearningJob(
       outcomes.push({ action: 'reject', reason: rejected.reason, assertionId: null })
     }
     for (const [index, candidate] of validated.candidates.entries()) {
-      const decision = decideCandidate(candidate, existing, { activeTopicKnown: false })
+      const decision = decideCandidate(candidate, existing, { activeTopicKnown: false, sourceText: window.text })
       if (decision.action === 'reject') {
         await recordDecision(tx, job, extractor, index, 'reject', decision.reason, null)
         outcomes.push({ action: 'reject', reason: decision.reason, assertionId: null })

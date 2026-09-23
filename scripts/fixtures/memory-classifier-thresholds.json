@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-09-23T19:32:37.219Z",
+  "selectedOn": "dev",
+  "objective": "5*falseAccepted + 5*forbiddenHits + missed + 0.25*spuriousCandidates + 0.1*escalations (verify arms, model + rules bases)",
+  "classifier": {
+    "provider": "llm_substitute",
+    "model": "openai/gpt-6-luna"
+  },
+  "thresholds": {
+    "keepClaimMin": 0.9,
+    "rejectClaimMax": 0.1,
+    "minChoiceConfidence": 0.5,
+    "gateSkipMax": 0.3,
+    "activityMinConfidence": 0.6
+  },
+  "hashes": {
+    "dev": "94c7cd45103c673a8cf318737b811d3aac0e43fe8f9b3befc629a8d2a261e738",
+    "stage10Dev": "a77e71ea60378269aa23a2f19f96509b33f8a01d713eb33d9094c6def0f362aa",
+    "heldout": "e1487c799a86b03600b3dc2785bec18f8f7ca2160f66dcc312000d1b2e433983"
+  }
+}

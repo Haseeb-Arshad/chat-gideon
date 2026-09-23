@@ -39,7 +39,7 @@ async function learn(extractor: MemoryExtractor, item: Case): Promise<{ learned:
   const validated = validateExtractorOutput(window, output)
   const learned: Learned[] = []
   for (const candidate of validated.candidates) {
-    const decision: LearningDecision = decideCandidate(candidate, [], { activeTopicKnown: false })
+    const decision: LearningDecision = decideCandidate(candidate, [], { activeTopicKnown: false, sourceText: item.text })
     if (decision.action === 'add') learned.push({ kind: decision.candidate.kind, polarity: decision.candidate.polarity, scope: decision.candidate.scope, status: decision.status })
   }
   return { learned, screened: false, units: usage.inputUnits + usage.outputUnits, costMicros: usage.costMicros }
