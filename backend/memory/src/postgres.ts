@@ -354,9 +354,10 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
   }
 
   /**
-   * Canonical identity remains blocked even after its content/version rows are
-   * physically purged. Deleted assertion tombstones carry the identity only;
-   * they never carry the deleted proposition or source text.
+   * A canonical identity whose current version is suppressed cannot be reused
+   * while that suppression is in force. Privacy deletion clears the key itself
+   * (it is a content hash), so a deleted command stays blocked through its
+   * retained event suppression, not through this identity.
    */
   async isCanonicalKeySuppressed(canonicalKey: string): Promise<boolean> {
     const context = this.scope()
@@ -846,7 +847,22 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
           ? { ...parsed.value, sequence: await transaction.nextEventSequence() }
           : parsed.value
         const insertResult = await transaction.insertEvent(committedEvent)
-        if (insertResult !== 'inserted') throw failure('conflict', 'The event was concurrently claimed; retry the same idempotency key.', true)
+        if (insertResult !== 'inserted') {
+          // A concurrent capture with this key committed while this insert
+          // waited on the unique index. Under READ COMMITTED the new statement
+          // sees that row, so an identical duplicate gets the original receipt.
+          const winner = await transaction.findEventRecordByIdempotency(parsed.value.idempotencyKey)
+          if (!winner) throw failure('conflict', 'The event was concurrently claimed; retry the same idempotency key.', true)
+          if (winner.content_hash !== incomingHash) {
+            return receiptFailure(winner.event_id as EventEnvelope['id'], now, {
+              code: 'conflict',
+              message: 'This idempotency key is already bound to different content.',
+              retryable: false,
+              details: { reason: 'idempotency_content_conflict' },
+            })
+          }
+          return await transaction.readReceiptByEvent(winner.event_id) ?? receiptCaptured(winner.event_id as EventEnvelope['id'], now)
+        }
         if (options.injectFailureAfterEventInsert) throw new Error('injected capture crash after event insert')
         const receipt = receiptCaptured(committedEvent.id, now)
         await transaction.insertCapturedReceipt(receipt, committedEvent.id)

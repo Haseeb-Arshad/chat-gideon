@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type Plugin } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -9,6 +10,27 @@ import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 import { realtimePlugin } from './realtime-plugin'
+
+/**
+ * Keeps the Node PostgreSQL memory adapter out of the Worker bundle.
+ *
+ * The TanStack routes share `openrouter.server.ts` with the Node host, and that
+ * imports the adapter. The Worker has its own memory authority, so in
+ * Cloudflare mode the adapter resolves to a stub that never enables memory.
+ */
+function workerMemoryBoundary(): Plugin {
+  const nodeAdapter = /[\\/]src[\\/]server[\\/]node-memory-integration\.ts$/
+  const stub = fileURLToPath(new URL('./src/server/node-memory-integration.worker.ts', import.meta.url))
+  return {
+    name: 'gideon-worker-memory-boundary',
+    enforce: 'pre',
+    async resolveId(source, importer, options) {
+      if (!source.includes('node-memory-integration') || source.endsWith('.worker')) return null
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+      return resolved && nodeAdapter.test(resolved.id) ? stub : null
+    },
+  }
+}
 
 const config = defineConfig(({ command, mode }) => {
   const isCloudflare = mode === 'cloudflare'
@@ -23,7 +45,7 @@ const config = defineConfig(({ command, mode }) => {
   },
   resolve: { tsconfigPaths: true },
   plugins: [
-    ...(isCloudflare ? [cloudflare({ viteEnvironment: { name: 'ssr' } })] : []),
+    ...(isCloudflare ? [workerMemoryBoundary(), cloudflare({ viteEnvironment: { name: 'ssr' } })] : []),
     // The isolated gallery does not need the devtools console bridge. Browser
     // extension hydration warnings can otherwise echo between client/server.
     ...(mode === 'visualizations' ? [] : [devtools()]),

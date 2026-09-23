@@ -339,6 +339,25 @@ function text(value: unknown, limit: number): string {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, limit) : ''
 }
 
+/** Lowercased word tokens, so matching works on whole words rather than substrings. */
+function words(value: string): string[] {
+  return value.normalize('NFKC').toLocaleLowerCase('und').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+}
+
+/**
+ * A label names what the user asked for when every word of the label appears
+ * in the request, or every word of the request appears in the label. Whole
+ * words only: "Taiwan trip" must not match a topic called "AI".
+ */
+function labelMatches(label: string, query: string): boolean {
+  const labelWords = words(label)
+  const queryWords = words(query)
+  if (!labelWords.length || !queryWords.length) return false
+  const querySet = new Set(queryWords)
+  const labelSet = new Set(labelWords)
+  return labelWords.every((word) => querySet.has(word)) || queryWords.every((word) => labelSet.has(word))
+}
+
 function id(value: unknown, limit = 160): string {
   return text(value, limit).replace(/[^A-Za-z0-9._:/-]/g, '_')
 }
@@ -644,7 +663,7 @@ function candidatesForSnapshot(snapshot: ArtifactDisplaySnapshot, ordinal?: numb
   }
   const query = text(label, 240).toLowerCase()
   return snapshot.items
-    .filter((item) => !query || item.label.toLowerCase() === query || item.label.toLowerCase().includes(query) || query.includes(item.label.toLowerCase()))
+    .filter((item) => !query || item.label.toLowerCase() === query || labelMatches(item.label, query))
     .map((item) => ({ stableId: item.stableId, label: item.label, kind: item.kind, sourceTurnId: snapshot.sourceTurnId, artifactId: snapshot.artifactId, displayRevision: snapshot.displayRevision }))
 }
 
@@ -670,7 +689,8 @@ export function resolveArtifactReference(
 export function resolveTopic(state: ConversationState, labelOrId: string): TopicResolution {
   const query = text(labelOrId, 240).toLowerCase()
   const topics = [state.activeTopic, ...state.suspendedTopics].filter((topic): topic is ConversationTopic => Boolean(topic))
-  const matches = topics.filter((topic) => topic.topicId.toLowerCase() === query || topic.label.toLowerCase() === query || topic.label.toLowerCase().includes(query) || query.includes(topic.label.toLowerCase()))
+  const exact = topics.filter((topic) => topic.topicId.toLowerCase() === query || topic.label.toLowerCase() === query)
+  const matches = exact.length ? exact : topics.filter((topic) => labelMatches(topic.label, query))
   if (matches.length === 1) return { status: 'resolved', topic: matches[0] }
   if (matches.length > 1) return { status: 'ambiguous', question: `Which topic do you mean: ${matches.map((topic) => topic.label).join(', ')}?`, candidates: matches }
   return { status: 'not_found', question: topics.length ? 'Which topic should I resume?' : null, candidates: topics }
@@ -1121,9 +1141,36 @@ export function conversationContext(state: ConversationState): string {
   }
   const coveredThrough = state.checkpoint?.coveredThrough ?? -1
   const uncovered = state.recentTurns.filter((turn) => turn.sequence > coveredThrough)
-  if (uncovered.length) {
-    lines.push(`Recent committed turns not covered by the checkpoint:`)
-    for (const turn of uncovered) lines.push(`${turn.role === 'user' ? 'User' : 'Assistant'}: ${turn.delivery === 'interrupted' ? (turn.heardText ?? '') : turn.text}`)
+  const turnLines = uncovered.map((turn) => `${turn.role === 'user' ? 'User' : 'Assistant'}: ${turn.delivery === 'interrupted' ? (turn.heardText ?? '') : turn.text}`)
+  return fitContext(lines, turnLines)
+}
+
+const CONTEXT_TRIMMED = ' …[trimmed for length]'
+
+/**
+ * Fits the context to MAX_CONTEXT_CHARS without cutting silently. The oldest
+ * uncovered turns go first and are counted in an explicit notice; a single
+ * turn or summary line that still does not fit is shortened with a marker.
+ */
+function fitContext(header: readonly string[], turns: readonly string[]): string {
+  const join = (parts: readonly string[]) => parts.join('\n')
+  const headerText = join(header)
+  if (headerText.length >= MAX_CONTEXT_CHARS - 200) {
+    return `${headerText.slice(0, MAX_CONTEXT_CHARS - CONTEXT_TRIMMED.length).trimEnd()}${CONTEXT_TRIMMED}`
   }
-  return lines.join('\n').slice(0, MAX_CONTEXT_CHARS)
+  if (!turns.length) return headerText
+  const room = MAX_CONTEXT_CHARS - headerText.length - 1
+  const title = 'Recent committed turns not covered by the checkpoint:'
+  for (let dropped = 0; dropped < turns.length; dropped += 1) {
+    const kept = turns.slice(dropped)
+    const notice = dropped ? [`(${dropped} earlier turn${dropped === 1 ? '' : 's'} omitted for length.)`] : []
+    const block = join([title, ...notice, ...kept])
+    if (block.length <= room) return `${headerText}\n${block}`
+  }
+  // Only the newest turn remains and it is still too long on its own.
+  const notice = turns.length > 1 ? [`(${turns.length - 1} earlier turn${turns.length === 2 ? '' : 's'} omitted for length.)`] : []
+  const prefix = join([title, ...notice])
+  const newest = turns[turns.length - 1]!
+  const budget = Math.max(0, room - prefix.length - 1 - CONTEXT_TRIMMED.length)
+  return `${headerText}\n${prefix}\n${newest.slice(0, budget).trimEnd()}${CONTEXT_TRIMMED}`
 }

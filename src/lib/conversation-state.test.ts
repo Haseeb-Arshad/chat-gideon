@@ -162,6 +162,40 @@ describe('bounded conversation continuity', () => {
     expect(current.localConstraints).toHaveLength(1)
   })
 
+  it('matches topics and item labels on whole words, never on letters inside another word', () => {
+    const current = apply(state(), [
+      { type: 'turn_committed', turn: turn('turn/ai', 1, 'user', 'Talk about AI'), topic: { topicId: 'topic/ai', label: 'AI' } },
+      { type: 'topic_suspended', topicId: 'topic/ai', sourceTurnId: 'turn/ai', sourceSequence: 2 },
+      { type: 'turn_committed', turn: turn('turn/alpha', 3, 'user', 'Alpha project', T2), topic: { topicId: 'topic/alpha', label: 'Alpha project' } },
+      {
+        type: 'artifact_changed',
+        snapshot: { artifactId: 'cards', displayRevision: 1, title: 'Hotels', sourceTurnId: 'turn/alpha', sourceSequence: 4, status: 'visible', items: [{ stableId: 'h1', label: 'Seaside Inn', kind: 'place' }, { stableId: 'h2', label: 'Sea View', kind: 'place' }] },
+      },
+    ])
+    expect(resolveTopic(current, 'my Taiwan trip').status).toBe('not_found')
+    expect(resolveTopic(current, 'go back to AI')).toMatchObject({ status: 'resolved', topic: { topicId: 'topic/ai' } })
+    expect(resolveTopic(current, 'resume the Alpha project')).toMatchObject({ status: 'resolved', topic: { topicId: 'topic/alpha' } })
+    // "sea" is a whole word of "Sea View" but only letters inside "Seaside".
+    expect(resolveArtifactReference(current, { artifactId: 'cards', displayRevision: 1, label: 'sea' })).toMatchObject({ status: 'resolved', item: { stableId: 'h2' } })
+    expect(resolveArtifactReference(current, { artifactId: 'cards', displayRevision: 1, label: 'side' }).status).toBe('not_found')
+    expect(resolveArtifactReference(current, { artifactId: 'cards', displayRevision: 1, label: 'the Sea View one' })).toMatchObject({ status: 'resolved', item: { stableId: 'h2' } })
+  })
+
+  it('drops the oldest turns with an explicit notice instead of cutting the context silently', () => {
+    const long = 'word '.repeat(500)
+    const events: ConversationEvent[] = Array.from({ length: 12 }, (_, index) => ({ type: 'turn_committed', turn: turn(`turn/${index}`, index + 1, index % 2 ? 'assistant' : 'user', `turn ${index}: ${long}`) }))
+    const context = conversationContext(apply(state(), events))
+    expect(context.length).toBeLessThanOrEqual(8_000)
+    expect(context).toMatch(/\(\d+ earlier turns omitted for length\.\)/u)
+    expect(context).toContain('turn 11:')
+    expect(context).not.toContain('turn 0:')
+    expect(context.trimEnd().endsWith('word')).toBe(true)
+
+    const single = conversationContext(apply(state(), [{ type: 'turn_committed', turn: turn('turn/huge', 1, 'user', `huge ${'x'.repeat(9_000)}`) }]))
+    expect(single.length).toBeLessThanOrEqual(8_000)
+    expect(single).toContain('…[trimmed for length]')
+  })
+
   it('round-trips the full bounded state and expires temporary state deterministically', () => {
     const current = apply(state({ conversationId: 'conversation/roundtrip', sessionId: 'session/test', now: T1, expiresAt: T3 }), [
       { type: 'turn_committed', turn: turn('turn/1', 1, 'user', 'Keep this thread', T1), topic: { topicId: 'topic/1', label: 'Thread', expiresAt: T2 } },

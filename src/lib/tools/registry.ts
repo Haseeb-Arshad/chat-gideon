@@ -118,6 +118,19 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
           description:
             'Only when the user says a fact about them has changed: a few words naming the old one, such as "where the user lives". What matches it is removed as the new fact is kept.',
         },
+        since: {
+          type: 'string',
+          description: 'With replaces, the calendar date the change took effect (YYYY-MM-DD) if the user said it. Leave empty otherwise.',
+        },
+        appliesTo: {
+          type: 'string',
+          enum: ['general', 'this_topic'],
+          description: 'Use this_topic when the user says the preference is only for what is being discussed now. Default general.',
+        },
+        until: {
+          type: 'string',
+          description: 'Only for a temporary exception the user bounded in time: the last calendar date it applies (YYYY-MM-DD).',
+        },
       },
       required: ['text'],
     },
@@ -143,6 +156,15 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
       properties: {
         query: { type: 'string', description: 'A distinctive phrase from the exact memory being corrected.' },
         text: { type: 'string', description: 'The corrected self-contained statement about the user.' },
+        change: {
+          type: 'string',
+          enum: ['mistake', 'changed'],
+          description: 'mistake: the stored memory was never right. changed: it was true before and is no longer (they moved, switched jobs). Default mistake.',
+        },
+        since: {
+          type: 'string',
+          description: 'With changed, the calendar date it changed (YYYY-MM-DD) if the user said it; otherwise it is recorded as changed today.',
+        },
       },
       required: ['query', 'text'],
     },

@@ -445,24 +445,28 @@ export async function* streamTurn(
   let contextPackText: string | null = null
   let memoryLookupUnavailable = false
   const runtime = options.memoryRuntime
+  // Capture and recall are independent reads/writes of the memory authority,
+  // so they run together: the model waits for the slower one, not their sum.
+  let capturing: Promise<unknown> = Promise.resolve()
   if (runtime?.flags.capture && !options.speculative && options.memorySession?.trust === 'authenticated'
     && runtime.captureUserTurn && latestUserText.trim()) {
-    try {
-      await runtime.captureUserTurn({
+    const memorySession = options.memorySession
+    const captureUserTurn = runtime.captureUserTurn.bind(runtime)
+    capturing = (async () => {
+      await captureUserTurn({
         turnId: id,
         conversationId: conversationState?.conversationId ?? `conversation/${id}`,
-        principalId: options.memorySession.principal.id,
-        scopeId: options.memorySession.scope.id,
-        policyEpoch: options.memorySession.policyEpoch,
+        principalId: memorySession.principal.id,
+        scopeId: memorySession.scope.id,
+        policyEpoch: memorySession.policyEpoch,
         latestUserText,
         transcriptHash,
       }, signal)
-      if (signal.aborted) return
-    } catch {
+    })().catch(() => {
       // Capture outages must not turn a conversational answer into a false
       // success or an empty corpus; the adapter reports the typed failure and
       // the turn continues with the available read path.
-    }
+    })
   }
   if (runtime?.flags.recall) {
     const session = options.memorySession
@@ -504,6 +508,8 @@ export async function* streamTurn(
   } else {
     memories = await contextMemories(turnStore, latestUserText, 4, Boolean(options.speculative)).catch(() => [])
   }
+  await capturing
+  if (signal.aborted) return
 
   const history: UpstreamMessage[] = [
     { role: 'system', content: `${SYSTEM_PROMPT}\n\n${GOBLIN_PROMPT}\n\n${TOOL_RULES}` },

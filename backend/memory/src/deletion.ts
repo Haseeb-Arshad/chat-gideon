@@ -449,9 +449,13 @@ async function suppressionAndInvalidation(
   )
   const assertionIds = [...new Set(expansion.versions.map((reference) => reference.assertionId))]
   if (assertionIds.length) {
+    // The canonical key is an unkeyed hash of the normalized proposition, so a
+    // retained copy could confirm a guessed deleted sentence. Reuse of the
+    // deleted command is blocked by its retained event suppression instead;
+    // a new explicit statement from the user is new evidence and may be kept.
     await transaction.query(
       `UPDATE ${SQL.assertions}
-       SET current_status = 'deleted', updated_at = now()
+       SET current_status = 'deleted', canonical_key = NULL, updated_at = now()
        WHERE scope_id = $1 AND assertion_id = ANY($2::text[])`,
       [scopeId, assertionIds],
     )
@@ -1084,6 +1088,12 @@ export async function reconcileRestoreLedger(store: PostgresMemoryStore, scopeId
             `INSERT INTO ${SQL.suppressions} (suppression_id, scope_id, assertion_id, assertion_revision, policy_epoch, deletion_epoch, reason)
              VALUES ($1, $2, $3, $4, $5, $6, 'recovery_replay') ON CONFLICT DO NOTHING`,
             [`recovery/${scopeId}/${row.ledger_sequence}`, scopeId, row.assertion_id, Number(row.assertion_revision), Number(row.policy_epoch), Number(row.deletion_epoch)],
+          )
+          // A restored backup predates the deletion and still carries the
+          // content-derived canonical key; replay removes it with the status.
+          await transaction.query(
+            `UPDATE ${SQL.assertions} SET current_status = 'deleted', canonical_key = NULL, updated_at = now() WHERE scope_id = $1 AND assertion_id = $2`,
+            [scopeId, row.assertion_id],
           )
         }
       } else if (row.grant_id) {
