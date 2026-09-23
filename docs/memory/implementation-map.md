@@ -63,7 +63,12 @@ that its capability is enabled or production-verified.
 | Memory recall/context injection | `GIDEON_MEMORY_RECALL_ENABLED=1` | Stage 09 Node HTTP/realtime only; default off |
 | Stable owner rollout cohort | `GIDEON_MEMORY_ROLLOUT_PERCENT=0..100` | Stage 09 server-selected FNV owner bucket; unset/malformed means 0 |
 | Production cutover gate | `GIDEON_MEMORY_STAGE15_CUTOVER=1` | Required in `NODE_ENV=production`; Stage 15 owns authorization |
-| Automatic/background learning | `GIDEON_MEMORY_LEARNING_ENABLED` | Not wired; Stage 10 |
+| Automatic/background learning | `GIDEON_MEMORY_LEARNING_ENABLED=1` | Stage 10 Node runner; per-owner via the same cohort and production gate; default off |
+| Background maintenance runner | `GIDEON_MEMORY_BACKGROUND_ENABLED=1` | Stage 10 process-level purge, stale-view rebuild and learning queue; production gated; default off |
+| Runner interval | `GIDEON_MEMORY_BACKGROUND_INTERVAL_MS` | Stage 10; clamped to 1 s–10 min, default 10 s |
+| Extractor selection | `GIDEON_MEMORY_EXTRACTOR=rules\|model` | Stage 10; `rules` (local, no network) unless `model` **and** the spend switch below are both set |
+| Remote extraction spend switch | `GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED=1` | Stage 10; required for any paid model extraction; never set by default |
+| Extractor model | `GIDEON_MEMORY_EXTRACTOR_MODEL` | Stage 10; defaults to `openai/gpt-5.6-luna` when the model extractor is enabled |
 | Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Stage 08 adapter exists; no provider configured by default |
 | Jev classification | `GIDEON_MEMORY_JEV_ENABLED` | Not wired; optional Stage 11 |
 
@@ -476,6 +481,58 @@ production proof. Cross-socket invalidation/reconnect validation, a real
 voice/browser/provider run, Worker/PostgreSQL cutover and automatic
 commitment extraction remain later-stage work.
 
+## Post-audit repairs to Stages 01–09 (2026-09-23)
+
+An audit of Stages 01–09 before Stage 10 found nine issues. Each is repaired
+with a regression test; see `handoffs/10-background-learning.md` for detail.
+
+| Finding | Repair | Paths |
+|---|---|---|
+| Deleted tombstones kept an unkeyed hash of the forgotten text | Logical deletion and restore replay clear `canonical_key`; migration 006 scrubs existing tombstones; deleted-command replays stay blocked by retained event suppression | `backend/memory/src/deletion.ts`, `backend/memory/migrations/006-tombstone-canonical-keys.sql` |
+| A forgotten fact could never be explicitly remembered again | A new explicit statement gets a new identity; a replay of the deleted command is still `suppressed` | same |
+| The Cloudflare Worker bundle contained `pg` and the Node adapter | Cloudflare builds resolve the adapter to a stub; `build:cloudflare` fails if `pg`/the adapter reappears | `vite.config.ts`, `src/server/node-memory-integration.worker.ts`, `scripts/check-worker-bundle.mjs` |
+| App recall ignored conversation state; tools could not scope or date memory; `replaces` was ignored | Recall carries topic, recent committed turns, local instructions and state; `remember` takes `appliesTo`/`until`/`replaces`+`since`; `correct` takes `change`/`since` | `src/lib/memory/recall-context.ts`, `src/server/node-memory-integration.ts`, `src/lib/tools/registry.ts` |
+| No background worker ran purge, projections or the learning queue | Stage 10 maintenance runner | `backend/memory/src/background.ts` |
+| Topic/label matching used substrings ("Taiwan" matched "AI") | Whole-word matching | `src/lib/conversation-state.ts` |
+| Conversation context was cut silently at 8,000 chars | Oldest turns dropped with an explicit notice; a lone oversize line is marked | `src/lib/conversation-state.ts` |
+| Concurrent identical captures got a retryable conflict | The waiting duplicate re-reads and returns the original receipt | `backend/memory/src/postgres.ts` |
+| Capture and recall ran sequentially before the model | They run concurrently | `src/lib/agent-core.ts` |
+
+## Stage 10 background learning and bounded maintenance
+
+- `src/lib/memory/learning.ts` (edge-safe): extraction window/candidate
+  contracts, secret screening before any extractor, strict output validation
+  (every candidate's quote must equal the exact slice of the committed turn),
+  deterministic reconciliation (`add`/`corroborate`/`dispute`/`reject`),
+  the conservative promotion policy and the pure shadow-diff.
+- `src/lib/memory/rule-extractor.ts` (edge-safe, default): local English /
+  Roman Urdu / code-switch rules. Quotes, hypotheticals, jokes, questions,
+  assistant echoes and spoken self-repairs are labelled and refused;
+  per-task instructions become local candidates; stated changes are held for
+  review. It cannot invent a claim.
+- `src/lib/memory/screening.ts` (edge-safe): shared secret screen (also used by
+  Stage 08 retrieval) and special-category detection; sensitive topics are
+  never learned implicitly.
+- `backend/memory/src/learning.ts`: the worker. The extractor runs outside any
+  transaction; the commit transaction rechecks fence, lease, grant/deletion
+  epochs, input suppression, source text and consent, reloads current memory,
+  and reconciles. A deletion elsewhere in the scope forces recomputation
+  (`stale_epoch`); deletion of the input dead-letters the job. Learned text
+  never supersedes user-authored memory. Also `promoteLearnedCandidates()` and
+  the non-writing `shadowReextract()`.
+- `backend/memory/src/model-extractor.ts`: optional OpenRouter adapter, off by
+  default, gated by an explicit spend switch; offsets are computed locally.
+- `backend/memory/src/background.ts`: `runMemoryMaintenance()` (purge →
+  stale views → fair, budgeted learning → promotion) and
+  `startMemoryBackground()`; started lazily by the Node adapter when
+  `GIDEON_MEMORY_BACKGROUND_ENABLED=1`.
+- `backend/memory/migrations/007-background-learning.sql`: reason-code-only
+  `learning_decisions` (cascade with their source event), per-user
+  `learning_budgets`, `learned`/`promoted`/`retired` change kinds.
+- Evaluation: `npm run memory:extraction:eval` over
+  `scripts/fixtures/memory-extraction-dev.json`, report at
+  `docs/memory/reports/stage-10-extraction-eval.json`.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
@@ -530,4 +587,9 @@ migration, provider, grant broadening, or deployment was added.
 - `src/lib/memory/retrieval.test.ts`: Stage 08 request/query planning, ranking/applicability, exact-vector filters, expiry, conflicts, safe preference overrides and tokenizer/budget outcomes.
 - `backend/memory/src/postgres.live.test.ts`: Stage 08 real PostgreSQL exact/lexical/evidence retrieval, tenant isolation, embedding index/revision checks, provider authorization, warm correction and deletion cascade coverage.
 - `scripts/memory-retrieval-ablation.test.ts` and `docs/memory/reports/stage-08-retrieval-ablation.json`: paired synthetic-only lexical/hybrid/applicability diagnostics; no model/network calls.
+- `src/lib/memory/learning.test.ts`, `src/lib/memory/recall-context.test.ts`: Stage 10 extraction, validation, reconciliation, promotion, shadow diff and post-audit recall/command-shape tests.
+- `backend/memory/src/model-extractor.test.ts`: model-extractor plumbing against a fixture provider (no network) and Stage 10 flags.
+- `backend/memory/src/postgres.live.test.ts`: Stage 10 real PostgreSQL learning, refusal, duplicate/corroboration, promotion, deletion races, shadow diff, budgets and maintenance.
+- `scripts/memory-extraction-eval.test.ts` and `docs/memory/reports/stage-10-extraction-eval.json`: development-set extraction quality; rules only, zero provider calls.
+- `scripts/check-worker-bundle.mjs`: fails the Cloudflare build when Node-only memory code enters the Worker bundle.
 - `backend/memory/README.md`: local disposable PostgreSQL, migration, credential and rollback instructions.

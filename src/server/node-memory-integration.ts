@@ -7,9 +7,16 @@ import {
   resolveExplicitTarget,
   retrieveMemory,
   createPostgresMemoryStore,
+  createModelExtractor,
+  startMemoryBackground,
+  type MemoryBackgroundHandle,
   type PostgresMemoryStore,
 } from '../../backend/memory/src/index.ts'
-import { memoryFeatureFlags } from '../lib/memory/rollout'
+import type { MemoryExtractor } from '../lib/memory/learning'
+import { RULE_EXTRACTOR } from '../lib/memory/rule-extractor'
+import { memoryBackgroundEnabled, memoryFeatureFlags, memoryLearningEnabled } from '../lib/memory/rollout'
+import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
+import type { ConversationState } from '../lib/conversation-state'
 import {
   MEMORY_CONTRACT_VERSION,
   parsePublicMemoryCommand,
@@ -25,11 +32,43 @@ import { nodeOwner } from './identity'
 import { createServerMemorySession } from './memory-session'
 
 const PG_RUNTIME = Symbol.for('gideon.node.memory-postgres-runtime.v1')
-type PgGlobal = typeof globalThis & { [PG_RUNTIME]?: PostgresMemoryStore }
+const BACKGROUND = Symbol.for('gideon.node.memory-background.v1')
+type PgGlobal = typeof globalThis & { [PG_RUNTIME]?: PostgresMemoryStore; [BACKGROUND]?: MemoryBackgroundHandle }
 
 function postgresStore(): PostgresMemoryStore {
   const globals = globalThis as PgGlobal
-  return globals[PG_RUNTIME] ??= createPostgresMemoryStore()
+  const store = globals[PG_RUNTIME] ??= createPostgresMemoryStore()
+  ensureBackground(store)
+  return store
+}
+
+/**
+ * The model extractor is paid remote inference over private text, so it needs
+ * both an explicit selection and a separate spend switch; otherwise the local
+ * rule extractor is used.
+ */
+function extractorFromEnv(env: NodeJS.ProcessEnv): MemoryExtractor {
+  const apiKey = env.OPENROUTER_API_KEY?.trim()
+  if (env.GIDEON_MEMORY_EXTRACTOR === 'model' && env.GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED === '1' && apiKey) {
+    return createModelExtractor({ apiKey, model: env.GIDEON_MEMORY_EXTRACTOR_MODEL, siteUrl: env.OPENROUTER_SITE_URL })
+  }
+  return RULE_EXTRACTOR
+}
+
+/** Starts the bounded maintenance runner once per process when enabled. */
+function ensureBackground(store: PostgresMemoryStore): void {
+  const globals = globalThis as PgGlobal
+  if (globals[BACKGROUND] || !memoryBackgroundEnabled(process.env)) return
+  const env = process.env
+  globals[BACKGROUND] = startMemoryBackground(store, {
+    workerId: `node/${process.pid}`,
+    extractor: extractorFromEnv(env),
+    learning: env.GIDEON_MEMORY_LEARNING_ENABLED === '1',
+    learningEnabledFor: (scopeId) => memoryLearningEnabled(process.env, scopeId),
+    intervalMs: Number(env.GIDEON_MEMORY_BACKGROUND_INTERVAL_MS) || undefined,
+    // Counts only: no content, identifiers or connection details reach the log.
+    onError: (count) => { if (count === 1 || count % 50 === 0) console.warn(`[memory] background maintenance failed ${count} time(s)`) },
+  })
 }
 
 function hash(value: string): string {
@@ -120,11 +159,14 @@ function assertionKind(value: unknown): 'fact' | 'preference' | 'constraint' | '
   return 'fact'
 }
 
-function createRecallInput(query: string, timezone: string, depth?: 'deep') {
+function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep') {
   return {
     query,
-    resolved: { topicId: null, topicLabel: null, entities: [], assertionIds: [], artifactIds: [], unknownReferents: [] },
-    activity: { kind: null, topicId: null, topicLabel: null, projectId: null, format: null, attributes: {} },
+    // Topic, recent committed turns and local instructions come from the
+    // bounded conversation state; the activity kind stays unknown until an
+    // interpreter supplies it.
+    ...recallFieldsFromConversation(conversationState, latestUserText),
+    conversationState,
     requestedTime: { mode: 'current', instant: null, timeZone: timezone || 'UTC' },
     consistency: 'warm_preferred',
     budget: { tier: depth ? 'expanded' : 'standard', reserveAnswerTokens: 512, reserveToolTokens: 256 },
@@ -139,7 +181,7 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
     if (context.principalId !== session.principal.id || context.scopeId !== session.scope.id || context.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
-    const result = await retrieveMemory(session, createRecallInput(query, context.timezone, context.depth), { signal })
+    const result = await retrieveMemory(session, createRecallInput(query, context.timezone, context.conversationState, context.latestUserText, context.depth), { signal })
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
     if (!result.ok) {
       return { status: 'unavailable' as const, reason: result.failure.code === 'unauthorized' ? 'unauthorized' as const : 'failure' as const }
@@ -170,6 +212,31 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
     async execute(name, args, context) {
       if (context.signal.aborted || session.trust !== 'authenticated') return unavailableOutcome()
       const id = commandId(session.scope.id, context.turnId, context.callId)
+      const ambiguousTarget = async (candidates: readonly { assertionId: string; revision: number }[], summary: string, question: string): Promise<ToolOutcome> => {
+        const labels = await candidateLabels(session, candidates)
+        return { ok: true, pending: true, receiptState: 'pending', summary, content: `${question}${labels.length ? `\n${labels.join('\n')}` : ''}` }
+      }
+      const correctTarget = async (target: { assertionId: string; revision: number }, text: string, shapeArgs: Record<string, unknown>, summary: string): Promise<ToolOutcome> => {
+        const shape = correctShape(shapeArgs, context.timezone, new Date())
+        if (!shape.ok) return { ok: false, content: `${shape.message} Nothing was changed.`, summary: 'Correction was not applied', receiptState: 'failed' }
+        const current = await readCurrentAssertion(session, target.assertionId as AssertionVersion['id'])
+        if (!current.version || current.version.revision !== target.revision) return { ok: false, content: 'That memory changed before I could correct it. Nothing was changed.', summary: 'Correction target changed', receiptState: 'failed' }
+        const result = await executeExplicitCommand(session, {
+          schemaVersion: MEMORY_CONTRACT_VERSION,
+          commandId: id,
+          kind: 'correct',
+          targetAssertionId: target.assertionId,
+          targetRevision: target.revision,
+          text,
+          assertionKind: current.version.kind === 'episode_checkpoint' ? 'fact' : current.version.kind,
+          conditions: [],
+          ...shape.value,
+        }, {
+          sourceSpan: flags.capture ? committedSourceSpan(session, context.turnId, context.latestUserText) : null,
+        })
+        if (!result.ok) return { ok: false, content: 'I could not apply that correction. Nothing was confirmed changed.', summary: 'Correction was not applied', receiptState: 'failed', receiptId: result.receipt.receiptId }
+        return { ok: true, content: shape.value.relation === 'transition' ? 'I updated that memory and kept what was true before.' : 'I updated that memory.', summary, receiptState: result.receipt.state, receiptId: result.receipt.receiptId }
+      }
       try {
         if (name === 'recall') {
           const query = typeof args.query === 'string' ? args.query.trim() : ''
@@ -186,13 +253,23 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
         if (name === 'remember') {
           const text = typeof args.text === 'string' ? args.text.trim() : ''
           if (!text) return { ok: false, content: 'Nothing was given to remember.', summary: 'Memory was not stored', receiptState: 'failed' }
+          const replaces = typeof args.replaces === 'string' ? args.replaces.trim() : ''
+          // "Remember X, it replaces Y" is a real-world change to one exact
+          // memory, not a second independent fact beside the old one.
+          if (replaces) {
+            const target = await resolveExplicitTarget(session, replaces)
+            if (target.ok) return correctTarget(target.target, text, { change: 'changed', since: args.since }, 'Memory accepted')
+            if (target.failure.code === 'ambiguous' && target.candidates?.length) return ambiguousTarget(target.candidates, 'Choose the memory this replaces', 'More than one memory matches what this replaces. Which one changed?')
+          }
+          const shape = rememberShape(args, context.conversationState, context.timezone, new Date())
+          if (!shape.ok) return { ok: false, content: `${shape.message} Nothing was saved.`, summary: 'Memory was not stored', receiptState: 'failed' }
           const result = await executeExplicitCommand(session, {
             schemaVersion: MEMORY_CONTRACT_VERSION,
             commandId: id,
             kind: 'remember',
             text,
             assertionKind: assertionKind(args.kind),
-            conditions: [],
+            ...shape.value,
           }, {
             sourceSpan: flags.capture ? committedSourceSpan(session, context.turnId, context.latestUserText) : null,
           })
@@ -212,28 +289,10 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
           if (!query || !text) return { ok: false, content: 'I need the exact memory and its corrected wording before changing it.', summary: 'Correction not applied', receiptState: 'failed' }
           const target = await resolveExplicitTarget(session, query)
           if (!target.ok) {
-            if (target.failure.code === 'ambiguous' && target.candidates?.length) {
-              const labels = await candidateLabels(session, target.candidates)
-              return { ok: true, pending: true, receiptState: 'pending', summary: 'Choose the memory to correct', content: `More than one memory matches. Which one do you mean?${labels.length ? `\n${labels.join('\n')}` : ''}` }
-            }
+            if (target.failure.code === 'ambiguous' && target.candidates?.length) return ambiguousTarget(target.candidates, 'Choose the memory to correct', 'More than one memory matches. Which one do you mean?')
             return { ok: false, content: 'I could not find one exact memory to correct. Nothing was changed.', summary: 'Correction target not found', receiptState: 'failed' }
           }
-          const current = await readCurrentAssertion(session, target.target.assertionId)
-          if (!current.version) return { ok: false, content: 'That memory changed before I could correct it. Nothing was changed.', summary: 'Correction target changed', receiptState: 'failed' }
-          const result = await executeExplicitCommand(session, {
-            schemaVersion: MEMORY_CONTRACT_VERSION,
-            commandId: id,
-            kind: 'correct',
-            targetAssertionId: target.target.assertionId,
-            targetRevision: target.target.revision,
-            text,
-            assertionKind: current.version.kind === 'episode_checkpoint' ? 'fact' : current.version.kind,
-            conditions: [],
-          }, {
-            sourceSpan: flags.capture ? committedSourceSpan(session, context.turnId, context.latestUserText) : null,
-          })
-          if (!result.ok) return { ok: false, content: 'I could not apply that correction. Nothing was confirmed changed.', summary: 'Correction was not applied', receiptState: 'failed', receiptId: result.receipt.receiptId }
-          return { ok: true, content: 'I updated that memory.', summary: 'Correction accepted', receiptState: result.receipt.state, receiptId: result.receipt.receiptId }
+          return correctTarget(target.target, text, args, 'Correction accepted')
         }
 
         const query = typeof args.query === 'string' ? args.query.trim() : ''
@@ -247,10 +306,7 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
           query,
         })
         if (!result.ok) {
-          if (result.failure.code === 'ambiguous' && result.candidates?.length) {
-            const labels = await candidateLabels(session, result.candidates)
-            return { ok: true, pending: true, receiptState: 'pending', summary: 'Choose the memory to forget', content: `More than one memory matches. Which one should I remove?${labels.length ? `\n${labels.join('\n')}` : ''}` }
-          }
+          if (result.failure.code === 'ambiguous' && result.candidates?.length) return ambiguousTarget(result.candidates, 'Choose the memory to forget', 'More than one memory matches. Which one should I remove?')
           return { ok: false, content: 'I could not confirm that memory removal. Nothing was reported as forgotten.', summary: 'Memory was not forgotten', receiptState: 'failed' }
         }
         const cleanup = result.receipt.physical.status === 'complete' ? 'Physical cleanup is complete.' : 'Physical cleanup is still pending.'

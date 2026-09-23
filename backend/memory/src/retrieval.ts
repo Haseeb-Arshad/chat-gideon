@@ -35,6 +35,7 @@ import {
   type VersionedEmbedding,
 } from '../../../src/lib/memory/retrieval.ts'
 import type { WarmSnapshot } from '../../../src/lib/memory/projections.ts'
+import { containsSecretLikeMaterial } from '../../../src/lib/memory/screening.ts'
 import { MEMORY_SCHEMA } from './config.ts'
 import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { readWarmSnapshot } from './projections.ts'
@@ -523,12 +524,6 @@ async function searchLexical(
     )
     return { documents: makeAssertionDocumentRows(result.rows.slice(0, MAX_RETRIEVAL_BRANCH_CANDIDATES), request), epoch, truncated: result.rows.length > MAX_RETRIEVAL_BRANCH_CANDIDATES }
   })
-}
-
-const SECRET_LIKE = /(?:\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{28,}|AKIA[0-9A-Z]{16})\b|\bBearer\s+[A-Za-z0-9._~+/-]{12,}|\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[^\s,;]{6,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b)/iu
-
-function containsSecretLikeMaterial(text: string): boolean {
-  return SECRET_LIKE.test(text)
 }
 
 function permittedUserEvent(event: EventEnvelope, session: MemorySession): boolean {

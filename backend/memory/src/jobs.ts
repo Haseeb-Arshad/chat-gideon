@@ -1,6 +1,6 @@
 import { parseEventEnvelope, type AssertionCommit, type EventEnvelope, type MemoryFailure, type PrincipalId, type ScopeId } from '../../../src/lib/memory/contracts.ts'
 import { MEMORY_SCHEMA } from './config.ts'
-import { PostgresMemoryStore } from './postgres.ts'
+import { PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { isoNow, revisionId } from './serialization.ts'
 
 const JOBS = `${MEMORY_SCHEMA}.jobs`
@@ -14,8 +14,11 @@ export const DEFAULT_JOB_LEASE_MS = 30_000
 export const MAX_JOB_BATCH = 100
 export const MAX_JOB_ATTEMPTS = 5
 
+export type MemoryJobKind = 'interpret_event' | 'rebuild_projection'
+
 export interface ClaimedMemoryJob {
   jobId: string
+  kind: MemoryJobKind
   scopeId: ScopeId
   principalId: PrincipalId
   inputEventId: EventEnvelope['id']
@@ -33,6 +36,12 @@ export interface ClaimJobsOptions {
   scopeId?: ScopeId
   now?: string
   leaseMs?: number
+  /** Only these job kinds; default all. */
+  kinds?: readonly MemoryJobKind[]
+  /** Leave jobs younger than this unclaimed so same-turn explicit commands land first. */
+  minAgeMs?: number
+  /** Per-scope fairness: at most this many jobs of one scope per claim. */
+  perScopeLimit?: number
 }
 
 export type JobFailureCode = 'transient_provider' | 'invalid_payload' | 'revoked_input' | 'permanent_invalid' | 'shutdown'
@@ -79,12 +88,16 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
   const now = options.now ?? isoNow()
   const leaseMs = positiveInteger(options.leaseMs ?? DEFAULT_JOB_LEASE_MS, DEFAULT_JOB_LEASE_MS, 15 * 60_000)
   const leasedUntil = new Date(Date.parse(now) + leaseMs).toISOString()
+  const settledBefore = options.minAgeMs ? new Date(Date.parse(now) - Math.max(0, Math.min(options.minAgeMs, 60 * 60_000))).toISOString() : null
+  const perScope = positiveInteger(options.perScopeLimit ?? MAX_JOB_BATCH, MAX_JOB_BATCH, MAX_JOB_BATCH)
+  const kinds = options.kinds?.length ? [...options.kinds] : null
 
   return store.pool.connect().then(async (client) => {
     try {
       await client.query('BEGIN')
       const result = await client.query<{
         job_id: string
+        kind: MemoryJobKind
         scope_id: string
         principal_id: string
         input_event_id: string
@@ -95,13 +108,15 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
         deletion_epoch: string | number
       }>(
         `
-          WITH picked AS (
-            SELECT job_id
+          WITH eligible AS (
+            SELECT job_id, row_number() OVER (PARTITION BY scope_id ORDER BY available_at, created_at) AS scope_rank
             FROM ${JOBS}
             WHERE ($2::text IS NULL OR scope_id = $2)
               AND state IN ('pending', 'retry', 'running')
               AND available_at <= $1::timestamptz
               AND (lease_until IS NULL OR lease_until <= $1::timestamptz)
+              AND ($6::text[] IS NULL OR kind = ANY($6::text[]))
+              AND ($7::timestamptz IS NULL OR available_at <= $7::timestamptz)
               AND NOT EXISTS (
                 SELECT 1 FROM ${SUPPRESSIONS} s
                 WHERE s.scope_id = ${JOBS}.scope_id AND s.event_id = ${JOBS}.input_event_id
@@ -111,6 +126,11 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
                 WHERE g.scope_id = ${JOBS}.scope_id
                   AND (g.status = 'blocked' OR g.reconciled_ledger_sequence < g.required_ledger_sequence)
               )
+          ),
+          picked AS (
+            SELECT job_id
+            FROM ${JOBS}
+            WHERE job_id IN (SELECT job_id FROM eligible WHERE scope_rank <= $8)
             ORDER BY available_at, created_at
             FOR UPDATE SKIP LOCKED
             LIMIT $3
@@ -120,10 +140,10 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
               fence = j.fence + 1, worker_id = $5, updated_at = now()
           FROM picked
           WHERE j.job_id = picked.job_id
-          RETURNING j.job_id, j.scope_id, j.principal_id, j.input_event_id, j.attempts,
+          RETURNING j.job_id, j.kind, j.scope_id, j.principal_id, j.input_event_id, j.attempts,
                     j.fence, j.lease_until, j.policy_epoch, j.deletion_epoch
         `,
-        [now, options.scopeId ?? null, limit, leasedUntil, workerId],
+        [now, options.scopeId ?? null, limit, leasedUntil, workerId, kinds, settledBefore, perScope],
       )
       const jobs: ClaimedMemoryJob[] = []
       for (const row of result.rows) {
@@ -137,6 +157,7 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
         if (!parsed.ok) throw new Error('A claimed job has an invalid source event.')
         jobs.push({
           jobId: row.job_id,
+          kind: row.kind,
           scopeId: row.scope_id as ScopeId,
           principalId: row.principal_id as PrincipalId,
           inputEventId: row.input_event_id as EventEnvelope['id'],
@@ -302,6 +323,101 @@ async function markDead(
     `,
     [jobId, safeFailureCode(jobFailure)],
   )
+}
+
+type QueryRunner = Pick<PostgresMemoryTransaction, 'query'>
+
+export type RunningJobCheck =
+  | { status: 'ok'; attempts: number; maxAttempts: number }
+  | { status: 'lease_lost' }
+  /** Policy/grant changed, restore is pending, or the input itself was deleted. */
+  | { status: 'revoked' }
+  /** Only the deletion epoch moved and the input survives: recompute, do not commit. */
+  | { status: 'stale_epoch'; policyEpoch: number; deletionEpoch: number; attempts: number; maxAttempts: number }
+
+/**
+ * Locks a claimed job inside the caller's transaction and rechecks its fence,
+ * lease, epochs, restore guard and input suppression. Callers that computed
+ * outside the transaction (model calls) must commit nothing unless this is ok.
+ */
+export async function checkRunningJob(transaction: QueryRunner, job: ClaimedMemoryJob, now: string): Promise<RunningJobCheck> {
+  const locked = await transaction.query<{
+    state: string; fence: string | number; lease_until: string | null; attempts: number; max_attempts: number; input_event_id: string
+    policy_epoch: string | number; deletion_epoch: string | number
+    recovery_status: string; required_ledger_sequence: string | number; reconciled_ledger_sequence: string | number
+    current_policy_epoch: string | number | null; current_deletion_epoch: string | number | null; suppressed: boolean
+  }>(
+    `
+      SELECT j.state, j.fence, j.lease_until, j.attempts, j.max_attempts, j.input_event_id,
+             j.policy_epoch, j.deletion_epoch, COALESCE(g.status, 'ready') AS recovery_status,
+             COALESCE(g.required_ledger_sequence, 0) AS required_ledger_sequence,
+             COALESCE(g.reconciled_ledger_sequence, 0) AS reconciled_ledger_sequence,
+             e.policy_epoch AS current_policy_epoch, e.deletion_epoch AS current_deletion_epoch,
+             EXISTS (SELECT 1 FROM ${SUPPRESSIONS} s WHERE s.scope_id = j.scope_id AND s.event_id = j.input_event_id) AS suppressed
+      FROM ${JOBS} j
+      LEFT JOIN ${RECOVERY_GUARDS} g ON g.scope_id = j.scope_id
+      LEFT JOIN ${EPOCHS} e ON e.scope_id = j.scope_id
+      WHERE j.job_id = $1 AND j.scope_id = $2
+      FOR UPDATE OF j
+    `,
+    [job.jobId, job.scopeId],
+  )
+  const row = locked.rows[0]
+  if (!row || row.state !== 'running' || Number(row.fence) !== job.fence || row.input_event_id !== job.inputEventId || !row.lease_until || Date.parse(row.lease_until) <= Date.parse(now)) {
+    return { status: 'lease_lost' }
+  }
+  if (row.suppressed || row.current_policy_epoch === null || Number(row.current_policy_epoch) !== Number(row.policy_epoch)
+    || row.recovery_status !== 'ready' || Number(row.reconciled_ledger_sequence) < Number(row.required_ledger_sequence)) {
+    return { status: 'revoked' }
+  }
+  if (Number(row.current_deletion_epoch) !== Number(row.deletion_epoch)) {
+    return { status: 'stale_epoch', policyEpoch: Number(row.current_policy_epoch), deletionEpoch: Number(row.current_deletion_epoch), attempts: row.attempts, maxAttempts: row.max_attempts }
+  }
+  return { status: 'ok', attempts: row.attempts, maxAttempts: row.max_attempts }
+}
+
+/** Completes a checked job without requiring an assertion (a no-op interpretation is a valid result). */
+export async function finishCheckedJob(transaction: QueryRunner, job: ClaimedMemoryJob, now: string): Promise<void> {
+  await transaction.query(
+    `UPDATE ${JOBS} SET state = 'completed', lease_until = NULL, worker_id = NULL, completed_at = $2::timestamptz, updated_at = now(), last_failure_code = NULL WHERE job_id = $1 AND fence = $3`,
+    [job.jobId, now, job.fence],
+  )
+}
+
+/**
+ * Returns a checked job to the queue without spending an attempt: used for
+ * budget deferral and for recomputing after an unrelated deletion moved the
+ * scope's deletion epoch.
+ */
+export async function requeueCheckedJob(
+  transaction: QueryRunner,
+  job: ClaimedMemoryJob,
+  options: { availableAt: string; reason: string; epochs?: { policyEpoch: number; deletionEpoch: number } },
+): Promise<void> {
+  await transaction.query(
+    `
+      UPDATE ${JOBS}
+      SET state = 'pending', available_at = $2::timestamptz, lease_until = NULL, worker_id = NULL,
+          attempts = GREATEST(attempts - 1, 0), last_failure_code = $3,
+          policy_epoch = COALESCE($4, policy_epoch), deletion_epoch = COALESCE($5, deletion_epoch), updated_at = now()
+      WHERE job_id = $1 AND fence = $6
+    `,
+    [job.jobId, options.availableAt, options.reason, options.epochs?.policyEpoch ?? null, options.epochs?.deletionEpoch ?? null, job.fence],
+  )
+}
+
+/** Dead-letters a checked job with a safe reason code. */
+export async function deadLetterCheckedJob(transaction: QueryRunner, job: ClaimedMemoryJob, failure: JobFailure | MemoryFailure): Promise<void> {
+  await markDead(transaction, job.jobId, failure)
+}
+
+/** Retries a checked job with bounded backoff, or dead-letters it when attempts are spent. */
+export async function retryCheckedJob(transaction: QueryRunner, job: ClaimedMemoryJob, failure: JobFailure, now: string): Promise<JobCompletion> {
+  const row = await transaction.query<{ attempts: number; max_attempts: number }>(`SELECT attempts, max_attempts FROM ${JOBS} WHERE job_id = $1`, [job.jobId])
+  const attempts = row.rows[0]?.attempts ?? job.attempt
+  if (failure.retryable && attempts < (row.rows[0]?.max_attempts ?? MAX_JOB_ATTEMPTS)) return scheduleRetry(transaction, job.jobId, attempts, failure, now)
+  await markDead(transaction, job.jobId, failure)
+  return { status: 'dead', failure }
 }
 
 export interface RunJobBatchOptions {

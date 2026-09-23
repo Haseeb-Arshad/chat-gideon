@@ -60,6 +60,28 @@ The schema is isolated under `gideon_memory` and is applied in filename order:
   metadata and exact embeddings without duplicated source text, plus bounded
   full-text search indexes. This migration is local/test-only in Stage 08; it
   has not been run against staging or production.
+- `migrations/006-tombstone-canonical-keys.sql`: removes the content-derived
+  canonical key from deleted tombstones (post-audit privacy repair).
+- `migrations/007-background-learning.sql`: Stage 10 reason-code-only learning
+  decisions, per-user learning budgets and learned/promoted change kinds.
+  Migrations 006–007 have only been applied to the owned disposable harness.
+
+## Background learning and maintenance (Stage 10)
+
+`runMemoryMaintenance()` does a bounded amount of work per tick in priority
+order: physical purge, coalesced warm-view rebuilds, budgeted learning from
+committed user turns (at most two jobs per user per tick, interpretation jobs
+settle 15 s so same-turn explicit commands land first), then promotion or
+retirement of inferred candidates. The Node adapter starts it once per process
+when `GIDEON_MEMORY_BACKGROUND_ENABLED=1`; learning additionally needs
+`GIDEON_MEMORY_LEARNING_ENABLED=1` and the owner's rollout cohort. The default
+extractor is the local rule extractor. The paid model extractor needs both
+`GIDEON_MEMORY_EXTRACTOR=model` and `GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED=1`.
+
+To disable: unset `GIDEON_MEMORY_LEARNING_ENABLED` (queued turns are closed as
+`learning_disabled`, not learned later) or `GIDEON_MEMORY_BACKGROUND_ENABLED`
+(nothing runs; queued jobs wait). Learned memories are ordinary assertions:
+forget them like any other; do not drop tables to roll back.
 
 ## Explicit command boundary
 

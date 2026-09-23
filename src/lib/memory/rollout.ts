@@ -49,3 +49,21 @@ export function memoryFeatureFlags(
 export function anyMemoryFeatureEnabled(flags: MemoryFeatureFlags): boolean {
   return flags.capture || flags.commandWrites || flags.recall
 }
+
+/**
+ * Implicit background learning for one owner. Independently switchable from
+ * capture/commands/recall, behind the same cohort and production gate.
+ */
+export function memoryLearningEnabled(env: MemoryRolloutEnvironment, owner: string | null): boolean {
+  // Signed Node owners are node/…, Worker accounts user/…; request-local owners never learn.
+  if (!owner || !/^(?:user|node)\//u.test(owner)) return false
+  if (env.NODE_ENV === 'production' && env.GIDEON_MEMORY_STAGE15_CUTOVER !== '1') return false
+  if (memoryRolloutBucket(owner) >= rolloutPercent(env.GIDEON_MEMORY_ROLLOUT_PERCENT)) return false
+  return env.GIDEON_MEMORY_LEARNING_ENABLED === '1'
+}
+
+/** The process-level maintenance runner (purge, stale views, learning queue). */
+export function memoryBackgroundEnabled(env: MemoryRolloutEnvironment): boolean {
+  if (env.NODE_ENV === 'production' && env.GIDEON_MEMORY_STAGE15_CUTOVER !== '1') return false
+  return env.GIDEON_MEMORY_BACKGROUND_ENABLED === '1'
+}

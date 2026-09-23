@@ -23,12 +23,17 @@ import {
   rebuildWarmSnapshot,
 } from './projections.ts'
 import { indexAuthorizedEmbeddings, retrieveMemory, type RetrievalEmbeddingProvider } from './retrieval.ts'
+import { processLearningJob, promoteLearnedCandidates, shadowReextract } from './learning.ts'
+import { runMemoryMaintenance } from './background.ts'
+import { RULE_EXTRACTOR } from '../../../src/lib/memory/rule-extractor.ts'
+import type { MemoryExtractor } from '../../../src/lib/memory/learning.ts'
 import { createRetrievalRequest } from '../../../src/lib/memory/retrieval.ts'
 import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
   createDeletionPlan,
   createMemoryDispatchGuard,
   executeDeletionPlan,
+  executeForgetCommand,
   getDeletionStatus,
   issuePrivateSnapshotLease,
   markRestorePending,
@@ -165,6 +170,19 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
       [memorySession.scope.id, event.id],
     )
     expect(counts.rows[0]).toEqual({ events: '1', jobs: '1', receipts: '1' })
+
+    // Simultaneous delivery of one event: every copy gets the original receipt,
+    // not a retryable conflict, and exactly one event/job/receipt exists.
+    const racedEvent = eventFor(memorySession, `${run}-atomic-race`, 3, timestamp)
+    const raced = await Promise.all(Array.from({ length: 8 }, () => captureCommittedEvent(store, memorySession, racedEvent, { now: timestamp })))
+    expect(raced.every((receipt) => receipt.ok && receipt.state === 'captured' && receipt.eventId === racedEvent.id)).toBe(true)
+    const racedCounts = await database.query<{ events: string; jobs: string }>(
+      `SELECT
+        (SELECT count(*) FROM gideon_memory.events WHERE event_id = $1) AS events,
+        (SELECT count(*) FROM gideon_memory.jobs WHERE input_event_id = $1) AS jobs`,
+      [racedEvent.id],
+    )
+    expect(racedCounts.rows[0]).toEqual({ events: '1', jobs: '1' })
 
     const crashEvent = eventFor(memorySession, `${run}-atomic-crash`, 2, timestamp)
     await expect(captureCommittedEvent(store, memorySession, crashEvent, { now: timestamp, injectFailureAfterEventInsert: true })).rejects.toThrow('injected capture crash')
@@ -606,15 +624,21 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
     const staleCompletion = await completeJob(store, inFlight, { assertion: { assertion: initial.assertion, expectedRevision: null, slot: null } }, { now: '2026-09-21T04:00:04.000Z' })
     expect(['dead', 'lease_lost']).toContain(staleCompletion.status)
 
-    const reuse = await executeExplicitCommand(durable, {
-      schemaVersion: 1,
-      commandId: `command/${run}/stage05-reuse-after-delete`,
-      kind: 'remember',
+    const deletedCommand = {
+      schemaVersion: 1 as const,
+      commandId: `command/${run}/stage05-deletion-source`,
+      kind: 'remember' as const,
       text: 'Private deletion race payload',
-      assertionKind: 'preference',
+      assertionKind: 'preference' as const,
       conditions: [],
-    }, { now: '2026-09-21T04:00:05.000Z' })
-    expect(reuse).toMatchObject({ ok: false, failure: { code: 'suppressed' } })
+    }
+    const replay = await executeExplicitCommand(durable, deletedCommand, { now: '2026-09-21T04:00:05.000Z' })
+    expect(replay).toMatchObject({ ok: false, failure: { code: 'suppressed' } })
+    const tombstoneKey = await database.query<{ canonical_key: string | null }>(
+      `SELECT canonical_key FROM gideon_memory.assertions WHERE scope_id = $1 AND assertion_id = $2`,
+      [memorySession.scope.id, initial.assertion.id],
+    )
+    expect(tombstoneKey.rows[0]?.canonical_key).toBeNull()
 
     const beforePurge = await database.query<{ events: string; versions: string; staleProjections: string; suppressionRows: string }>(
       `SELECT
@@ -645,7 +669,7 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
         (SELECT count(*) FROM gideon_memory.assertions WHERE scope_id = $1 AND assertion_id = $2 AND current_status = 'deleted') AS assertions`,
       [memorySession.scope.id, initial.assertion.id, `projection/${run}/stage05-delete`],
     )
-    expect(afterPurge.rows[0]).toEqual({ events: '0', versions: '0', projections: '0', cache: '0', jobs: '0', changes: '0', commands: '0', receipts: '0', assertions: '1' })
+    expect(afterPurge.rows[0]).toEqual({ events: '0', versions: '0', projections: '0', cache: '0', jobs: '0', changes: '0', commands: '0', receipts: '0', assertions: '0' })
     expect(blocked.receipt.backup).toMatchObject({ restorationRequiresLedgerReplay: true, externallyControlledCopies: 'not_controlled' })
 
     const pendingRestore = await markRestorePending(store, memorySession.scope.id)
@@ -655,6 +679,19 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
     expect(reconciled).toMatchObject({ status: 'ready', reconciledLedgerSequence: pendingRestore.requiredLedgerSequence })
     expect((await checkMemoryReadiness(database)).status).toBe('ok')
     expect((await readCurrentAssertion(durable, initial.assertion.id)).version).toBeNull()
+
+    // A lost-response retry of the deleted command stays blocked after purge
+    // through the retained event suppression, while a new explicit statement
+    // from the user is accepted as new evidence under a new identity.
+    const replayAfterPurge = await executeExplicitCommand(durable, deletedCommand, { now: '2026-09-21T04:02:00.000Z' })
+    expect(replayAfterPurge).toMatchObject({ ok: false, failure: { code: 'suppressed' } })
+    const restated = await executeExplicitCommand(durable, { ...deletedCommand, commandId: `command/${run}/stage05-restated` }, { now: '2026-09-21T04:03:00.000Z' })
+    expect(restated).toMatchObject({ ok: true, outcome: 'accepted' })
+    if (restated.ok) expect(restated.assertion.id).not.toBe(initial.assertion.id)
+    const deletedKeys = await database.query<{ count: string }>(
+      `SELECT count(*) FROM gideon_memory.assertions WHERE current_status = 'deleted' AND canonical_key IS NOT NULL`,
+    )
+    expect(deletedKeys.rows[0]?.count).toBe('0')
   }, 20_000)
 
   it('Stage 05 C24 keeps similarly named private scopes out of candidate and deletion resolution', async () => {
@@ -1169,4 +1206,231 @@ describe.skipIf(!enabled)('Stage 03 PostgreSQL authority and fenced jobs', () =>
     )
     expect(deletedVectors.rows[0]?.count).toBe('0')
   }, 30_000)
+})
+
+describe.skipIf(!enabled)('Stage 10 background learning on PostgreSQL', () => {
+  const run = `stage10-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 8, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  function userTurn(memorySession: ReturnType<typeof session>, tag: string, sequence: number, text: string, conversation: string, receivedAt: string): EventEnvelope {
+    return {
+      ...eventFor(memorySession, `${run}-${tag}`, sequence, receivedAt),
+      conversationId: `conversation/${run}/${conversation}` as EventEnvelope['conversationId'],
+      payload: { text },
+    }
+  }
+
+  async function learnFrom(memorySession: ReturnType<typeof session>, event: EventEnvelope, extractor: MemoryExtractor = RULE_EXTRACTOR, extra: Partial<Parameters<typeof processLearningJob>[2]> = {}) {
+    expect(await captureCommittedEvent(store, memorySession, event, { now: event.receivedAt, assignSequence: true })).toMatchObject({ ok: true })
+    const [job] = await claimJobs(store, { workerId: `${run}-learner`, scopeId: memorySession.scope.id, kinds: ['interpret_event'], limit: 1, now: event.receivedAt })
+    expect(job?.inputEventId).toBe(event.id)
+    return processLearningJob(store, job!, { extractor, now: event.receivedAt, ...extra })
+  }
+
+  async function assertionsOf(scopeId: string) {
+    const rows = await database.query<{ version: AssertionVersion; current_status: string }>(
+      `SELECT v.version, a.current_status FROM gideon_memory.assertions a
+       JOIN gideon_memory.assertion_versions v ON v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+       WHERE a.scope_id = $1 AND a.current_status IN ('candidate', 'accepted', 'disputed') ORDER BY a.created_at`,
+      [scopeId],
+    )
+    return rows.rows
+  }
+
+  it('learns an explicit self-statement with exact evidence, publishes it and makes it recallable', async () => {
+    const memorySession = session(`user/${run}-learn`)
+    await store.provisionTrustedContext(memorySession)
+    const event = userTurn(memorySession, 'learn', 1, 'By the way, I really like green tea in the morning.', 'c1', '2026-09-22T09:00:00.000Z')
+    const outcome = await learnFrom(memorySession, event)
+    expect(outcome).toMatchObject({ status: 'completed', decisions: [{ action: 'add', reason: 'self_statement' }] })
+    const [learned] = await assertionsOf(memorySession.scope.id)
+    expect(learned?.current_status).toBe('accepted')
+    expect(learned?.version).toMatchObject({
+      attribution: { basis: 'explicit_user_statement' },
+      producer: { name: 'gideon-rules', model: null },
+      evidence: [{ eventId: event.id, relation: 'supports', span: { quote: 'By the way, I really like green tea in the morning' } }],
+    })
+    const span = learned!.version.evidence[0]!.span!
+    expect((event.payload.text as string).slice(span.start, span.end)).toBe(span.quote)
+    const receipt = await store.forSession(memorySession).transaction((transaction) => transaction.readReceiptByEvent(event.id))
+    expect(receipt).toMatchObject({ state: 'accepted' })
+    const feed = await database.query(`SELECT change_kind FROM gideon_memory.change_feed WHERE scope_id = $1`, [memorySession.scope.id])
+    expect(feed.rows).toEqual([{ change_kind: 'learned' }])
+    const recalled = await retrieveMemory(postgresSession(memorySession, store), retrievalInput('green tea'))
+    expect(recalled.pack?.text).toContain('green tea')
+  })
+
+  it('C11/C12: a colleague quote, a hypothetical and a sensitive statement create no memory', async () => {
+    const memorySession = session(`user/${run}-refuse`)
+    await store.provisionTrustedContext(memorySession)
+    const quote = await learnFrom(memorySession, userTurn(memorySession, 'refuse', 1, 'My colleague said "I hate working remotely".', 'c1', '2026-09-22T10:00:00.000Z'))
+    const hypothetical = await learnFrom(memorySession, userTurn(memorySession, 'refuse', 2, 'Imagine I live in Tokyo next year.', 'c1', '2026-09-22T10:01:00.000Z'))
+    const sensitive = await learnFrom(memorySession, userTurn(memorySession, 'refuse', 3, 'I am a diabetic and I love sweets.', 'c1', '2026-09-22T10:02:00.000Z'))
+    expect(quote).toMatchObject({ status: 'completed', decisions: [{ action: 'reject', reason: 'not_users_claim' }] })
+    expect(hypothetical).toMatchObject({ status: 'completed', decisions: [{ action: 'reject', reason: 'hypothetical' }] })
+    expect(sensitive).toMatchObject({ status: 'completed' })
+    expect(await assertionsOf(memorySession.scope.id)).toEqual([])
+    const reasons = await database.query<{ reason: string }>(`SELECT reason FROM gideon_memory.learning_decisions WHERE scope_id = $1 ORDER BY reason`, [memorySession.scope.id])
+    expect(reasons.rows.map((row) => row.reason)).toEqual(expect.arrayContaining(['hypothetical', 'not_users_claim', 'sensitive_category']))
+    // Decisions hold reason codes, never the user's words.
+    const leaked = await database.query(`SELECT 1 FROM gideon_memory.learning_decisions WHERE scope_id = $1 AND row_to_json(learning_decisions)::text ILIKE '%Tokyo%'`, [memorySession.scope.id])
+    expect(leaked.rows).toHaveLength(0)
+  })
+
+  it('C21: a duplicated delivery is one job and one memory; a restatement corroborates instead of duplicating', async () => {
+    const memorySession = session(`user/${run}-dup`)
+    await store.provisionTrustedContext(memorySession)
+    const first = userTurn(memorySession, 'dup', 1, 'I prefer aisle seats on flights.', 'c1', '2026-09-22T11:00:00.000Z')
+    await captureCommittedEvent(store, memorySession, first, { now: first.receivedAt, assignSequence: true })
+    await learnFrom(memorySession, first)
+    const jobs = await database.query(`SELECT count(*)::int AS count FROM gideon_memory.jobs WHERE input_event_id = $1 AND kind = 'interpret_event'`, [first.id])
+    expect(jobs.rows[0]).toEqual({ count: 1 })
+    const again = await learnFrom(memorySession, userTurn(memorySession, 'dup', 2, 'I prefer aisle seats on flights', 'c2', '2026-09-23T11:00:00.000Z'))
+    expect(again).toMatchObject({ status: 'completed', decisions: [{ action: 'corroborate' }] })
+    const learned = await assertionsOf(memorySession.scope.id)
+    expect(learned).toHaveLength(1)
+    const edges = await database.query(`SELECT count(*)::int AS count FROM gideon_memory.evidence_edges WHERE scope_id = $1 AND relation = 'supports'`, [memorySession.scope.id])
+    expect(edges.rows[0]).toEqual({ count: 2 })
+  })
+
+  it('C13/C31: a repeated per-task instruction stays a candidate until independent conversations on several days support it', async () => {
+    const sameSession = session(`user/${run}-one-conversation`)
+    await store.provisionTrustedContext(sameSession)
+    for (const [index, day] of ['20', '21', '22'].entries()) {
+      await learnFrom(sameSession, userTurn(sameSession, 'one', index + 1, 'Keep it short for this email.', 'only', `2026-09-${day}T12:00:00.000Z`))
+    }
+    expect(await promoteLearnedCandidates(store, { now: '2026-09-23T12:00:00.000Z', scopeId: sameSession.scope.id })).toMatchObject({ examined: 1, promoted: 0 })
+    expect((await assertionsOf(sameSession.scope.id)).map((row) => row.current_status)).toEqual(['candidate'])
+
+    const spread = session(`user/${run}-three-conversations`)
+    await store.provisionTrustedContext(spread)
+    for (const [index, day] of ['20', '21', '22'].entries()) {
+      await learnFrom(spread, userTurn(spread, 'three', index + 1, 'Keep it short for this email.', `c${index}`, `2026-09-${day}T12:00:00.000Z`))
+    }
+    const candidate = await assertionsOf(spread.scope.id)
+    expect(candidate).toHaveLength(1)
+    expect(candidate[0]).toMatchObject({ current_status: 'candidate', version: { attribution: { basis: 'inference' } } })
+    // A candidate is invisible to recall.
+    const hidden = await retrieveMemory(postgresSession(spread, store), retrievalInput('short email'))
+    expect(hidden.pack?.status).not.toBe('unavailable')
+    // The candidate is not memory: it is absent from facts and constraints. The
+    // user's own words may still appear as labelled source evidence (Stage 08).
+    expect(JSON.stringify([hidden.pack?.sections.relevantFacts, hidden.pack?.sections.applicableConstraints])).not.toContain('Keep it short')
+
+    expect(await promoteLearnedCandidates(store, { now: '2026-09-23T12:00:00.000Z', scopeId: spread.scope.id })).toMatchObject({ promoted: 1 })
+    const [promoted] = await assertionsOf(spread.scope.id)
+    expect(promoted).toMatchObject({ current_status: 'accepted', version: { revision: 2, attribution: { basis: 'inference' }, producer: { name: 'promotion-policy' } } })
+    expect(JSON.stringify(promoted!.version.payload)).toContain('Inferred from requests in 3 separate conversations')
+    expect(JSON.stringify(promoted!.version.payload)).not.toContain('current_task')
+  })
+
+  it('C22: an in-flight extraction cannot commit after its source is deleted, and an unrelated deletion forces recomputation', async () => {
+    const memorySession = session(`user/${run}-race`)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const unrelated = await executeExplicitCommand(durable, { schemaVersion: 1, commandId: `command/${run}/race-unrelated`, kind: 'remember', text: 'Unrelated fact', assertionKind: 'fact', conditions: [] }, { now: '2026-09-22T14:00:00.000Z' })
+    expect(unrelated.ok).toBe(true)
+    if (!unrelated.ok) return
+
+    const event = userTurn(memorySession, 'race', 1, 'I love hiking in the hills.', 'c1', '2026-09-22T14:01:00.000Z')
+    await captureCommittedEvent(store, memorySession, event, { now: event.receivedAt, assignSequence: true })
+    const [job] = await claimJobs(store, { workerId: `${run}-race`, scopeId: memorySession.scope.id, kinds: ['interpret_event'], limit: 1, now: event.receivedAt })
+    const deletingExtractor: MemoryExtractor = {
+      ...RULE_EXTRACTOR,
+      async extract(window, signal) {
+        await executeForgetCommand(durable, { schemaVersion: 1, commandId: `command/${run}/race-forget`, kind: 'forget', targetAssertionId: unrelated.assertion.id, targetRevision: 1, query: null }, { now: '2026-09-22T14:01:05.000Z' })
+        return RULE_EXTRACTOR.extract(window, signal)
+      },
+    }
+    expect(await processLearningJob(store, job!, { extractor: deletingExtractor, now: '2026-09-22T14:01:10.000Z' })).toEqual({ status: 'deferred', reason: 'stale_epoch' })
+    expect(await assertionsOf(memorySession.scope.id)).toEqual([])
+    const [retry] = await claimJobs(store, { workerId: `${run}-race-2`, scopeId: memorySession.scope.id, kinds: ['interpret_event'], limit: 1, now: '2026-09-22T14:03:00.000Z' })
+    expect(await processLearningJob(store, retry!, { extractor: RULE_EXTRACTOR, now: '2026-09-22T14:03:00.000Z' })).toMatchObject({ status: 'completed', decisions: [{ action: 'add' }] })
+
+    const secret = userTurn(memorySession, 'race', 2, 'I enjoy chess problems.', 'c1', '2026-09-22T14:04:00.000Z')
+    await captureCommittedEvent(store, memorySession, secret, { now: secret.receivedAt, assignSequence: true })
+    const [inFlight] = await claimJobs(store, { workerId: `${run}-race-3`, scopeId: memorySession.scope.id, kinds: ['interpret_event'], limit: 1, now: secret.receivedAt })
+    const suppressingExtractor: MemoryExtractor = {
+      ...RULE_EXTRACTOR,
+      async extract(window, signal) {
+        await database.query(
+          `INSERT INTO gideon_memory.deletion_suppressions (suppression_id, scope_id, event_id, policy_epoch, deletion_epoch, reason)
+           VALUES ($1, $2, $3, 1, 99, 'user_forget')`,
+          [`suppression/${run}/race-source`, memorySession.scope.id, secret.id],
+        )
+        return RULE_EXTRACTOR.extract(window, signal)
+      },
+    }
+    expect(await processLearningJob(store, inFlight!, { extractor: suppressingExtractor, now: '2026-09-22T14:04:10.000Z' })).toEqual({ status: 'revoked' })
+    const chess = await database.query(`SELECT 1 FROM gideon_memory.assertion_versions WHERE scope_id = $1 AND version::text ILIKE '%chess%'`, [memorySession.scope.id])
+    expect(chess.rows).toHaveLength(0)
+  })
+
+  it('C32: shadow re-extraction reports a diff and never rewrites accepted memory', async () => {
+    const memorySession = session(`user/${run}-shadow`)
+    await store.provisionTrustedContext(memorySession)
+    await learnFrom(memorySession, userTurn(memorySession, 'shadow', 1, 'I like jazz.', 'c1', '2026-09-22T15:00:00.000Z'))
+    const before = await assertionsOf(memorySession.scope.id)
+    const flipped: MemoryExtractor = {
+      ...RULE_EXTRACTOR,
+      id: 'gideon-rules-next',
+      version: '2.0.0',
+      async extract(window, signal) {
+        const result = await RULE_EXTRACTOR.extract(window, signal)
+        const output = result.output as { candidates: { polarity: string }[] }
+        return { ...result, output: { candidates: output.candidates.map((candidate) => ({ ...candidate, polarity: 'negative' })) } }
+      },
+    }
+    const diff = await shadowReextract(store, flipped, { scopeId: memorySession.scope.id, principalId: memorySession.principal.id, policyEpoch: memorySession.policyEpoch, previousExtractorId: 'gideon-rules' })
+    expect(diff.polarityChanged).toHaveLength(1)
+    expect(await assertionsOf(memorySession.scope.id)).toEqual(before)
+  })
+
+  it('defers when the per-user budget is spent and skips owners whose learning is off, without spending attempts', async () => {
+    const memorySession = session(`user/${run}-budget`)
+    await store.provisionTrustedContext(memorySession)
+    const event = userTurn(memorySession, 'budget', 1, 'I like long walks.', 'c1', '2026-09-22T16:00:00.000Z')
+    const deferred = await learnFrom(memorySession, event, RULE_EXTRACTOR, { budget: { maxJobsPerDay: 0, maxUnitsPerDay: 0, maxCostMicrosPerDay: 0 } })
+    // No usage row exists yet, so the first job of the day runs; spend it, then the next defers.
+    expect(deferred.status).toBe('completed')
+    const next = userTurn(memorySession, 'budget', 2, 'I like short naps.', 'c1', '2026-09-22T16:01:00.000Z')
+    const outcome = await learnFrom(memorySession, next, RULE_EXTRACTOR, { budget: { maxJobsPerDay: 1, maxUnitsPerDay: 1_000_000, maxCostMicrosPerDay: 1_000_000 } })
+    expect(outcome).toEqual({ status: 'deferred', reason: 'budget_exhausted' })
+    const job = await database.query<{ state: string; attempts: number; available_at: Date }>(`SELECT state, attempts, available_at FROM gideon_memory.jobs WHERE input_event_id = $1 AND kind = 'interpret_event'`, [next.id])
+    expect(job.rows[0]).toMatchObject({ state: 'pending', attempts: 0 })
+    expect(job.rows[0]!.available_at.toISOString()).toBe('2026-09-23T00:00:00.000Z')
+
+    const off = session(`user/${run}-off`)
+    await store.provisionTrustedContext(off)
+    const offEvent = userTurn(off, 'off', 1, 'I like opera.', 'c1', '2026-09-22T16:02:00.000Z')
+    await captureCommittedEvent(store, off, offEvent, { now: offEvent.receivedAt, assignSequence: true })
+    const report = await runMemoryMaintenance(store, { workerId: `${run}-maint`, extractor: RULE_EXTRACTOR, learning: true, learningEnabledFor: () => false, scopeId: off.scope.id, settleMs: 0, now: '2026-09-22T16:03:00.000Z' })
+    expect(report.learning).toMatchObject({ skipped: 1, learned: 0, disabledScopes: 1 })
+    expect(await assertionsOf(off.scope.id)).toEqual([])
+  })
+
+  it('the maintenance tick purges deleted content and rebuilds stale warm views', async () => {
+    const memorySession = session(`user/${run}-maintenance`)
+    await store.provisionTrustedContext(memorySession)
+    const durable = postgresSession(memorySession, store)
+    const kept = await executeExplicitCommand(durable, { schemaVersion: 1, commandId: `command/${run}/maint-kept`, kind: 'remember', text: 'Prefers window seats', assertionKind: 'preference', conditions: [] }, { now: '2026-09-22T17:00:00.000Z' })
+    const gone = await executeExplicitCommand(durable, { schemaVersion: 1, commandId: `command/${run}/maint-gone`, kind: 'remember', text: 'MAINTPROBE private note', assertionKind: 'fact', conditions: [] }, { now: '2026-09-22T17:00:01.000Z' })
+    expect(kept.ok && gone.ok).toBe(true)
+    if (!gone.ok) return
+    await executeForgetCommand(durable, { schemaVersion: 1, commandId: `command/${run}/maint-forget`, kind: 'forget', targetAssertionId: gone.assertion.id, targetRevision: 1, query: null }, { now: '2026-09-22T17:00:02.000Z' })
+    const report = await runMemoryMaintenance(store, { workerId: `${run}-maint-2`, extractor: RULE_EXTRACTOR, learning: false, learningEnabledFor: () => false, scopeId: memorySession.scope.id, now: '2026-09-22T17:00:03.000Z' })
+    expect(report.purge.completed).toBeGreaterThan(0)
+    expect(report.projections.scopesRebuilt).toBe(1)
+    const leftovers = await database.query(`SELECT 1 FROM gideon_memory.assertion_versions WHERE scope_id = $1 AND version::text ILIKE '%MAINTPROBE%'`, [memorySession.scope.id])
+    expect(leftovers.rows).toHaveLength(0)
+    const warm = await readWarmSnapshot(durable, { now: '2026-09-22T17:00:03.500Z' })
+    expect(warm.status).toBe('available')
+    expect(JSON.stringify(warm)).toContain('Prefers window seats')
+    expect(JSON.stringify(warm)).not.toContain('MAINTPROBE')
+  })
 })

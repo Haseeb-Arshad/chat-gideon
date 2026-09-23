@@ -299,7 +299,7 @@ async function existingCommand(transaction: PostgresMemoryTransaction, scopeId: 
   return result.rows[0] ?? null
 }
 
-async function acceptedAssertionCount(transaction: PostgresMemoryTransaction, scopeId: string): Promise<{ count: number; limit: number }> {
+export async function acceptedAssertionCount(transaction: PostgresMemoryTransaction, scopeId: string): Promise<{ count: number; limit: number }> {
   const [countResult, limitResult] = await Promise.all([
     transaction.query<{ count: string }>(
       `SELECT count(*) AS count FROM ${SQL.assertions} WHERE scope_id = $1 AND current_status IN ('candidate', 'accepted', 'disputed')`,
@@ -316,7 +316,7 @@ async function acceptedAssertionCount(transaction: PostgresMemoryTransaction, sc
   }
 }
 
-async function allocateWatermark(transaction: PostgresMemoryTransaction, scopeId: string): Promise<number> {
+export async function allocateWatermark(transaction: PostgresMemoryTransaction, scopeId: string): Promise<number> {
   const result = await transaction.query<{ next_watermark: string }>(
     `
       UPDATE ${SQL.counters}
@@ -330,7 +330,7 @@ async function allocateWatermark(transaction: PostgresMemoryTransaction, scopeId
   return Number(result.rows[0].next_watermark)
 }
 
-function watermarkId(scopeId: string, watermark: number): string {
+export function watermarkId(scopeId: string, watermark: number): string {
   return `watermark/${scopeId}/${watermark}`
 }
 

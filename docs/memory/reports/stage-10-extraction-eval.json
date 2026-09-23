@@ -1,0 +1,540 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-23T16:19:35.112Z",
+  "scope": "Stage 10 local extraction development evaluation. Hand-authored public cases, not a held-out benchmark or a production quality claim.",
+  "extractor": {
+    "id": "gideon-rules",
+    "version": "1.0.0",
+    "promptVersion": "rules-2026-09-23",
+    "model": null,
+    "placement": "local"
+  },
+  "runtime": {
+    "node": "v22.13.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "cases": 43,
+  "metrics": {
+    "produced": 23,
+    "correct": 23,
+    "expected": 26,
+    "precision": 1,
+    "recall": 0.885,
+    "missedUsefulItems": 3,
+    "wrongScope": 0,
+    "wrongPolarity": 0,
+    "wrongStatus": 0,
+    "timeErrors": "not_measured_rules_emit_unknown_valid_time",
+    "falseMemoriesFromRefusalCategories": 0
+  },
+  "byLanguage": {
+    "en": {
+      "expected": 17,
+      "correct": 15,
+      "produced": 15
+    },
+    "roman_urdu": {
+      "expected": 5,
+      "correct": 4,
+      "produced": 4
+    },
+    "code_switch": {
+      "expected": 4,
+      "correct": 4,
+      "produced": 4
+    }
+  },
+  "cost": {
+    "providerCalls": 0,
+    "units": 1497,
+    "costMicros": 0,
+    "medianCaseMs": 0.188
+  },
+  "promotionPolicy": {
+    "minIndependentConversations": 3,
+    "minDistinctDays": 2,
+    "maxCounterevidence": 0,
+    "candidateTtlDays": 90
+  },
+  "perCase": [
+    {
+      "id": "en-pref-1",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-pref-2",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-neg-1",
+      "language": "en",
+      "category": "negation",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-neg-2",
+      "language": "en",
+      "category": "negation",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-constraint-1",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-constraint-2",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-fact-1",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-fact-2",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-decision-1",
+      "language": "en",
+      "category": "decision",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-two-1",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 2,
+      "produced": 2,
+      "correct": 2,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-quote-1",
+      "language": "en",
+      "category": "quoted",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-quote-2",
+      "language": "en",
+      "category": "quoted",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-quote-3",
+      "language": "en",
+      "category": "quoted",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-hypo-1",
+      "language": "en",
+      "category": "hypothetical",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-hypo-2",
+      "language": "en",
+      "category": "hypothetical",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-hypo-3",
+      "language": "en",
+      "category": "hypothetical",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-joke-1",
+      "language": "en",
+      "category": "joke",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-question-1",
+      "language": "en",
+      "category": "question",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-assistant-1",
+      "language": "en",
+      "category": "assistant_suggestion",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-sensitive-1",
+      "language": "en",
+      "category": "sensitive",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-sensitive-2",
+      "language": "en",
+      "category": "sensitive",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-secret-1",
+      "language": "en",
+      "category": "secret",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": true
+    },
+    {
+      "id": "en-instruction-1",
+      "language": "en",
+      "category": "temporary_instruction",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-instruction-2",
+      "language": "en",
+      "category": "temporary_instruction",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-change-1",
+      "language": "en",
+      "category": "change",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-occupation-1",
+      "language": "en",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-implicit-1",
+      "language": "en",
+      "category": "hard_implicit",
+      "expected": 1,
+      "produced": 0,
+      "correct": 0,
+      "missed": 1,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-implicit-2",
+      "language": "en",
+      "category": "hard_implicit",
+      "expected": 1,
+      "produced": 0,
+      "correct": 0,
+      "missed": 1,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-speech-1",
+      "language": "en",
+      "category": "speech_correction",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-pref-1",
+      "language": "roman_urdu",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-neg-1",
+      "language": "roman_urdu",
+      "category": "negation",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-fact-1",
+      "language": "roman_urdu",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-fact-2",
+      "language": "roman_urdu",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-hypo-1",
+      "language": "roman_urdu",
+      "category": "hypothetical",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "ru-implicit-1",
+      "language": "roman_urdu",
+      "category": "hard_implicit",
+      "expected": 1,
+      "produced": 0,
+      "correct": 0,
+      "missed": 1,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "cs-scope-1",
+      "language": "code_switch",
+      "category": "temporary_instruction",
+      "expected": 2,
+      "produced": 2,
+      "correct": 2,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "cs-pref-1",
+      "language": "code_switch",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "cs-quote-1",
+      "language": "code_switch",
+      "category": "quoted",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "cs-constraint-1",
+      "language": "code_switch",
+      "category": "self_statement",
+      "expected": 1,
+      "produced": 1,
+      "correct": 1,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-forget-1",
+      "language": "en",
+      "category": "memory_withdrawal",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": true
+    },
+    {
+      "id": "ru-forget-1",
+      "language": "roman_urdu",
+      "category": "memory_withdrawal",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": true
+    },
+    {
+      "id": "en-none-1",
+      "language": "en",
+      "category": "no_claim",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    },
+    {
+      "id": "en-none-2",
+      "language": "en",
+      "category": "no_claim",
+      "expected": 0,
+      "produced": 0,
+      "correct": 0,
+      "missed": 0,
+      "unexpected": 0,
+      "screened": false
+    }
+  ],
+  "notEvaluated": [
+    "model extractor quality (requires authorized paid provider runs)",
+    "held-out trajectories (Stage 13)",
+    "multi-turn reference resolution beyond three prior committed turns"
+  ]
+}
