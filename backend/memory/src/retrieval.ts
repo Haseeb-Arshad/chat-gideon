@@ -49,6 +49,7 @@ const SQL = {
   epochs: `${MEMORY_SCHEMA}.policy_epochs`,
   dependencies: `${MEMORY_SCHEMA}.dependency_edges`,
   embeddings: `${MEMORY_SCHEMA}.retrieval_embeddings`,
+  evidence: `${MEMORY_SCHEMA}.evidence_edges`,
 } as const
 
 export const MAX_RETRIEVAL_BRANCH_CANDIDATES = 64
@@ -80,6 +81,19 @@ export interface RetrieveMemoryOptions {
   signal?: AbortSignal
   maxExpansionEdges?: number
   maxEvidenceFetches?: number
+  /**
+   * Stage 13 evaluation only: switch one mechanism off to measure what it
+   * contributes. Never set by the application. Each switch removes a branch;
+   * none can widen what is retrieved.
+   */
+  ablate?: {
+    /** No permitted source-evidence fallback. */
+    sourceEvidence?: boolean
+    /** No constraint applicability index; constraints compete lexically like any fact. */
+    applicability?: boolean
+    /** No bounded dependency-edge expansion. */
+    relationships?: boolean
+  }
 }
 
 export interface RetrieveMemorySuccess {
@@ -351,9 +365,31 @@ function retrievalInstant(request: RetrievalRequest): string {
   return request.requestedTime.mode === 'current' ? request.createdAt : request.requestedTime.instant as string
 }
 
-function postgresOrQuery(request: RetrievalRequest): string {
+/** A conservative singular stem: meetings → meeting, boxes → box, cities → city. */
+function singularStem(term: string): string {
+  if (term.length > 5 && term.endsWith('ies')) return `${term.slice(0, -3)}y`
+  if (term.length > 4 && /(?:ch|sh|x|z|ss)es$/u.test(term)) return term.slice(0, -2)
+  if (term.length > 3 && term.endsWith('s') && !term.endsWith('ss')) return term.slice(0, -1)
+  return term
+}
+
+/**
+ * The 'simple' text configuration keeps English and Roman Urdu alike (there
+ * is no Roman Urdu stemmer), but it does no stemming, so "meeting" never
+ * matched "meetings". Each term is kept exactly and, when long enough, its
+ * singular stem is also matched as a prefix.
+ */
+export function postgresOrQuery(request: RetrievalRequest): string {
   const terms = buildRetrievalQueryPlan(request).terms
-  return terms.length ? terms.map((term) => `'${term.replace(/'/gu, "''")}'`).join(' | ') : "'__empty_memory_query__'"
+  if (!terms.length) return "'__empty_memory_query__'"
+  const quote = (value: string) => `'${value.replace(/'/gu, "''")}'`
+  const parts = new Set<string>()
+  for (const term of terms) {
+    parts.add(quote(term))
+    const stem = singularStem(term)
+    if (stem.length >= 4) parts.add(`${quote(stem)}:*`)
+  }
+  return [...parts].join(' | ')
 }
 
 function assertionSelect(): string {
@@ -625,6 +661,20 @@ async function searchSourceEvidence(
                WHERE linked->>'eventId' = e.event_id
              )
              AND ${visibilityPredicate('represented_v')}
+         )
+         -- A statement behind an earlier revision of a memory that was since
+         -- corrected or changed is represented by that memory's history; shown
+         -- as free-standing evidence it would bring the corrected text back.
+         AND NOT EXISTS (
+           SELECT 1
+           FROM ${SQL.evidence} superseded
+           JOIN ${SQL.assertions} lineage
+             ON lineage.scope_id = superseded.scope_id AND lineage.assertion_id = superseded.assertion_id
+           WHERE superseded.scope_id = e.scope_id
+             AND superseded.event_id = e.event_id
+             AND superseded.relation = 'supports'
+             AND superseded.assertion_revision < lineage.current_revision
+             AND lineage.current_status IN ('accepted', 'disputed')
          )
        ORDER BY ts_rank_cd(
          to_tsvector('simple', COALESCE(e.envelope->'payload', '{}'::jsonb)::text || ' ' || COALESCE(e.envelope->'sourceSpans', '[]'::jsonb)::text),
@@ -1203,7 +1253,7 @@ export async function retrieveMemory(
               return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.reason, candidates: result.documents.length, filtered: result.filtered }
             }, signal)
           : Promise.resolve(emptyBranch('not_configured', 'semantic_provider_not_configured')),
-        captureBranch(async () => {
+        options.ablate?.sourceEvidence ? Promise.resolve(emptyBranch('not_configured', 'ablated_source_evidence')) : captureBranch(async () => {
           const result = await searchSourceEvidence(session, request!, signal)
           return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
         }, signal),
@@ -1222,8 +1272,8 @@ export async function retrieveMemory(
       const semanticDocuments = semanticRaw.documents
       const evidenceDocuments = evidenceRaw.documents
       const warmDocuments = warmRaw.documents
-      const constraintDocuments = exactDocuments.filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
-      const snapshotConstraintHints = warmRaw.snapshot
+      const constraintDocuments = options.ablate?.applicability ? [] : exactDocuments.filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
+      const snapshotConstraintHints = warmRaw.snapshot && !options.ablate?.applicability
         ? warmSnapshotDocuments(warmRaw.snapshot).filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
         : []
       const allInitial = [...exactDocuments, ...lexicalDocuments, ...semanticDocuments, ...warmDocuments, ...snapshotConstraintHints]
@@ -1256,7 +1306,7 @@ export async function retrieveMemory(
         session as MemorySession<PostgresMemoryStore>,
         request!,
         rankedSeeds.map((candidate) => candidate.document).flatMap((document) => document.reference ? [document.reference] : []),
-        limits.maxExpansionEdges,
+        options.ablate?.relationships ? 0 : limits.maxExpansionEdges,
         signal,
       )
       const relatedDocuments = await hydrateAssertions(session as MemorySession<PostgresMemoryStore>, request!, expansion.references, signal)
@@ -1270,7 +1320,7 @@ export async function retrieveMemory(
         { name: 'relationship', documents: constraintsHydrated, reason: 'constraint_applicability_index_independent_of_overlap' },
       ]
       const candidates = fuseRetrievalBranches(branchList, MAX_RETRIEVAL_BRANCH_CANDIDATES)
-      const constraints = selectApplicableConstraints(
+      const constraints = options.ablate?.applicability ? [] : selectApplicableConstraints(
         request!,
         [...candidates.map((candidate) => candidate.document), ...constraintsHydrated],
         (warmRaw.snapshot?.constraints ?? []).filter((entry) => hydratedMap.has(`assertion:${entry.assertion.assertionId}:${entry.assertion.revision}`)),

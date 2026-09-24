@@ -236,7 +236,11 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
           (event_id, scope_id, principal_id, idempotency_key, content_hash, subject_kind, subject_id, subject_label,
            source_kind, source_authority_kind, committed_phase, event_sequence, received_at, envelope)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::jsonb)
-        ON CONFLICT (scope_id, idempotency_key) DO NOTHING
+        -- No arbiter: a racing duplicate can collide on the event_id primary key
+        -- or the sequence before the idempotency key, and a targeted ON CONFLICT
+        -- turned that into an error reported as "unavailable". The caller
+        -- re-reads by idempotency key and resolves real conflicts itself.
+        ON CONFLICT DO NOTHING
       `,
       [
         event.id,

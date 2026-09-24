@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createServerMemorySession } from './memory-session'
-import { buildCommittedUserEvent } from './node-memory-integration'
+import { buildCommittedUserEvent, createRecallInput } from './node-memory-integration'
+import { createRetrievalRequest } from '../lib/memory/retrieval'
 import { EphemeralMemoryStore } from '../lib/tools/memory'
 
 describe('Node memory integration capture boundary', () => {
@@ -52,5 +53,15 @@ describe('Node memory integration capture boundary', () => {
     }
     expect(buildCommittedUserEvent(session, { ...base, latestUserText: '   ' })).toBeNull()
     expect(buildCommittedUserEvent(session, { ...base, latestUserText: 'x'.repeat(8_193) })).toBeNull()
+  })
+})
+
+describe('Node memory integration recall request', () => {
+  it('builds a retrieval request the retrieval contract accepts, for ordinary and deep recall', () => {
+    const session = createServerMemorySession({ owner: 'user/stage13-recall', store: new EphemeralMemoryStore(), channel: 'http', authority: 'node_signed_cookie' })
+    for (const depth of [undefined, 'deep' as const]) {
+      const parsed = createRetrievalRequest(session, createRecallInput('what do I like to drink?', 'Asia/Karachi', null, 'what do I like to drink?', depth))
+      expect(parsed.ok, depth ?? 'standard').toBe(true)
+    }
   })
 })

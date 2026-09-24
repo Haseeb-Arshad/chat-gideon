@@ -187,7 +187,13 @@ function assertionKind(value: unknown): 'fact' | 'preference' | 'constraint' | '
   return 'fact'
 }
 
-function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep') {
+/**
+ * The retrieval request the app sends on every turn (exported for tests).
+ * The reserves come out of the memory tier's own token budget, so they must
+ * leave room: 512 + 256 once consumed all 768 tokens of `standard`, and every
+ * automatic recall was rejected as invalid before it ran.
+ */
+export function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep') {
   return {
     query,
     // Topic, recent committed turns and local instructions come from the
@@ -197,7 +203,9 @@ function createRecallInput(query: string, timezone: string, conversationState: C
     conversationState,
     requestedTime: { mode: 'current', instant: null, timeZone: timezone || 'UTC' },
     consistency: 'warm_preferred',
-    budget: { tier: depth ? 'expanded' : 'standard', reserveAnswerTokens: 512, reserveToolTokens: 256 },
+    budget: depth
+      ? { tier: 'expanded', reserveAnswerTokens: 256, reserveToolTokens: 128 }
+      : { tier: 'standard', reserveAnswerTokens: 128, reserveToolTokens: 64 },
     deadlineAt: new Date(Date.now() + 1_500).toISOString(),
   }
 }
