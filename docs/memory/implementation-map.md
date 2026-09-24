@@ -667,6 +667,22 @@ Stage 14 is locally verified. Rollout stays blocked; see
 
 Stage 15 is rehearsed locally only; staging and production were not performed.
 
+## Stage 16 portable framework (`packages/memory`)
+
+- `src/contract.ts` (versions, capabilities, typed errors, backend contract),
+  `src/core.ts` (`openMemory`, `ScopedMemory`, export/import), `src/text.ts`.
+- Backends: `src/sqlite.ts` (`node:sqlite`, write-locked transactions, token
+  index) and `src/postgres.ts` (adapter over `backend/memory`).
+- Surfaces: `src/server.ts` (local server), `src/sdk.ts` (client), `src/mcp.ts`
+  and `bin/mcp-sqlite.ts` (MCP over stdio).
+- `examples/visitor-notes`: second host, no ChatGideon code.
+- Tests: `test/conformance.ts` (shared), `test/sqlite.test.ts`,
+  `test/postgres.live.test.ts`, `test/server.test.ts`, `test/mcp.test.ts`,
+  `test/visitor-notes.test.ts`.
+
+Nothing in the ChatGideon app imports the package; it is private and
+unpublished. See `handoffs/16-independent-framework.md`.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
