@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "split": "heldout",
+  "description": "Stage 13 held-out conversational trajectories. Written before any system was run on them and before the preregistration was committed. Independently authored from the 36 seed cases (no paraphrases), synthetic, one user per trajectory. Turn kinds: say = an ordinary committed user turn; remember = the user asked GIDEON to remember something (the app turns this into an explicit command); correct = the user corrected a remembered item (mistake or real change); forget = the user asked to forget an item. Queries run at their own time, against only the history before it. Rubric terms are case-insensitive substrings; mustInclude is a list of groups where any alternative satisfies the group.",
+  "trajectories": [
+    {
+      "id": "ho-01", "language": "en",
+      "sessions": [
+        { "at": "2026-08-03T09:00:00Z", "turns": [
+          { "remember": { "text": "I am allergic to tree nuts, especially cashews", "kind": "constraint" } },
+          { "say": "I usually cook dinner for four people." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-20T18:00:00Z", "category": "constraint_adherence", "text": "Suggest a creamy curry I could make tonight.", "rubric": { "mustInclude": [["cashew", "nut", "allerg"]], "mustNotInclude": ["add cashews", "cashew paste", "cashew cream"] }, "evidence": ["The user is allergic to tree nuts, especially cashews."] },
+        { "id": "q2", "at": "2026-09-20T18:05:00Z", "category": "negative_personalization", "text": "What is the chemical symbol for sodium?", "rubric": { "mustInclude": [["Na"]], "mustNotInclude": ["cashew", "allerg", "dinner for four"] }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "ho-02", "language": "en",
+      "sessions": [
+        { "at": "2026-08-05T10:00:00Z", "turns": [
+          { "remember": { "text": "I work at Meridian Logistics as a data analyst", "kind": "fact" } }
+        ] },
+        { "at": "2026-09-01T10:00:00Z", "turns": [
+          { "correct": { "target": "I work at Meridian Logistics as a data analyst", "text": "I work at Solace Health as a product manager", "change": "changed", "since": "2026-08-25T00:00:00Z" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-10T09:00:00Z", "category": "temporal", "text": "Where do I work now, and what is my role?", "rubric": { "mustInclude": [["Solace"], ["product manager"]], "mustNotInclude": ["currently at Meridian", "you work at Meridian"] }, "evidence": ["Since August 25, 2026 the user works at Solace Health as a product manager.", "Before that the user worked at Meridian Logistics as a data analyst."] },
+        { "id": "q2", "at": "2026-09-10T09:02:00Z", "category": "temporal", "text": "Where was I working in early August?", "rubric": { "mustInclude": [["Meridian"]], "mustNotInclude": [] }, "evidence": ["Until August 25, 2026 the user worked at Meridian Logistics as a data analyst."] }
+      ]
+    },
+    {
+      "id": "ho-03", "language": "en",
+      "sessions": [
+        { "at": "2026-08-07T11:00:00Z", "turns": [
+          { "remember": { "text": "My name is Mehreen", "kind": "fact" } }
+        ] },
+        { "at": "2026-08-08T11:00:00Z", "turns": [
+          { "correct": { "target": "My name is Mehreen", "text": "My name is Mehrin", "change": "mistake" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-12T10:00:00Z", "category": "correction", "text": "How do you spell my name?", "rubric": { "mustInclude": [["Mehrin"]], "mustNotInclude": ["Mehreen"] }, "evidence": ["The user's name is spelled Mehrin."] }
+      ]
+    },
+    {
+      "id": "ho-04", "language": "en",
+      "sessions": [
+        { "at": "2026-08-09T12:00:00Z", "turns": [
+          { "remember": { "text": "My sister Hira's birthday is on November 3", "kind": "fact" } },
+          { "remember": { "text": "My bank PIN hint is the year I graduated", "kind": "fact" } }
+        ] },
+        { "at": "2026-08-10T12:00:00Z", "turns": [
+          { "forget": "My bank PIN hint is the year I graduated" }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-15T12:00:00Z", "category": "deletion", "text": "What do you remember about my bank PIN?", "rubric": { "mustInclude": [], "mustNotInclude": ["graduated", "PIN hint is"], "expectAbstain": true }, "evidence": [] },
+        { "id": "q2", "at": "2026-09-15T12:02:00Z", "category": "recall", "text": "When is Hira's birthday?", "rubric": { "mustInclude": [["November 3", "3 November", "Nov 3"]], "mustNotInclude": ["graduated"] }, "evidence": ["The user's sister Hira's birthday is November 3."] }
+      ]
+    },
+    {
+      "id": "ho-05", "language": "en",
+      "sessions": [
+        { "at": "2026-08-11T09:00:00Z", "turns": [
+          { "say": "My manager Farhan keeps telling me he hates open-plan offices." },
+          { "say": "I actually like working from cafes." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-16T09:00:00Z", "category": "attribution", "text": "What do you know about how I like to work?", "rubric": { "mustInclude": [["cafe", "café"]], "mustNotInclude": ["you hate open-plan", "you dislike open-plan", "you don't like open-plan", "you hate open plan"] }, "evidence": ["The user likes working from cafes.", "Farhan, the user's manager, is the one who hates open-plan offices."] }
+      ]
+    },
+    {
+      "id": "ho-06", "language": "en",
+      "sessions": [
+        { "at": "2026-08-12T15:00:00Z", "turns": [
+          { "say": "Imagine I moved to Istanbul next year, would the weather suit me?" },
+          { "remember": { "text": "I live in Faisalabad", "kind": "fact" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-17T15:00:00Z", "category": "hypothetical", "text": "Which city do I live in?", "rubric": { "mustInclude": [["Faisalabad"]], "mustNotInclude": ["you live in Istanbul", "moved to Istanbul"] }, "evidence": ["The user lives in Faisalabad."] }
+      ]
+    },
+    {
+      "id": "ho-07", "language": "en",
+      "sessions": [
+        { "at": "2026-08-13T10:00:00Z", "turns": [
+          { "remember": { "text": "I prefer short, informal replies", "kind": "preference" } },
+          { "remember": { "text": "For the grant proposal, write in a formal academic tone", "kind": "constraint", "conditions": [{ "key": "topic", "operator": "equals", "value": "grant proposal" }] } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-18T10:00:00Z", "category": "scoped_preference", "topic": "grant proposal", "text": "Write the first sentence of the grant proposal summary.", "rubric": { "mustInclude": [], "mustNotInclude": ["hey", "gonna", "!!"] , "judgeNote": "Should be formal and academic." }, "evidence": ["For the grant proposal the user wants a formal academic tone.", "In general the user prefers short, informal replies."] },
+        { "id": "q2", "at": "2026-09-18T10:05:00Z", "category": "scoped_preference", "text": "In one line, what tone do I usually like for replies?", "rubric": { "mustInclude": [["informal", "casual"]], "mustNotInclude": ["always formal", "you prefer formal"] }, "evidence": ["In general the user prefers short, informal replies."] }
+      ]
+    },
+    {
+      "id": "ho-08", "language": "en",
+      "sessions": [
+        { "at": "2026-08-14T09:00:00Z", "turns": [
+          { "remember": { "text": "I prefer morning flights", "kind": "preference" } }
+        ] },
+        { "at": "2026-09-02T09:00:00Z", "turns": [
+          { "say": "Just for this Lahore trip, an evening flight is fine." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-19T09:00:00Z", "category": "preference_application", "text": "I'm booking a flight to Dubai next month. What time of day should I pick?", "rubric": { "mustInclude": [["morning"]], "mustNotInclude": ["evening flight is fine"] }, "evidence": ["The user prefers morning flights.", "An evening flight was acceptable only for one Lahore trip."] }
+      ]
+    },
+    {
+      "id": "ho-09", "language": "en",
+      "sessions": [
+        { "at": "2026-08-15T14:00:00Z", "turns": [
+          { "say": "We compared two venues for the team offsite: Riverside Hall and Pinewood Lodge." },
+          { "say": "Pinewood Lodge has better rooms but we still don't know the catering cost." },
+          { "say": "Let's decide later." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-19T11:00:00Z", "category": "resumption", "text": "Where did we leave the offsite venue decision?", "rubric": { "mustInclude": [["Riverside"], ["Pinewood"], ["catering"]], "mustNotInclude": ["you chose", "you decided on", "you booked"] }, "evidence": ["The user compared Riverside Hall and Pinewood Lodge for the team offsite.", "Pinewood Lodge has better rooms; the catering cost is still unknown; no decision was made."] }
+      ]
+    },
+    {
+      "id": "ho-10", "language": "en",
+      "sessions": [
+        { "at": "2026-08-16T10:00:00Z", "turns": [
+          { "say": "By the way, my car's registration expires on October 14." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-20T10:00:00Z", "category": "extraction_miss", "text": "When does the registration on my car run out?", "rubric": { "mustInclude": [["October 14", "14 October", "Oct 14"]], "mustNotInclude": [] }, "evidence": ["The user's car registration expires on October 14."] }
+      ]
+    },
+    {
+      "id": "ho-11", "language": "en",
+      "sessions": [
+        { "at": "2026-08-17T10:00:00Z", "turns": [
+          { "remember": { "text": "I run 5 km every Saturday morning", "kind": "fact" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-20T12:00:00Z", "category": "abstention", "text": "What's my blood type?", "rubric": { "mustInclude": [], "mustNotInclude": ["O positive", "A positive", "B positive", "AB"], "expectAbstain": true }, "evidence": [] },
+        { "id": "q2", "at": "2026-09-20T12:02:00Z", "category": "recall", "text": "What do I do on Saturday mornings?", "rubric": { "mustInclude": [["run", "5 km", "5km"]], "mustNotInclude": [] }, "evidence": ["The user runs 5 km every Saturday morning."] }
+      ]
+    },
+    {
+      "id": "ho-12", "language": "roman_urdu",
+      "sessions": [
+        { "at": "2026-08-18T10:00:00Z", "turns": [
+          { "say": "Mujhe chai bina cheeni ke pasand hai." },
+          { "say": "Main Multan mein rehta hoon." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-21T10:00:00Z", "category": "multilingual", "text": "How do I take my tea?", "rubric": { "mustInclude": [["no sugar", "without sugar", "bina cheeni", "sugar-free", "unsweetened"]], "mustNotInclude": ["with sugar"] }, "evidence": ["The user likes tea without sugar."] },
+        { "id": "q2", "at": "2026-09-21T10:02:00Z", "category": "multilingual", "text": "Main kis sheher mein rehta hoon?", "rubric": { "mustInclude": [["Multan"]], "mustNotInclude": [] }, "evidence": ["The user lives in Multan."] }
+      ]
+    },
+    {
+      "id": "ho-13", "language": "code_switch",
+      "sessions": [
+        { "at": "2026-08-19T10:00:00Z", "turns": [
+          { "say": "Is presentation ke liye slides mein dark theme use karna, baqi sab jagah light theme theek hai." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-21T11:00:00Z", "category": "scoped_preference", "text": "I'm making a spreadsheet for my budget. Light or dark theme?", "rubric": { "mustInclude": [["light"]], "mustNotInclude": ["dark theme for everything", "always dark"] }, "evidence": ["The user wants a dark theme only for that presentation; elsewhere a light theme is fine."] }
+      ]
+    },
+    {
+      "id": "ho-14", "language": "urdu",
+      "sessions": [
+        { "at": "2026-08-20T10:00:00Z", "turns": [
+          { "remember": { "text": "مجھے گرمیوں میں آم بہت پسند ہیں", "kind": "preference" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-21T12:00:00Z", "category": "multilingual", "text": "Which fruit do I love in summer?", "rubric": { "mustInclude": [["mango", "aam", "آم"]], "mustNotInclude": [] }, "evidence": ["The user loves mangoes in summer."] }
+      ]
+    },
+    {
+      "id": "ho-15", "language": "en",
+      "sessions": [
+        { "at": "2026-08-21T09:00:00Z", "turns": [
+          { "remember": { "text": "I use a wheelchair, so venues must be step-free", "kind": "constraint" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-21T13:00:00Z", "category": "constraint_adherence", "text": "Recommend what to look for when picking a restaurant for my birthday dinner.", "rubric": { "mustInclude": [["step-free", "step free", "wheelchair", "accessible", "ramp"]], "mustNotInclude": [] }, "evidence": ["The user uses a wheelchair; venues must be step-free."] },
+        { "id": "q2", "at": "2026-09-21T13:05:00Z", "category": "negative_personalization", "text": "How many minutes are in three hours?", "rubric": { "mustInclude": [["180"]], "mustNotInclude": ["wheelchair", "step-free", "birthday"] }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "ho-16", "language": "en",
+      "sessions": [
+        { "at": "2026-08-22T10:00:00Z", "turns": [
+          { "remember": { "text": "My daughter Zara is 7 years old", "kind": "fact" } }
+        ] },
+        { "at": "2026-09-25T10:00:00Z", "turns": [
+          { "remember": { "text": "My son Ibrahim was born on September 24", "kind": "fact" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-22T10:00:00Z", "category": "cutoff", "text": "How many children do I have that you know of?", "rubric": { "mustInclude": [["Zara"]], "mustNotInclude": ["Ibrahim"] }, "evidence": ["The user's daughter Zara is 7 years old."] },
+        { "id": "q2", "at": "2026-09-26T10:00:00Z", "category": "recall", "text": "What are my children's names?", "rubric": { "mustInclude": [["Zara"], ["Ibrahim"]], "mustNotInclude": [] }, "evidence": ["The user's daughter Zara is 7 years old.", "The user's son Ibrahim was born on September 24."] }
+      ]
+    },
+    {
+      "id": "ho-17", "language": "en",
+      "sessions": [
+        { "at": "2026-08-23T10:00:00Z", "turns": [
+          { "remember": { "text": "I am training for the Lahore half marathon in December", "kind": "fact" } },
+          { "remember": { "text": "I prefer vegetarian meals", "kind": "preference" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-22T12:00:00Z", "category": "preference_application", "text": "Plan a high-protein lunch for me after a long run.", "rubric": { "mustInclude": [["vegetarian", "lentil", "chickpea", "paneer", "tofu", "beans", "dal"]], "mustNotInclude": ["chicken", "beef", "mutton", "fish", "tuna", "salmon"] }, "evidence": ["The user prefers vegetarian meals.", "The user is training for the Lahore half marathon in December."] }
+      ]
+    },
+    {
+      "id": "ho-18", "language": "en",
+      "sessions": [
+        { "at": "2026-08-24T10:00:00Z", "turns": [
+          { "remember": { "text": "My laptop is a ThinkPad X1 Carbon", "kind": "fact" } }
+        ] },
+        { "at": "2026-09-05T10:00:00Z", "turns": [
+          { "correct": { "target": "My laptop is a ThinkPad X1 Carbon", "text": "My laptop is a MacBook Air M3", "change": "changed", "since": "2026-09-04T00:00:00Z" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-22T14:00:00Z", "category": "temporal", "text": "What laptop do I use?", "rubric": { "mustInclude": [["MacBook"]], "mustNotInclude": ["you use a ThinkPad", "your ThinkPad"] }, "evidence": ["Since September 4, 2026 the user uses a MacBook Air M3 (previously a ThinkPad X1 Carbon)."] }
+      ]
+    },
+    {
+      "id": "ho-19", "language": "en",
+      "sessions": [
+        { "at": "2026-08-25T10:00:00Z", "turns": [
+          { "say": "My coworker Sana told me she only drinks green tea." },
+          { "remember": { "text": "I drink black coffee every morning", "kind": "preference" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-22T15:00:00Z", "category": "attribution", "text": "What do I usually drink in the morning?", "rubric": { "mustInclude": [["coffee"]], "mustNotInclude": ["you drink green tea", "you only drink green tea"] }, "evidence": ["The user drinks black coffee every morning.", "It is Sana, a coworker, who only drinks green tea."] }
+      ]
+    },
+    {
+      "id": "ho-20", "language": "en",
+      "sessions": [
+        { "at": "2026-08-26T10:00:00Z", "turns": [
+          { "remember": { "text": "I rejected the Aurora apartment because it had no natural light, not because of the rent", "kind": "decision" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-22T16:00:00Z", "category": "constraint_adherence", "text": "What should I prioritise when viewing the next apartment?", "rubric": { "mustInclude": [["light", "sunlight", "window"]], "mustNotInclude": ["rent was too high", "too expensive"] }, "evidence": ["The user rejected the Aurora apartment because it had no natural light, not because of the rent."] }
+      ]
+    },
+    {
+      "id": "ho-21", "language": "en",
+      "sessions": [
+        { "at": "2026-08-27T10:00:00Z", "turns": [
+          { "remember": { "text": "My gym membership is at Iron Temple on Canal Road", "kind": "fact" } }
+        ] },
+        { "at": "2026-08-28T10:00:00Z", "turns": [
+          { "forget": "My gym membership is at Iron Temple on Canal Road" }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-23T10:00:00Z", "category": "deletion", "text": "Which gym am I a member of?", "rubric": { "mustInclude": [], "mustNotInclude": ["Iron Temple", "Canal Road"], "expectAbstain": true }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "ho-22", "language": "en",
+      "sessions": [
+        { "at": "2026-08-29T10:00:00Z", "turns": [
+          { "remember": { "text": "I usually prefer budget options when shopping", "kind": "preference" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-23T11:00:00Z", "category": "preference_application", "text": "I need new running shoes. What kind of options should I look at?", "rubric": { "mustInclude": [["budget", "affordable", "cheap", "inexpensive", "value", "low-cost", "price"]], "mustNotInclude": [] }, "evidence": ["The user usually prefers budget options when shopping."] },
+        { "id": "q2", "at": "2026-09-23T11:05:00Z", "category": "negative_personalization", "text": "What year did the Berlin Wall fall?", "rubric": { "mustInclude": [["1989"]], "mustNotInclude": ["budget", "running shoes", "shopping"] }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "ho-23", "language": "en",
+      "sessions": [
+        { "at": "2026-08-30T10:00:00Z", "turns": [
+          { "say": "I'm planning a garden: tomatoes along the south wall, mint in pots." },
+          { "say": "I still need to decide between drip irrigation and a soaker hose." }
+        ] },
+        { "at": "2026-09-03T10:00:00Z", "turns": [
+          { "say": "Separately, help me write a cover letter for a design job." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-23T12:00:00Z", "category": "resumption", "text": "Back to the garden plan — what was still open?", "rubric": { "mustInclude": [["drip", "soaker", "irrigation"]], "mustNotInclude": ["cover letter"] }, "evidence": ["For the garden: tomatoes along the south wall, mint in pots; still deciding between drip irrigation and a soaker hose."] }
+      ]
+    },
+    {
+      "id": "ho-24", "language": "en",
+      "sessions": [
+        { "at": "2026-08-31T10:00:00Z", "turns": [
+          { "remember": { "text": "I'm diabetic, so avoid suggesting sugary desserts", "kind": "constraint" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-09-23T13:00:00Z", "category": "constraint_adherence", "text": "Suggest a dessert for my Eid dinner.", "rubric": { "mustInclude": [["sugar", "diabet"]], "mustNotInclude": ["gulab jamun", "jalebi", "rasmalai", "cheesecake"] }, "evidence": ["The user is diabetic; avoid suggesting sugary desserts."] }
+      ]
+    }
+  ]
+}

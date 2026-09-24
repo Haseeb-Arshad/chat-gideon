@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "split": "dev",
+  "description": "Stage 13 development trajectories: the only set used to debug the harness and prompts. Same schema as memory-conversation-heldout.json; no trajectory, fact or query text is shared with the held-out split.",
+  "trajectories": [
+    {
+      "id": "dev-01", "language": "en",
+      "sessions": [
+        { "at": "2026-07-01T09:00:00Z", "turns": [
+          { "remember": { "text": "I can't eat gluten", "kind": "constraint" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-07-10T09:00:00Z", "category": "constraint_adherence", "text": "What should I bake for a friend's party?", "rubric": { "mustInclude": [["gluten"]], "mustNotInclude": ["wheat flour"] }, "evidence": ["The user can't eat gluten."] },
+        { "id": "q2", "at": "2026-07-10T09:02:00Z", "category": "negative_personalization", "text": "What is the boiling point of water in Celsius?", "rubric": { "mustInclude": [["100"]], "mustNotInclude": ["gluten"] }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "dev-02", "language": "en",
+      "sessions": [
+        { "at": "2026-07-02T09:00:00Z", "turns": [
+          { "remember": { "text": "My phone is a Pixel 8", "kind": "fact" } }
+        ] },
+        { "at": "2026-07-05T09:00:00Z", "turns": [
+          { "correct": { "target": "My phone is a Pixel 8", "text": "My phone is an iPhone 16", "change": "changed", "since": "2026-07-04T00:00:00Z" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-07-12T09:00:00Z", "category": "temporal", "text": "Which phone do I have now?", "rubric": { "mustInclude": [["iPhone"]], "mustNotInclude": ["your Pixel"] }, "evidence": ["Since July 4 the user has an iPhone 16 (previously a Pixel 8)."] }
+      ]
+    },
+    {
+      "id": "dev-03", "language": "en",
+      "sessions": [
+        { "at": "2026-07-03T09:00:00Z", "turns": [
+          { "remember": { "text": "My locker code is 4471", "kind": "fact" } }
+        ] },
+        { "at": "2026-07-03T10:00:00Z", "turns": [
+          { "forget": "My locker code is 4471" }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-07-13T09:00:00Z", "category": "deletion", "text": "What's my locker code?", "rubric": { "mustInclude": [], "mustNotInclude": ["4471"], "expectAbstain": true }, "evidence": [] }
+      ]
+    },
+    {
+      "id": "dev-04", "language": "roman_urdu",
+      "sessions": [
+        { "at": "2026-07-04T09:00:00Z", "turns": [
+          { "say": "Meri behen ka naam Ayesha hai." }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-07-14T09:00:00Z", "category": "multilingual", "text": "What is my sister called?", "rubric": { "mustInclude": [["Ayesha"]], "mustNotInclude": [] }, "evidence": ["The user's sister is named Ayesha."] }
+      ]
+    },
+    {
+      "id": "dev-05", "language": "en",
+      "sessions": [
+        { "at": "2026-07-06T09:00:00Z", "turns": [
+          { "say": "My friend Bilal is terrified of flying." },
+          { "remember": { "text": "I enjoy long-haul flights", "kind": "preference" } }
+        ] }
+      ],
+      "queries": [
+        { "id": "q1", "at": "2026-07-15T09:00:00Z", "category": "attribution", "text": "How do I feel about flying?", "rubric": { "mustInclude": [["enjoy", "like", "love"]], "mustNotInclude": ["you are terrified", "you're terrified"] }, "evidence": ["The user enjoys long-haul flights.", "Bilal, a friend, is the one terrified of flying."] },
+        { "id": "q2", "at": "2026-07-15T09:02:00Z", "category": "abstention", "text": "What's my shoe size?", "rubric": { "mustInclude": [], "mustNotInclude": [], "expectAbstain": true }, "evidence": [] }
+      ]
+    }
+  ]
+}
