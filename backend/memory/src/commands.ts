@@ -22,7 +22,7 @@ import {
   type RevisionId,
 } from '../../../src/lib/memory/contracts.ts'
 import { DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA, MEMORY_SCHEMA } from './config.ts'
-import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
+import { PostgresMemoryOperationError, PostgresMemoryStore, isPostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { assertionVersionHash, canonicalJson, isoNow, revisionId, sha256 } from './serialization.ts'
 
 const SQL = {
@@ -117,7 +117,7 @@ function failure(code: MemoryFailure['code'], message: string, retryable = false
 
 function storeFor(session: MemorySession): PostgresMemoryStore {
   const store = session.store
-  if (!(store instanceof PostgresMemoryStore)) {
+  if (!isPostgresMemoryStore(store)) {
     throw failure('unavailable', 'Explicit durable commands require the PostgreSQL memory authority.', false)
   }
   return store

@@ -37,7 +37,7 @@ import {
 import type { WarmSnapshot } from '../../../src/lib/memory/projections.ts'
 import { containsSecretLikeMaterial } from '../../../src/lib/memory/screening.ts'
 import { MEMORY_SCHEMA } from './config.ts'
-import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
+import { PostgresMemoryOperationError, PostgresMemoryStore, isPostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { readWarmSnapshot } from './projections.ts'
 import { sha256 } from './serialization.ts'
 
@@ -163,7 +163,7 @@ function opFailure(code: MemoryFailure['code'], message: string, retryable = fal
 }
 
 function requirePostgresSession(session: MemorySession): asserts session is MemorySession<PostgresMemoryStore> {
-  if (!(session.store instanceof PostgresMemoryStore)) throw opFailure('unavailable', 'Retrieval requires the PostgreSQL memory authority.')
+  if (!isPostgresMemoryStore(session.store)) throw opFailure('unavailable', 'Retrieval requires the PostgreSQL memory authority.')
   if (session.trust !== 'authenticated') throw opFailure('unauthorized', 'Durable retrieval requires an authenticated session.')
 }
 

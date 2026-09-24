@@ -19,7 +19,7 @@ import {
   type ScopeId,
 } from '../../../src/lib/memory/contracts.ts'
 import { MEMORY_SCHEMA } from './config.ts'
-import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
+import { PostgresMemoryOperationError, PostgresMemoryStore, isPostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { canonicalJson, isoNow, revisionId, sha256 } from './serialization.ts'
 
 const SQL = {
@@ -128,7 +128,7 @@ function operationFailure(code: MemoryFailure['code'], message: string, retryabl
 }
 
 function postgresSession(session: MemorySession): PostgresSession {
-  if (!(session.store instanceof PostgresMemoryStore)) throw operationFailure('unavailable', 'Warm projections require the PostgreSQL memory authority.')
+  if (!isPostgresMemoryStore(session.store)) throw operationFailure('unavailable', 'Warm projections require the PostgreSQL memory authority.')
   return session as PostgresSession
 }
 

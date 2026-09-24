@@ -32,7 +32,7 @@ import {
 import { executeExplicitCommand } from './commands.ts'
 import { MEMORY_SCHEMA } from './config.ts'
 import { executeEvidenceRetention, executeForgetCommand, getDeletionStatus, type DeletionReceipt } from './deletion.ts'
-import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
+import { PostgresMemoryOperationError, PostgresMemoryStore, isPostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { canonicalJson, isoNow, sha256 } from './serialization.ts'
 
 /**
@@ -84,7 +84,7 @@ async function guarded<T>(work: () => Promise<T>): Promise<ControlsResult<T>> {
 }
 
 function durable(session: MemorySession): Session {
-  if (!(session.store instanceof PostgresMemoryStore) || session.trust !== 'authenticated') {
+  if (!isPostgresMemoryStore(session.store) || session.trust !== 'authenticated') {
     throw failure('unauthorized', 'Memory controls need an authenticated memory session.')
   }
   return session as Session
@@ -526,6 +526,8 @@ export interface EditInput {
   /** `mistake`: it was never right. `changed`: it was right until `since`. */
   change: 'mistake' | 'changed'
   since?: string | null
+  /** The user's IANA time zone, recorded with a dated change so the calendar day keeps its meaning. */
+  timeZone?: string | null
   /** Contextual: add a narrower version that applies only to this topic; the general one stays. */
   context?: string | null
   requestId: string
@@ -551,6 +553,10 @@ export async function editMemoryItem(session: MemorySession, input: EditInput, o
     const since = input.since ? new Date(input.since) : null
     if (since && (!Number.isFinite(since.getTime()) || since.getTime() > Date.parse(now))) throw failure('validation', 'The change date must be a past or current date.')
     const commandId = commandIdFor(bound.scope.id, context ? 'contextual' : 'edit', input.requestId)
+    let timeZone: string | null = null
+    if (typeof input.timeZone === 'string' && input.timeZone.length <= 64) {
+      try { timeZone = new Intl.DateTimeFormat('en-US', { timeZone: input.timeZone }).resolvedOptions().timeZone } catch { timeZone = null }
+    }
 
     // Read what the user is editing, in scope, and refuse a stale tab.
     const current = await inScope(bound, 'inspect', (tx) => currentItemRow(tx, bound.scope.id, input.assertionId))
@@ -573,7 +579,7 @@ export async function editMemoryItem(session: MemorySession, input: EditInput, o
           schemaVersion: 1, commandId, kind: 'correct', targetAssertionId: version.id, targetRevision: version.revision, text, assertionKind,
           conditions: [...conditionsOf(version)],
           relation: input.change === 'changed' ? 'transition' : 'correction',
-          ...(input.change === 'changed' ? { validTime: { from: (since ?? new Date(now)).toISOString(), until: null, precision: since ? 'day' : 'second', sourceTimeZone: null } } : {}),
+          ...(input.change === 'changed' ? { validTime: { from: (since ?? new Date(now)).toISOString(), until: null, precision: since ? 'day' : 'second', sourceTimeZone: since ? timeZone : null } } : {}),
           polarity: version.polarity,
         }, { now })
     if (!result.ok) throw new PostgresMemoryOperationError(result.failure)

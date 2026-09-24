@@ -10,7 +10,7 @@ import {
   type ScopeId,
 } from '../../../src/lib/memory/contracts.ts'
 import { MEMORY_SCHEMA } from './config.ts'
-import { PostgresMemoryOperationError, PostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
+import { PostgresMemoryOperationError, PostgresMemoryStore, isPostgresMemoryStore, type PostgresMemoryTransaction } from './postgres.ts'
 import { isoNow, revisionId } from './serialization.ts'
 
 const SQL = {
@@ -230,7 +230,7 @@ function failureResult<T>(failure: MemoryFailure): T {
 }
 
 function postgresSession(session: MemorySession): PostgresSession {
-  if (!(session.store instanceof PostgresMemoryStore)) {
+  if (!isPostgresMemoryStore(session.store)) {
     throw operationFailure('unavailable', 'Stage 05 deletion requires the Node PostgreSQL authority.', false)
   }
   return session as PostgresSession

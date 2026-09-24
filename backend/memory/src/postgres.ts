@@ -703,7 +703,21 @@ export interface CaptureOptions {
   injectFailureAfterEventInsert?: boolean
 }
 
+/**
+ * The Node host loads the SSR bundle and the realtime bundle into one process,
+ * each with its own copy of this class, and they share one store through a
+ * global. `instanceof` fails across those copies, so authority checks use this
+ * registered brand instead.
+ */
+const POSTGRES_STORE_BRAND = Symbol.for('gideon.memory.postgres-store.v1')
+
+export function isPostgresMemoryStore(value: unknown): value is PostgresMemoryStore {
+  return typeof value === 'object' && value !== null && (value as { [POSTGRES_STORE_BRAND]?: unknown })[POSTGRES_STORE_BRAND] === true
+}
+
 export class PostgresMemoryStore implements MemoryStorageCapabilities {
+  readonly [POSTGRES_STORE_BRAND] = true
+
   constructor(
     readonly pool: Pool,
     readonly context: PostgresMemoryContext | null = null,
