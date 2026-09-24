@@ -29,6 +29,22 @@ import { RULE_EXTRACTOR } from '../../../src/lib/memory/rule-extractor.ts'
 import type { MemoryExtractor } from '../../../src/lib/memory/learning.ts'
 import type { MemoryClassifier } from '../../../src/lib/memory/classification.ts'
 import { createClassifiedExtractor } from '../../../src/lib/memory/classified-extractor.ts'
+import {
+  editMemoryItem,
+  enableMemory,
+  exportMemory,
+  forgetMemoryItem,
+  importMemory,
+  listMemoryItems,
+  memoryDeletionStatus,
+  memoryItemDetail,
+  memoryOverview,
+  runEvidenceRetention,
+  updateMemorySettings,
+} from './controls.ts'
+import { createRuntime, postgresStore as nodePostgresStore } from '../../../src/server/node-memory-integration.ts'
+import { handleMemoryControls } from '../../../src/server/memory-controls.ts'
+import { ensureNodeAccount } from '../../../src/server/identity.ts'
 import { createRetrievalRequest } from '../../../src/lib/memory/retrieval.ts'
 import { checkpointConversationState, createConversationState, reduceConversationState } from '../../../src/lib/conversation-state.ts'
 import {
@@ -1561,5 +1577,239 @@ describe.skipIf(!enabled)('Stage 11 optional classification on PostgreSQL', () =
     expect(seen).toHaveLength(2)
     expect(seen[1]).toContain('Lahore')
     expect(seen.join('\n')).not.toMatch(/Islamabad|assertion\/|user\//u)
+  })
+})
+
+describe.skipIf(!enabled)('Stage 12 memory controls on PostgreSQL', () => {
+  const run = `stage12-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 8, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+  let requestCounter = 0
+  const rid = () => `req${run.replace(/[^a-z0-9]/giu, '')}${(requestCounter += 1)}`.slice(0, 60)
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  async function enabledSession(tag: string) {
+    const bound = postgresSession(session(`user/${run}-${tag}`), store)
+    expect(await enableMemory(bound)).toMatchObject({ ok: true, value: { revision: 1, learningEnabled: true, temporaryActive: false } })
+    return bound
+  }
+
+  async function remember(bound: Awaited<ReturnType<typeof enabledSession>>, text: string, kind: 'fact' | 'preference' = 'fact', now = '2026-09-01T10:00:00.000Z') {
+    const result = await executeExplicitCommand(bound, { schemaVersion: 1, commandId: `command/${run}/${rid()}`, kind: 'remember', text, assertionKind: kind, conditions: [] }, { now })
+    expect(result).toMatchObject({ ok: true, outcome: 'accepted' })
+    return result.ok ? result.assertion : (null as never)
+  }
+
+  function value<T>(result: { ok: true; value: T } | { ok: false; failure: unknown }): T {
+    if (!result.ok) throw new Error(`expected ok, got ${JSON.stringify(result.failure)}`)
+    return result.value
+  }
+
+  it('C04/C05/C19: inspect, edit (change vs mistake vs contextual), stale tab, recall, forget, recall', async () => {
+    const bound = await enabledSession('e2e')
+    const provider = await remember(bound, 'Project A uses Provider A')
+    const name = await remember(bound, 'My name is Ali')
+    const tone = await remember(bound, 'I prefer concise informal replies', 'preference')
+
+    const overview = value(await memoryOverview(bound))
+    expect(overview.counts).toMatchObject({ accepted: 3, proposed: 0 })
+    const listed = overview.facts.find((item) => item.assertionId === provider.id)!
+    expect(listed).toMatchObject({ basis: 'explicit', status: 'accepted', scope: { kind: 'general' }, revision: 1, sources: { count: 1 } })
+    expect(listed.sources.shown[0]).toMatchObject({ kind: 'user_statement', quote: 'Project A uses Provider A' })
+
+    // C04: a real-world change keeps what was true before.
+    const changed = value(await editMemoryItem(bound, { assertionId: provider.id, expectedRevision: 1, text: 'Project A uses Provider B', change: 'changed', since: '2026-09-10T00:00:00.000Z', requestId: rid() }, { now: '2026-09-12T10:00:00.000Z' }))
+    expect(changed.item).toMatchObject({ text: 'Project A uses Provider B', revision: 2, relation: 'transition', basis: 'corrected' })
+    const before = await readAssertionAsOf(bound, { assertionId: provider.id, mode: 'valid_at', asOf: '2026-09-05T00:00:00.000Z' })
+    expect(before.version?.payload).toMatchObject({ proposition: { text: 'Project A uses Provider A' } })
+    // C19: the next read sees the accepted revision immediately.
+    const recalled = await retrieveMemory(bound, retrievalInput('Which provider does Project A use?'))
+    expect(recalled.pack?.text).toContain('Provider B')
+
+    // A stale tab still showing revision 1 gets a conflict, not an overwrite.
+    const stale = await editMemoryItem(bound, { assertionId: provider.id, expectedRevision: 1, text: 'Project A uses Provider C', change: 'mistake', requestId: rid() })
+    expect(stale).toMatchObject({ ok: false, failure: { code: 'conflict', details: { currentRevision: 2 } } })
+
+    // C05: a mistake is a correction, and history says so.
+    value(await editMemoryItem(bound, { assertionId: name.id, expectedRevision: 1, text: 'My name is Aly', change: 'mistake', requestId: rid() }))
+    const nameDetail = value(await memoryItemDetail(bound, name.id))
+    expect(nameDetail.item.text).toBe('My name is Aly')
+    expect(nameDetail.history.map((version) => [version.revision, version.relation])).toEqual([[1, 'ordinary'], [2, 'correction']])
+
+    // Contextual edit: a narrower item; the general one is untouched.
+    const contextual = value(await editMemoryItem(bound, { assertionId: tone.id, expectedRevision: 1, text: 'Use a formal tone', change: 'mistake', context: 'investor presentation', requestId: rid() }))
+    expect(contextual.general).toMatchObject({ assertionId: tone.id, revision: 1, text: 'I prefer concise informal replies' })
+    expect(contextual.item).toMatchObject({ text: 'Use a formal tone', scope: { kind: 'conditional', conditions: [{ key: 'topic', value: 'investor presentation' }] } })
+
+    // Forget: logical block is immediate, physical cleanup is reported separately.
+    const forgotten = value(await forgetMemoryItem(bound, { assertionId: provider.id, expectedRevision: 2, requestId: rid() }))
+    expect(forgotten).toMatchObject({ logical: 'blocked', externalCopies: 'not_controlled', physical: { status: 'pending' } })
+    expect(await memoryItemDetail(bound, provider.id)).toMatchObject({ ok: false, failure: { code: 'not_found' } })
+    const afterForget = await retrieveMemory(bound, retrievalInput('Which provider does Project A use?'))
+    expect(afterForget.pack?.text ?? '').not.toMatch(/Provider [AB]/u)
+    const exported = value(await exportMemory(bound))
+    expect(JSON.stringify(exported)).not.toContain('Provider')
+    const page = value(await listMemoryItems(bound, { filter: 'facts' }))
+    expect(page.items.map((item) => item.text)).toEqual(['My name is Aly'])
+    await runMemoryMaintenance(store, { workerId: `${run}-maint`, extractor: RULE_EXTRACTOR, learning: false, learningEnabledFor: () => false, scopeId: bound.scope.id })
+    expect(value(await memoryDeletionStatus(bound, forgotten.deletionId)).physical.status).toBe('complete')
+
+    // Forgetting from a stale tab is refused too.
+    expect(await forgetMemoryItem(bound, { assertionId: name.id, expectedRevision: 1, requestId: rid() })).toMatchObject({ ok: false, failure: { code: 'conflict' } })
+  })
+
+  it('C24: another user cannot inspect, edit, forget or export these items, and cursors cannot be forged', async () => {
+    const owner = await enabledSession('priv-a')
+    const other = await enabledSession('priv-b')
+    const secret = await remember(owner, 'My private project is codenamed Falcon')
+    for (const result of [
+      await memoryItemDetail(other, secret.id),
+      await editMemoryItem(other, { assertionId: secret.id, expectedRevision: 1, text: 'hijacked', change: 'mistake', requestId: rid() }),
+      await forgetMemoryItem(other, { assertionId: secret.id, expectedRevision: 1, requestId: rid() }),
+    ]) expect(result).toMatchObject({ ok: false, failure: { code: 'not_found' } })
+    expect(value(await listMemoryItems(other, { query: 'Falcon' })).items).toEqual([])
+    expect(JSON.stringify(value(await exportMemory(other)))).not.toContain('Falcon')
+    expect(JSON.stringify(value(await memoryOverview(other)))).not.toContain('Falcon')
+    expect(await listMemoryItems(other, { cursor: 'not-a-cursor' })).toMatchObject({ ok: false, failure: { code: 'validation' } })
+    expect(value(await memoryItemDetail(owner, secret.id)).item.text).toContain('Falcon')
+  })
+
+  it('C22/C31: export, forget and edit, then import: nothing forgotten or stale comes back; proposed stays proposed', async () => {
+    const bound = await enabledSession('io')
+    const tea = await remember(bound, 'I like green tea', 'preference')
+    const home = await remember(bound, 'I live in Lahore')
+    await remember(bound, 'I prefer aisle seats', 'preference')
+    const exported = value(await exportMemory(bound))
+    expect(exported.counts).toMatchObject({ items: 3, accepted: 3 })
+    expect(exported.itemsSha256).toMatch(/^[0-9a-f]{64}$/u)
+    expect(exported.items.find((item) => item.assertionId === tea.id)?.sources[0]).toMatchObject({ kind: 'user_statement', quote: 'I like green tea' })
+
+    value(await forgetMemoryItem(bound, { assertionId: tea.id, expectedRevision: 1, requestId: rid() }))
+    value(await editMemoryItem(bound, { assertionId: home.id, expectedRevision: 1, text: 'I live in Karachi', change: 'mistake', requestId: rid() }))
+    const withExtras = {
+      ...exported,
+      items: [
+        ...exported.items,
+        { ...exported.items[0]!, assertionId: null, revision: null, text: 'I enjoy playing chess', sources: [] },
+        { ...exported.items[0]!, assertionId: null, revision: null, text: 'I might be a morning person', status: 'candidate', sources: [] },
+      ],
+    }
+    const imported = value(await importMemory(bound, withExtras, 4_000))
+    const byText = (text: string) => imported.results[withExtras.items.findIndex((item) => item.text === text)]
+    expect(byText('I like green tea')).toMatchObject({ outcome: 'suppressed' })
+    expect(byText('I live in Lahore')).toMatchObject({ outcome: 'stale' })
+    expect(byText('I prefer aisle seats')).toMatchObject({ outcome: 'unchanged' })
+    expect(byText('I enjoy playing chess')).toMatchObject({ outcome: 'imported' })
+    expect(byText('I might be a morning person')).toMatchObject({ outcome: 'not_accepted' })
+
+    const items = value(await listMemoryItems(bound)).items
+    expect(items.map((item) => item.text).sort()).toEqual(['I enjoy playing chess', 'I live in Karachi', 'I prefer aisle seats'])
+    const chess = items.find((item) => item.text === 'I enjoy playing chess')!
+    // An import is attributable and never presented as something the user said.
+    expect(chess).toMatchObject({ basis: 'imported', basisDetail: 'imported_legacy', producer: 'memory-import' })
+    expect(chess.sources.shown).toEqual([expect.objectContaining({ kind: 'imported_legacy', quote: null })])
+    // Replaying the same file writes nothing new.
+    value(await importMemory(bound, withExtras, 4_000))
+    expect(value(await listMemoryItems(bound)).items).toHaveLength(3)
+    // Another account's file is refused whole.
+    const stranger = await enabledSession('io-other')
+    expect(await importMemory(stranger, exported, 4_000)).toMatchObject({ ok: false, failure: { code: 'validation', details: { reason: 'scope_mismatch' } } })
+    expect(await importMemory(bound, { ...exported, format: 'something-else' }, 100)).toMatchObject({ ok: false, failure: { code: 'validation' } })
+  })
+
+  it('settings are versioned and change runtime behavior: learning off, temporary mode, evidence retention', async () => {
+    const bound = await enabledSession('settings')
+    const flags = { capture: true, commandWrites: true, recall: true }
+    const learningOff = value(await updateMemorySettings(bound, { expectedRevision: 1, learningEnabled: false }))
+    expect(learningOff).toMatchObject({ revision: 2, learningEnabled: false })
+    expect(await updateMemorySettings(bound, { expectedRevision: 1, learningEnabled: true })).toMatchObject({ ok: false, failure: { code: 'conflict', details: { currentRevision: 2 } } })
+
+    // Learning off: a captured turn is closed without extraction.
+    const turn = { ...eventFor(bound, `${run}-settings`, 1, '2026-09-24T09:00:00.000Z'), payload: { text: 'I really like hiking on weekends.' } }
+    expect(await captureCommittedEvent(store, bound, turn, { now: turn.receivedAt, assignSequence: true })).toMatchObject({ ok: true })
+    const report = await runMemoryMaintenance(store, { workerId: `${run}-settings`, extractor: RULE_EXTRACTOR, learning: true, learningEnabledFor: () => true, settleMs: 0, scopeId: bound.scope.id, now: '2026-09-24T09:01:00.000Z' })
+    expect(report.learning).toMatchObject({ learned: 0, skipped: 1 })
+    expect(value(await listMemoryItems(bound)).items).toEqual([])
+
+    // Temporary conversation: no capture, no saving, no recall; forgetting still works.
+    const temporary = value(await updateMemorySettings(bound, { expectedRevision: 2, temporary: { on: true } }))
+    expect(temporary).toMatchObject({ revision: 3, temporaryActive: true })
+    const runtime = createRuntime(bound, flags)
+    const context = { turnId: `turn-${run}`, conversationId: `conversation/${run}/temp`, principalId: bound.principal.id, scopeId: bound.scope.id, policyEpoch: bound.policyEpoch, latestUserText: 'Remember that I am allergic to peanuts.', transcriptHash: 'x'.repeat(64) }
+    const eventsBefore = await database.query(`SELECT count(*)::int AS count FROM gideon_memory.events WHERE scope_id = $1`, [bound.scope.id])
+    expect(await runtime.captureUserTurn!(context, new AbortController().signal)).toEqual({ status: 'unavailable', reason: 'temporary_mode' })
+    const toolContext = { ...context, callId: 'call-1', responseId: 'response-1', timezone: 'UTC', conversationState: null, speculative: false, signal: new AbortController().signal }
+    const saved = await runtime.execute('remember', { text: 'The user is allergic to peanuts.', kind: 'constraint' }, toolContext)
+    expect(saved).toMatchObject({ ok: false, receiptState: 'failed' })
+    expect(await runtime.retrieve('peanuts', { ...toolContext, transcriptHash: context.transcriptHash }, new AbortController().signal)).toEqual({ status: 'unavailable', reason: 'temporary' })
+    const eventsAfter = await database.query(`SELECT count(*)::int AS count FROM gideon_memory.events WHERE scope_id = $1`, [bound.scope.id])
+    expect(eventsAfter.rows[0]).toEqual(eventsBefore.rows[0])
+    value(await updateMemorySettings(bound, { expectedRevision: 3, temporary: { on: false } }))
+    const normal = createRuntime(bound, flags)
+    expect(await normal.captureUserTurn!({ ...context, turnId: `turn-${run}-2` }, new AbortController().signal)).toMatchObject({ status: 'captured' })
+
+    // Retention: old turns that never became a memory are deleted; cited ones stay.
+    value(await updateMemorySettings(bound, { expectedRevision: 4, evidenceRetentionDays: 30 }))
+    const old = { ...eventFor(bound, `${run}-settings`, 2, '2026-07-01T09:00:00.000Z'), payload: { text: 'What is the weather like?' } }
+    await captureCommittedEvent(store, bound, old, { now: old.receivedAt, assignSequence: true })
+    const cited = await remember(bound, 'I keep bees', 'fact', '2026-07-01T09:05:00.000Z')
+    const retention = await runEvidenceRetention(store, { now: new Date().toISOString(), scopes: 100 })
+    expect(retention.suppressedEvents).toBeGreaterThanOrEqual(1)
+    const suppressed = await database.query<{ event_id: string; reason: string }>(`SELECT event_id, reason FROM gideon_memory.deletion_suppressions WHERE scope_id = $1 AND event_id IS NOT NULL`, [bound.scope.id])
+    expect(suppressed.rows).toEqual(expect.arrayContaining([{ event_id: old.id, reason: 'retention_expired' }]))
+    expect(suppressed.rows.map((row) => row.event_id)).not.toContain(cited.evidence[0]!.eventId)
+    // The recent (captured after temporary mode) and the learning-off turn are within retention and kept.
+    expect(suppressed.rows.map((row) => row.event_id)).not.toContain(turn.id)
+    await runMemoryMaintenance(store, { workerId: `${run}-settings-purge`, extractor: RULE_EXTRACTOR, learning: false, learningEnabledFor: () => false, scopeId: bound.scope.id })
+    const remaining = await database.query(`SELECT 1 FROM gideon_memory.events WHERE scope_id = $1 AND event_id = $2`, [bound.scope.id, old.id])
+    expect(remaining.rows).toHaveLength(0)
+    expect(value(await memoryItemDetail(bound, cited.id)).sources[0]).toMatchObject({ quote: 'I keep bees' })
+  })
+
+  it('the /api/memory handler binds identity to the signed cookie and refuses everything else', async () => {
+    const saved = { controls: process.env.GIDEON_MEMORY_CONTROLS_ENABLED, percent: process.env.GIDEON_MEMORY_ROLLOUT_PERCENT }
+    process.env.GIDEON_MEMORY_CONTROLS_ENABLED = '1'
+    process.env.GIDEON_MEMORY_ROLLOUT_PERCENT = '100'
+    try {
+      const account = await ensureNodeAccount(new Request('http://localhost/api/account', { method: 'POST', headers: { origin: 'http://localhost' } }))
+      const cookie = (account.headers.get('set-cookie') ?? '').split(';')[0]!
+      expect(cookie).toMatch(/^gideon-owner=v1\./u)
+      const get = (query: string, headers: Record<string, string> = { cookie }) => handleMemoryControls(new Request(`http://localhost/api/memory?${query}`, { headers }))
+      const send = (body: unknown, headers: Record<string, string> = {}) => handleMemoryControls(new Request('http://localhost/api/memory', {
+        method: 'POST', body: JSON.stringify(body), headers: { cookie, origin: 'http://localhost', 'content-type': 'application/json', ...headers },
+      }))
+
+      expect((await get('view=status', {})).status).toBe(401)
+      expect(await (await get('view=status')).json()).toEqual({ ok: true, enabled: false })
+      expect((await send({ op: 'enable' }, { origin: 'http://evil.example' })).status).toBe(403)
+      expect((await send({ op: 'enable' }, { 'content-type': 'text/plain' })).status).toBe(415)
+      const enabledResponse = await send({ op: 'enable' })
+      expect(enabledResponse.status).toBe(200)
+      expect(enabledResponse.headers.get('cache-control')).toBe('no-store')
+      const overview = await (await get('view=overview')).json() as { ok: boolean; overview: { counts: { accepted: number } } }
+      expect(overview).toMatchObject({ ok: true, overview: { counts: { accepted: 0 } } })
+      // A body cannot choose whose memory it touches.
+      const hijack = await send({ op: 'settings', expectedRevision: 1, learningEnabled: false, scopeId: `user/${run}-e2e`, owner: `user/${run}-e2e` })
+      expect(hijack.status).toBe(200)
+      const victim = await database.query<{ learning_enabled: boolean }>(`SELECT learning_enabled FROM gideon_memory.memory_settings WHERE scope_id = $1`, [`user/${run}-e2e`])
+      expect(victim.rows[0]?.learning_enabled).toBe(true)
+      expect((await get(`view=item&id=${encodeURIComponent('assertion/nope')}`)).status).toBe(404)
+      const exported = await get('view=export')
+      expect(exported.headers.get('content-disposition')).toMatch(/attachment; filename="gideon-memory-\d{4}-\d\d-\d\d\.json"/u)
+      const markdown = await get('view=export&format=md')
+      expect(markdown.headers.get('content-type')).toContain('text/markdown')
+      expect((await send({ op: 'import', document: { format: 'x' } })).status).toBe(400)
+      process.env.GIDEON_MEMORY_CONTROLS_ENABLED = '0'
+      expect((await get('view=status')).status).toBe(404)
+    } finally {
+      for (const [key, value] of [['GIDEON_MEMORY_CONTROLS_ENABLED', saved.controls], ['GIDEON_MEMORY_ROLLOUT_PERCENT', saved.percent]] as const) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      await nodePostgresStore().close().catch(() => undefined)
+    }
   })
 })

@@ -33,7 +33,8 @@ export type MemoryCaptureOutcome =
 
 export type MemoryRecallOutcome =
   | { status: 'ready'; binding: MemoryRecallTurnContext; pack: ContextPack }
-  | { status: 'unavailable'; reason: 'not_configured' | 'unauthorized' | 'timeout' | 'stale' | 'failure' }
+  /** `temporary`: the owner turned on a temporary conversation; memory is neither read nor written. */
+  | { status: 'unavailable'; reason: 'not_configured' | 'unauthorized' | 'timeout' | 'stale' | 'failure' | 'temporary' }
 
 export interface MemoryTurnRuntime extends MemoryToolRuntime {
   captureUserTurn?(

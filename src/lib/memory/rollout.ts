@@ -92,3 +92,14 @@ export function memoryClassifierPlan(env: MemoryRolloutEnvironment): MemoryClass
   if (workflow !== 'verify' && workflow !== 'gate') return null
   return Object.freeze({ mode, provider, workflow })
 }
+
+/**
+ * Stage 12 memory inspector and controls for one owner. Same owner rules,
+ * cohort and production gate as the rest of memory; independent switch.
+ */
+export function memoryControlsEnabled(env: MemoryRolloutEnvironment, owner: string | null): boolean {
+  if (!owner || !/^(?:user|node)\//u.test(owner)) return false
+  if (env.NODE_ENV === 'production' && env.GIDEON_MEMORY_STAGE15_CUTOVER !== '1') return false
+  if (memoryRolloutBucket(owner) >= rolloutPercent(env.GIDEON_MEMORY_ROLLOUT_PERCENT)) return false
+  return env.GIDEON_MEMORY_CONTROLS_ENABLED === '1'
+}

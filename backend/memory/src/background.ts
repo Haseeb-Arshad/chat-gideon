@@ -2,6 +2,7 @@ import type { ScopeId } from '../../../src/lib/memory/contracts.ts'
 import type { MemoryExtractor, PromotionPolicy } from '../../../src/lib/memory/learning.ts'
 import { createServerMemorySession } from '../../../src/server/memory-session.ts'
 import { MEMORY_SCHEMA } from './config.ts'
+import { runEvidenceRetention, scopesWithoutLearning } from './controls.ts'
 import { runPurgeBatch } from './deletion.ts'
 import { checkRunningJob, claimJobs, finishCheckedJob, requeueCheckedJob, retryCheckedJob, type ClaimedMemoryJob } from './jobs.ts'
 import { processLearningJob, promoteLearnedCandidates, type LearningBudget, type PromotionPassResult } from './learning.ts'
@@ -60,6 +61,7 @@ export interface MaintenanceOptions {
 export interface MaintenanceReport {
   at: string
   purge: { claimed: number; completed: number; failed: number }
+  retention: { scopes: number; suppressedEvents: number }
   projections: { jobs: number; scopesRebuilt: number; requeued: number; failed: number }
   learning: { processed: number; learned: number; corroborated: number; disputed: number; rejected: number; skipped: number; deferred: number; failed: number; disabledScopes: number }
   promotion: PromotionPassResult
@@ -116,6 +118,7 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
   const report: MaintenanceReport = {
     at: now,
     purge: { claimed: 0, completed: 0, failed: 0 },
+    retention: { scopes: 0, suppressedEvents: 0 },
     projections: { jobs: 0, scopesRebuilt: 0, requeued: 0, failed: 0 },
     learning: { processed: 0, learned: 0, corroborated: 0, disputed: 0, rejected: 0, skipped: 0, deferred: 0, failed: 0, disabledScopes: 0 },
     promotion: { examined: 0, promoted: 0, retired: 0 },
@@ -125,6 +128,10 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
   // 1. Privacy obligations outrank everything else.
   const purge = await runPurgeBatch(store, { now, limit: limits.purgeTasks, scopeId: options.scopeId })
   report.purge = { claimed: purge.claimed, completed: purge.completed, failed: purge.failed }
+  if (options.signal?.aborted) return report
+  // Each owner's evidence retention choice is a deletion too (Stage 12); its
+  // purge tasks run in a later tick's purge step.
+  if (!options.scopeId) report.retention = await runEvidenceRetention(store, { now })
   if (options.signal?.aborted) return report
 
   // 2. Stale warm views, coalesced per scope.
@@ -145,6 +152,8 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
       now,
     })
     const disabled = new Set<string>()
+    // The owner's own setting (learning off, or a temporary conversation) wins over the rollout.
+    const ownerOff = await scopesWithoutLearning(store, learningJobs.map((job) => job.scopeId), now)
     for (const job of learningJobs) {
       if (options.signal?.aborted) {
         await store.forContext({ principalId: job.principalId, scopeId: job.scopeId, policyEpoch: job.policyEpoch }).runTransaction(async (tx) => {
@@ -152,7 +161,7 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
         }).catch(() => undefined)
         continue
       }
-      if (!options.learningEnabledFor(job.scopeId)) {
+      if (!options.learningEnabledFor(job.scopeId) || ownerOff.has(job.scopeId)) {
         disabled.add(job.scopeId)
         // Turns captured while learning is off for this owner are closed, not learned later.
         const outcome = await processLearningJob(store, job, { extractor: options.extractor, now, disabled: true }).catch(() => null)

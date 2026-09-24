@@ -19,15 +19,21 @@ import { realtimePlugin } from './realtime-plugin'
  * Cloudflare mode the adapter resolves to a stub that never enables memory.
  */
 function workerMemoryBoundary(): Plugin {
-  const nodeAdapter = /[\\/]src[\\/]server[\\/]node-memory-integration\.ts$/
-  const stub = fileURLToPath(new URL('./src/server/node-memory-integration.worker.ts', import.meta.url))
+  // Each Node-only module and its Worker stand-in; the memory controls API
+  // (Stage 12) reads the same PostgreSQL authority, so it is stubbed too.
+  const boundaries = ['node-memory-integration', 'memory-controls'].map((name) => ({
+    name,
+    nodeModule: new RegExp(`[\\\\/]src[\\\\/]server[\\\\/]${name}\\.ts$`),
+    stub: fileURLToPath(new URL(`./src/server/${name}.worker.ts`, import.meta.url)),
+  }))
   return {
     name: 'gideon-worker-memory-boundary',
     enforce: 'pre',
     async resolveId(source, importer, options) {
-      if (!source.includes('node-memory-integration') || source.endsWith('.worker')) return null
+      const boundary = boundaries.find((item) => source.includes(item.name))
+      if (!boundary || source.endsWith('.worker')) return null
       const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      return resolved && nodeAdapter.test(resolved.id) ? stub : null
+      return resolved && boundary.nodeModule.test(resolved.id) ? boundary.stub : null
     },
   }
 }

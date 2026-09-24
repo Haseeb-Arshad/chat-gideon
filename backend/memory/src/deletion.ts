@@ -702,7 +702,7 @@ export async function getDeletionStatus(
     ensureTime(options.now ?? isoNow(), 'now')
     const receipt = await durable.store.forSession(durable).runTransaction(async (transaction) => {
       await transaction.assertAuthorizedContext(durable, 'inspect')
-      const exists = await transaction.query(`SELECT 1 FROM ${SQL.operations} WHERE deletion_id = $1 AND scope_id = $2`, [deletionId, durable.scope.id])
+      const exists = await transaction.query(`SELECT 1 FROM ${SQL.operations} WHERE deletion_id = $1 AND scope_id = $2 AND operation_kind = 'forget'`, [deletionId, durable.scope.id])
       if (!exists.rows[0]) throw operationFailure('not_found', 'The deletion operation does not exist in this scope.', false)
       return deletionReceipt(transaction, deletionId)
     })
@@ -1114,5 +1114,89 @@ export async function readRestoreGuardStatus(store: PostgresMemoryStore, scopeId
     return row
       ? { scopeId, status: row.status, requiredLedgerSequence: Number(row.required_ledger_sequence), reconciledLedgerSequence: Number(row.reconciled_ledger_sequence), reason: row.reason }
       : { scopeId, status: 'ready', requiredLedgerSequence: 0, reconciledLedgerSequence: 0, reason: null }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Stage 12: evidence retention
+// ---------------------------------------------------------------------------
+
+export interface EvidenceRetentionResult {
+  scopeId: ScopeId
+  deletionId: string | null
+  suppressedEvents: number
+}
+
+/**
+ * Deletes raw conversation turns older than the cutoff that no memory cites.
+ *
+ * It is a deletion like forget, through the same machinery: event
+ * suppression, a deletion-epoch bump (so in-flight work recomputes or dies),
+ * dead input jobs, revoked snapshot leases, control-ledger rows for restore
+ * replay, and physical purge tasks. Events cited by any assertion version are
+ * kept; removing those is what an explicit forget is for.
+ */
+export async function executeEvidenceRetention(
+  store: PostgresMemoryStore,
+  input: { scopeId: ScopeId; principalId: PrincipalId; policyEpoch: number; cutoff: string; limit?: number; now?: string },
+): Promise<EvidenceRetentionResult> {
+  const now = ensureTime(input.now ?? isoNow(), 'now')
+  const cutoff = ensureTime(input.cutoff, 'cutoff')
+  const limit = boundedInteger(input.limit, 100, 500)
+  return store.forContext({ principalId: input.principalId, scopeId: input.scopeId, policyEpoch: input.policyEpoch }).runTransaction(async (transaction) => {
+    const epoch = await currentEpoch(transaction, input.scopeId, 'update')
+    const expired = await transaction.query<{ event_id: string }>(
+      `SELECT e.event_id FROM ${SQL.events} e
+       WHERE e.scope_id = $1 AND e.source_kind = 'user_statement' AND e.received_at < $2::timestamptz
+         AND NOT EXISTS (SELECT 1 FROM ${SQL.suppressions} s WHERE s.scope_id = e.scope_id AND s.event_id = e.event_id)
+         AND NOT EXISTS (SELECT 1 FROM ${SQL.evidence} ee WHERE ee.scope_id = e.scope_id AND ee.event_id = e.event_id)
+         AND NOT EXISTS (SELECT 1 FROM ${SQL.jobs} j WHERE j.scope_id = e.scope_id AND j.input_event_id = e.event_id AND j.state = 'running')
+       ORDER BY e.received_at
+       LIMIT $3`,
+      [input.scopeId, cutoff, limit],
+    )
+    const eventIds = expired.rows.map((row) => row.event_id)
+    if (!eventIds.length) return { scopeId: input.scopeId, deletionId: null, suppressedEvents: 0 }
+    const policyEpoch = Number(epoch.policy_epoch)
+    const deletionEpoch = Number(epoch.deletion_epoch) + 1
+    const deletionId = `deletion/retention/${crypto.randomUUID()}`
+    const planId = `plan/retention/${crypto.randomUUID()}`
+    await transaction.query(
+      `INSERT INTO ${SQL.plans}
+        (plan_id, scope_id, actor_principal_id, target_assertion_id, target_revision, planned_policy_epoch, planned_deletion_epoch,
+         expires_at, status, deletion_id, committed_at, operation_kind)
+       VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6::timestamptz, 'committed', $7, $6::timestamptz, 'retention')`,
+      [planId, input.scopeId, input.principalId, policyEpoch, Number(epoch.deletion_epoch), now, deletionId],
+    )
+    await transaction.query(
+      `INSERT INTO ${SQL.operations}
+        (deletion_id, plan_id, scope_id, actor_principal_id, target_assertion_id, target_revision, deletion_epoch, status,
+         reuse_blocked, logical_blocked_at, backup_retention_limit_days, external_copy_status, operation_kind)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, 'purge_pending', true, $6::timestamptz, NULL, 'not_controlled', 'retention')`,
+      [deletionId, planId, input.scopeId, input.principalId, deletionEpoch, now],
+    )
+    for (const eventId of eventIds) {
+      await transaction.query(
+        `INSERT INTO ${SQL.suppressions} (suppression_id, scope_id, event_id, policy_epoch, deletion_epoch, reason)
+         VALUES ($1, $2, $3, $4, $5, 'retention_expired') ON CONFLICT DO NOTHING`,
+        [`suppression/${deletionId}/event/${eventId}`, input.scopeId, eventId, policyEpoch, deletionEpoch],
+      )
+    }
+    await transaction.query(`UPDATE ${SQL.epochs} SET deletion_epoch = $2, updated_at = now() WHERE scope_id = $1`, [input.scopeId, deletionEpoch])
+    await transaction.query(
+      `UPDATE ${SQL.jobs} SET state = 'dead', lease_until = NULL, worker_id = NULL, last_failure_code = 'revoked_input', updated_at = now()
+       WHERE scope_id = $1 AND input_event_id = ANY($2::text[]) AND state IN ('pending', 'retry')`,
+      [input.scopeId, eventIds],
+    )
+    await transaction.query(`UPDATE ${SQL.leases} SET status = 'revoked', invalidated_at = $2::timestamptz WHERE scope_id = $1 AND status = 'active'`, [input.scopeId, now])
+    await appendLedger(transaction, input.scopeId, deletionId, deletionId, policyEpoch, deletionEpoch, eventIds, [])
+    for (const eventId of eventIds) {
+      await insertPurgeTask(transaction, deletionId, input.scopeId, 'source_event', eventId, 0, now)
+      const jobRows = await transaction.query<{ job_id: string }>(`SELECT job_id FROM ${SQL.jobs} WHERE scope_id = $1 AND input_event_id = $2`, [input.scopeId, eventId])
+      for (const row of jobRows.rows) await insertPurgeTask(transaction, deletionId, input.scopeId, 'job', row.job_id, 0, now)
+    }
+    const cacheRows = await transaction.query<{ entry_id: string }>(`SELECT entry_id FROM ${SQL.cache} WHERE scope_id = $1`, [input.scopeId])
+    for (const row of cacheRows.rows) await insertPurgeTask(transaction, deletionId, input.scopeId, 'managed_cache', row.entry_id, 0, now)
+    return { scopeId: input.scopeId, deletionId, suppressedEvents: eventIds.length }
   })
 }

@@ -72,6 +72,12 @@ export const LIMITS = {
    * database with empty accounts would take a script.
    */
   account: { refillPerSecond: 0.2, capacity: 20 },
+  /**
+   * The memory inspector: paging, opening items, edits and forgets. A person
+   * clicking through their memories stays far inside this; an export or an
+   * import costs several tokens at once.
+   */
+  memory: { refillPerSecond: 2, capacity: 60 },
 } as const satisfies Record<string, BucketConfig>
 
 export type LimitName = keyof typeof LIMITS

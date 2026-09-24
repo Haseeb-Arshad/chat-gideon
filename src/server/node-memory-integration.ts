@@ -3,6 +3,7 @@ import {
   captureCommittedEvent,
   executeExplicitCommand,
   executeForgetCommand,
+  readMemoryMode,
   readCurrentAssertion,
   resolveExplicitTarget,
   retrieveMemory,
@@ -39,7 +40,8 @@ const PG_RUNTIME = Symbol.for('gideon.node.memory-postgres-runtime.v1')
 const BACKGROUND = Symbol.for('gideon.node.memory-background.v1')
 type PgGlobal = typeof globalThis & { [PG_RUNTIME]?: PostgresMemoryStore; [BACKGROUND]?: MemoryBackgroundHandle }
 
-function postgresStore(): PostgresMemoryStore {
+/** The process-wide PostgreSQL memory store; also used by the Stage 12 controls API. */
+export function postgresStore(): PostgresMemoryStore {
   const globals = globalThis as PgGlobal
   const store = globals[PG_RUNTIME] ??= createPostgresMemoryStore()
   ensureBackground(store)
@@ -200,9 +202,19 @@ function createRecallInput(query: string, timezone: string, conversationState: C
   }
 }
 
-function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: ReturnType<typeof memoryFeatureFlags>): MemoryTurnRuntime {
+/** The per-request memory runtime for an already bound session (exported for tests). */
+export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: ReturnType<typeof memoryFeatureFlags>): MemoryTurnRuntime {
+  // The owner's temporary-conversation setting, read once per request. An
+  // unreadable setting is not treated as "temporary off": capture and recall
+  // then fail the same way the authority itself would.
+  let modeRead: Promise<Awaited<ReturnType<typeof readMemoryMode>>> | null = null
+  const temporary = async () => {
+    modeRead ??= readMemoryMode(session)
+    return (await modeRead)?.temporary === true
+  }
   const retrieve = async (query: string, context: MemoryRecallTurnContext, signal: AbortSignal) => {
     if (!flags.recall || session.trust !== 'authenticated') return { status: 'unavailable' as const, reason: 'unauthorized' as const }
+    if (await temporary()) return { status: 'unavailable' as const, reason: 'temporary' as const }
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
     if (context.principalId !== session.principal.id || context.scopeId !== session.scope.id || context.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
@@ -228,6 +240,8 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
     async captureUserTurn(context, signal) {
       if (!flags.capture || session.trust !== 'authenticated') return { status: 'unavailable', reason: 'unauthorized' }
       if (signal.aborted) return { status: 'unavailable', reason: 'stale' }
+      // A temporary conversation leaves no durable evidence at all.
+      if (await temporary()) return { status: 'unavailable', reason: 'temporary_mode' }
       const event = buildCommittedUserEvent(session, context)
       if (!event) return { status: 'failed', reason: 'empty_or_oversized_user_turn' }
       const receipt = await captureCommittedEvent(session.store, session, event, { assignSequence: true })
@@ -264,6 +278,15 @@ function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: Retur
         return { ok: true, content: shape.value.relation === 'transition' ? 'I updated that memory and kept what was true before.' : 'I updated that memory.', summary, receiptState: result.receipt.state, receiptId: result.receipt.receiptId }
       }
       try {
+        // Forgetting always works; saving, correcting and looking up do not in a temporary conversation.
+        if (name !== 'forget' && await temporary()) {
+          return {
+            ok: false,
+            content: 'A temporary conversation is on, so memory is off: nothing was saved or looked up. It can be turned off in Memory.',
+            summary: 'Temporary conversation: memory off',
+            receiptState: name === 'recall' ? undefined : 'failed',
+          }
+        }
         if (name === 'recall') {
           const query = typeof args.query === 'string' ? args.query.trim() : ''
           if (!query) return { ok: false, content: 'Nothing was given to look up in memory.', summary: 'Memory lookup was not run' }

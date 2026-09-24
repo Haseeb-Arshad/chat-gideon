@@ -46,6 +46,13 @@ export interface ExplicitCommandOptions {
   injectFailureAfterAssertion?: boolean
   /** Test-only simulation of a lost response after the transaction commits. */
   injectResponseFailureAfterCommit?: boolean
+  /**
+   * Stage 12 import: the item came from a file the user uploaded, not from a
+   * statement in conversation. The event is `imported_legacy` with a
+   * legacy-import authority and the assertion basis is `imported_legacy`, so
+   * the inspector never presents it as something the user said.
+   */
+  origin?: { kind: 'import'; importId: string; exportedAt: string | null }
 }
 
 export interface AcceptedChangeOverlay {
@@ -374,8 +381,23 @@ function buildEvent(
   validTime: ValidTime,
   relation: TemporalRelation,
   sourceSpan: SourceSpan | null,
+  origin: ExplicitCommandOptions['origin'] = undefined,
 ): import('../../../src/lib/memory/contracts.ts').EventEnvelope {
   const isCorrection = command.kind === 'correct'
+  if (origin?.kind === 'import') {
+    return {
+      ...buildEvent(session, command, eventId, sequence, now, validTime, relation, null),
+      sourceKind: 'imported_legacy',
+      sourceAuthority: { kind: 'legacy_import', revision: `policy/${session.policyEpoch}` as RevisionId },
+      payload: {
+        commandId: command.commandId,
+        text: command.text,
+        assertionKind: command.assertionKind,
+        importId: origin.importId,
+        exportedAt: origin.exportedAt,
+      },
+    }
+  }
   return {
     schemaVersion: 1,
     id: eventId as import('../../../src/lib/memory/contracts.ts').EventId,
@@ -426,7 +448,17 @@ function buildAssertion(
   prior: AssertionVersion | null,
   slot: CanonicalSlot | null,
   sourceSpan: SourceSpan | null,
+  origin: ExplicitCommandOptions['origin'] = undefined,
 ): AssertionVersion {
+  if (origin?.kind === 'import') {
+    const base = buildAssertion(session, command, eventId, now, interpretedAt, validTime, relation, assertionId, revision, prior, slot, null)
+    return {
+      ...base,
+      attribution: { actor: { kind: 'principal', principalId: session.principal.id }, basis: 'imported_legacy' },
+      evidence: [{ eventId: eventId as import('../../../src/lib/memory/contracts.ts').EventId, span: null, relation: 'supports' }],
+      producer: { name: 'memory-import', version: 'stage-12.1', model: null },
+    }
+  }
   return {
     schemaVersion: 1,
     id: assertionId as AssertionVersion['id'],
@@ -552,7 +584,7 @@ async function persistCommand(
             assertion: duplicate,
           }
           const sequence = await transaction.nextEventSequence()
-          const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan)
+          const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan, options.origin)
           if (await transaction.insertEvent(event) !== 'inserted') throw failure('conflict', 'The command event was concurrently claimed; retry the same command.', true)
           await transaction.query(
             `INSERT INTO ${SQL.commands} (scope_id, command_id, command_hash, operation, event_id, assertion_id, assertion_revision, outcome, change_watermark, receipt, result)
@@ -571,9 +603,9 @@ async function persistCommand(
       }
 
       const sequence = await transaction.nextEventSequence()
-      const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan)
+      const event = buildEvent(session, command, eventId, sequence, now, validTime, relation, sourceSpan, options.origin)
       if (await transaction.insertEvent(event) !== 'inserted') throw failure('conflict', 'The command event was concurrently claimed; retry the same command.', true)
-      const assertion = buildAssertion(session, command, event.id, now, interpretedAt, validTime, relation, assertionId, revision, prior, targetSlot, sourceSpan)
+      const assertion = buildAssertion(session, command, event.id, now, interpretedAt, validTime, relation, assertionId, revision, prior, targetSlot, sourceSpan, options.origin)
       const commit: AssertionCommit = {
         assertion,
         expectedRevision: prior ? prior.revision : null,
