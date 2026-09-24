@@ -737,6 +737,13 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
 
   async runTransaction<T>(work: (transaction: PostgresMemoryTransaction) => Promise<T>): Promise<T> {
     const client = await this.pool.connect()
+    // A backend terminated while this client is checked out (restart,
+    // failover, admin kill) emits 'error' on the client itself; unheard, that
+    // is an uncaught exception that takes the whole process down. The query
+    // in flight fails on its own, so the event only marks the client broken.
+    let broken: Error | undefined
+    const onError = (error: Error) => { broken = error }
+    client.on('error', onError)
     try {
       await client.query('BEGIN')
       const transaction = new PostgresMemoryTransaction(client, this.context)
@@ -744,10 +751,13 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
       await client.query('COMMIT')
       return result
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined)
+      const rolledBack = await client.query('ROLLBACK').then(() => true, () => false)
+      if (!rolledBack) broken ??= error instanceof Error ? error : new Error('rollback failed')
       throw error
     } finally {
-      client.release()
+      client.off('error', onError)
+      // A broken client is destroyed rather than returned to the pool.
+      client.release(broken)
     }
   }
 
