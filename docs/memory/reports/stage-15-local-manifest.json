@@ -1,0 +1,123 @@
+{
+  "format": "gideon-memory-migration",
+  "version": 1,
+  "environment": "local-rehearsal",
+  "createdAt": "2026-09-24T22:02:51.930Z",
+  "source": {
+    "kind": "node-json-files",
+    "directory": "<disposable rehearsal directory>"
+  },
+  "destination": {
+    "kind": "postgres",
+    "connection": "GIDEON_MEMORY_DATABASE_URL"
+  },
+  "writerFence": "gideon_memory.authority_cutovers: compare-and-set per owner under a PostgreSQL advisory lock; HTTP turns and sockets check it on every write",
+  "owners": [
+    {
+      "owner": "node/0001000100010001000100010001000100010001000100010001000100010001",
+      "file": "0001000100010001000100010001000100010001000100010001000100010001.json",
+      "legacyRevision": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "expectedCount": 0,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0002000200020002000200020002000200020002000200020002000200020002",
+      "file": "0002000200020002000200020002000200020002000200020002000200020002.json",
+      "legacyRevision": "f4935bf847e5109fb11342b2e1a336d2e25042c3cf0774ed67bcd8f2ab8ce301",
+      "expectedCount": 1,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0003000300030003000300030003000300030003000300030003000300030003",
+      "file": "0003000300030003000300030003000300030003000300030003000300030003.json",
+      "legacyRevision": "7ac80731212e7b6ec226c82c005aa864a58d33b3087111ba86cbbfabd70a9aba",
+      "expectedCount": 3,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0004000400040004000400040004000400040004000400040004000400040004",
+      "file": "0004000400040004000400040004000400040004000400040004000400040004.json",
+      "legacyRevision": "fe1d29219c69945eb517933d6ee0a89793379355d02b398683744d4c12fe6fa2",
+      "expectedCount": 8,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0005000500050005000500050005000500050005000500050005000500050005",
+      "file": "0005000500050005000500050005000500050005000500050005000500050005.json",
+      "legacyRevision": "9e496ad12d957d6e6cb0b89e88893033906db4786666d56b801f05a4e0eba8c7",
+      "expectedCount": 15,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0006000600060006000600060006000600060006000600060006000600060006",
+      "file": "0006000600060006000600060006000600060006000600060006000600060006.json",
+      "legacyRevision": "1c3e24cc04344ea02005a0589d65f4a69660f6ed2f8c006afd25cccd58589b22",
+      "expectedCount": 20,
+      "quarantined": [
+        {
+          "reason": "empty_text",
+          "count": 1
+        },
+        {
+          "reason": "unknown_kind",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "owner": "node/0007000700070007000700070007000700070007000700070007000700070007",
+      "file": "0007000700070007000700070007000700070007000700070007000700070007.json",
+      "legacyRevision": "a9167f9514acb1b862530da723a4092b58b889b2251db7960464b37f09a8b2a3",
+      "expectedCount": 25,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0008000800080008000800080008000800080008000800080008000800080008",
+      "file": "0008000800080008000800080008000800080008000800080008000800080008.json",
+      "legacyRevision": "6eea11fd6b26653cdf7e3325405a371148431ee86968e4bf9ae89eb0d12b368b",
+      "expectedCount": 30,
+      "quarantined": []
+    },
+    {
+      "owner": "node/0009000900090009000900090009000900090009000900090009000900090009",
+      "file": "0009000900090009000900090009000900090009000900090009000900090009.json",
+      "legacyRevision": "61183b2dcacd5fc42b6c2a9cd993cdabb3afc885def640b168a1ea111743447d",
+      "expectedCount": 40,
+      "quarantined": []
+    },
+    {
+      "owner": "node/000a000a000a000a000a000a000a000a000a000a000a000a000a000a000a000a",
+      "file": "000a000a000a000a000a000a000a000a000a000a000a000a000a000a000a000a.json",
+      "legacyRevision": "028bd7f1cf8717e4cd133c24e6e1fa2fce2764362c94f11a5dbba382a1612db5",
+      "expectedCount": 50,
+      "quarantined": []
+    },
+    {
+      "owner": "node/000b000b000b000b000b000b000b000b000b000b000b000b000b000b000b000b",
+      "file": "000b000b000b000b000b000b000b000b000b000b000b000b000b000b000b000b.json",
+      "legacyRevision": "1203526c25be35790fee95880d2a347cc491c985d0e92952eb1c020677c81dec",
+      "expectedCount": 55,
+      "quarantined": []
+    },
+    {
+      "owner": "node/000c000c000c000c000c000c000c000c000c000c000c000c000c000c000c000c",
+      "file": "000c000c000c000c000c000c000c000c000c000c000c000c000c000c000c000c.json",
+      "legacyRevision": "ceb5db942fd954d8f745701d5b9ca890bdb91c95cc1db4f8bc3f2f9cf7a869fe",
+      "expectedCount": 60,
+      "quarantined": []
+    }
+  ],
+  "unrecognizedFiles": [
+    "notes-backup.json"
+  ],
+  "protectedData": [
+    "The legacy files are never deleted by the migration; after cutover they are read-only projections.",
+    "Anything forgotten in the new authority is never imported again, including from an older copy of a file.",
+    "Quarantined rows stay in the legacy file untouched and are listed here by reason."
+  ],
+  "rollback": [
+    "Per owner: GIDEON_MEMORY_CUTOVER=1 npm run memory:ops -- rollback <legacy-dir> <owner>.",
+    "The legacy file is rewritten from the current new-authority projection, keeping corrections and deletions; the pre-migration file is not restored.",
+    "Everyone at once: GIDEON_MEMORY_CUTOVER_ENABLED=0 returns routing to the pre-Stage-15 behavior; owners already moved then read the new authority through the flags as before."
+  ]
+}

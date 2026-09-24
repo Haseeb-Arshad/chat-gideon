@@ -136,10 +136,14 @@ describe.skipIf(!enabled)('Stage 15 single-writer cutover', () => {
   it('refuses every write while fenced, lets an in-flight legacy write finish first, and imports it', async () => {
     const subject = owner('fence', [legacyRecord(1), legacyRecord(2)])
     const slowSave = { release: () => undefined as void }
+    let entered: () => void = () => undefined
+    const writing = new Promise<void>((resolve) => { entered = resolve })
     const disk: MemoryStore = {
       all: () => subject.legacy.read() as Promise<Memory[]>,
       save: async () => undefined,
       mutate: async (change) => {
+        // Reached only with the shared writer lock held.
+        entered()
         const current = await subject.legacy.read() as Memory[]
         const { memories, result } = change(current)
         await new Promise<void>((resolve) => { slowSave.release = resolve })
@@ -150,9 +154,15 @@ describe.skipIf(!enabled)('Stage 15 single-writer cutover', () => {
     const legacyStore = new FencedLegacyStore(disk, subject.session)
     // A legacy write begins before the fence and is still writing when the cutover starts.
     const inFlight = legacyStore.mutate((memories) => ({ memories: [...memories, legacyRecord(3, 'Written while the cutover waited')], result: 'ok' }))
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await writing
     const cutover = cutoverScope(subject.session, subject.legacy)
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    // Wait until the fence is visibly blocked on the writer lock, rather than guessing with a sleep.
+    for (let attempt = 0; ; attempt += 1) {
+      const waiting = await database.query(`SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%pg_advisory_xact_lock%'`)
+      if (waiting.rows.length) break
+      if (attempt > 500) throw new Error('the fence never waited for the in-flight write')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
     // The fence is waiting for the in-flight write; nothing is fenced yet.
     expect((await readAuthority(store, subject.session.scope.id)).state).toBe('legacy')
     slowSave.release()

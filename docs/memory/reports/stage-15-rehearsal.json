@@ -1,0 +1,203 @@
+{
+  "stage": 15,
+  "label": "local rehearsal with synthetic owners on a disposable database; not a staging or production migration",
+  "generatedAt": "2026-09-24T22:03:05.096Z",
+  "cohort": {
+    "owners": 12,
+    "memories": 307,
+    "malformedRows": 2,
+    "unrecognizedFiles": 1
+  },
+  "shadow": {
+    "samples": 63,
+    "legacyRecallCoverage": 1,
+    "newRecallCoverage": 1,
+    "legacyLookupMs": {
+      "p50": 0.3,
+      "p95": 0.6
+    },
+    "newLookupMs": {
+      "p50": 24,
+      "p95": 45.2
+    },
+    "isolation": "separate database; live database had no cutover rows after the shadow run"
+  },
+  "cutover": {
+    "results": [
+      {
+        "owner": "node/00010001…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 0,
+        "imported": 0,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00020002…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 1,
+        "imported": 1,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00030003…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 3,
+        "imported": 3,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00040004…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 8,
+        "imported": 8,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00050005…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 15,
+        "imported": 15,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00060006…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 20,
+        "imported": 20,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 2,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00070007…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 25,
+        "imported": 25,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00080008…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 30,
+        "imported": 30,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/00090009…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 40,
+        "imported": 40,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/000b000b…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 55,
+        "imported": 55,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/000c000c…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 60,
+        "imported": 60,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      },
+      {
+        "owner": "node/000a000a…",
+        "outcome": "activated",
+        "reason": null,
+        "expected": 51,
+        "imported": 51,
+        "alreadyImported": 0,
+        "duplicateText": 0,
+        "forgotten": 0,
+        "quarantined": 0,
+        "deltaRounds": 1
+      }
+    ],
+    "refusedBecauseChangedSincePlan": 1,
+    "retryOutcomes": [
+      "already_active",
+      "activated"
+    ]
+  },
+  "stopConditions": {
+    "falseReceipts": 0,
+    "unauthorizedDisclosure": 0,
+    "lostWrites": 0,
+    "resurrections": 0,
+    "countMismatches": 0,
+    "deadJobs": 0,
+    "jobsCancelledByDeletion": 2,
+    "lostAcceptedCommands24h": 0,
+    "criticalAlerts": []
+  },
+  "rollbackDrill": [
+    {
+      "owner": "node/00050005…",
+      "projected": 14,
+      "forgottenBack": false,
+      "correctedKept": true
+    },
+    {
+      "owner": "node/00080008…",
+      "projected": 29,
+      "forgottenBack": false,
+      "correctedKept": true
+    }
+  ]
+}
