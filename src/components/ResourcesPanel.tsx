@@ -34,6 +34,15 @@ export interface Resource {
   links: ResourceLink[]
 }
 
+/** The canonical memory receipt, independent of what was said aloud. */
+const RECEIPT_LABEL: Record<NonNullable<Resource['receiptState']>, string> = {
+  captured: 'received, not yet a memory',
+  pending: 'waiting for your choice',
+  accepted: 'saved',
+  indexed: 'saved and searchable',
+  failed: 'not saved',
+}
+
 function ago(at: number): string {
   const seconds = Math.round((Date.now() - at) / 1000)
   if (seconds < 45) return 'just now'
@@ -102,6 +111,11 @@ export function ResourcesPanel({
                 <p className="resource-title">{resource.title}</p>
                 <p className="resource-detail">
                   {resource.detail} · {ago(resource.at)}
+                  {resource.receiptState ? (
+                    <span className="resource-receipt" data-state={resource.receiptState}>
+                      {' · '}{RECEIPT_LABEL[resource.receiptState]}
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </div>

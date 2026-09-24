@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowUp,
   AudioLines,
+  Brain,
   Library,
   Mic,
   MicOff,
@@ -36,7 +37,7 @@ import {
   scoreText,
 } from '../lib/mood'
 import { RealtimeLink, type ActionEvent, type TurnHandle } from '../lib/realtime-client'
-import { backendHeaders, backendUrl } from '../lib/backend'
+import { backendHeaders, backendUrl, ensureAccount } from '../lib/backend'
 import { SpeculationTracker, looksUnfinished } from '../lib/speculation'
 import {
   ClientToolRunner,
@@ -451,6 +452,16 @@ export function AgentPage() {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [hudOpen, setHudOpen] = useState(false)
+  // The Memory page link appears only where the server offers memory controls.
+  const [memoryControls, setMemoryControls] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    void ensureAccount(3_000, controller.signal)
+      .then(() => fetch('/api/memory?view=status', { credentials: 'same-origin', signal: controller.signal }))
+      .then((response) => { if (response.ok) setMemoryControls(true) })
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [])
   /** The composer is a resting pill until it is asked for, then it is a field. */
   const [composerOpen, setComposerOpen] = useState(false)
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
@@ -2484,6 +2495,17 @@ export function AgentPage() {
             <Library size={17} />
             <span>Resources</span>
             <b>{resources.length}</b>
+          </GlassButton>
+        ) : null}
+        {memoryControls ? (
+          <GlassButton
+            className="reset-button"
+            type="button"
+            onClick={() => { window.location.assign('/memory') }}
+            aria-label="Memory: see and change what GIDEON remembers"
+          >
+            <Brain size={17} />
+            <span>Memory</span>
           </GlassButton>
         ) : null}
         <GlassButton

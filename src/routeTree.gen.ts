@@ -10,11 +10,13 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SystemCardRouteImport } from './routes/system-card'
+import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LabCardsRouteImport } from './routes/lab.cards'
 import { Route as ApiVoiceRouteImport } from './routes/api.voice'
 import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
+import { Route as ApiMemoryRouteImport } from './routes/api.memory'
 import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
 import { Route as ApiConfigRouteImport } from './routes/api.config'
 import { Route as ApiChatRouteImport } from './routes/api.chat'
@@ -23,6 +25,11 @@ import { Route as ApiAccountRouteImport } from './routes/api.account'
 const SystemCardRoute = SystemCardRouteImport.update({
   id: '/system-card',
   path: '/system-card',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoryRoute = MemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentRoute = AgentRouteImport.update({
@@ -50,6 +57,11 @@ const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
   path: '/api/transcribe',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMemoryRoute = ApiMemoryRouteImport.update({
+  id: '/api/memory',
+  path: '/api/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthzRoute = ApiHealthzRouteImport.update({
   id: '/api/healthz',
   path: '/api/healthz',
@@ -74,11 +86,13 @@ const ApiAccountRoute = ApiAccountRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
+  '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
@@ -86,11 +100,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
+  '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
@@ -99,11 +115,13 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
+  '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
@@ -113,11 +131,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/agent'
+    | '/memory'
     | '/system-card'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
@@ -125,11 +145,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/agent'
+    | '/memory'
     | '/system-card'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
@@ -137,11 +159,13 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/agent'
+    | '/memory'
     | '/system-card'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
@@ -150,11 +174,13 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentRoute: typeof AgentRoute
+  MemoryRoute: typeof MemoryRoute
   SystemCardRoute: typeof SystemCardRoute
   ApiAccountRoute: typeof ApiAccountRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiConfigRoute: typeof ApiConfigRoute
   ApiHealthzRoute: typeof ApiHealthzRoute
+  ApiMemoryRoute: typeof ApiMemoryRoute
   ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiVoiceRoute: typeof ApiVoiceRoute
   LabCardsRoute: typeof LabCardsRoute
@@ -167,6 +193,13 @@ declare module '@tanstack/react-router' {
       path: '/system-card'
       fullPath: '/system-card'
       preLoaderRoute: typeof SystemCardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memory': {
+      id: '/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agent': {
@@ -204,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTranscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/memory': {
+      id: '/api/memory'
+      path: '/api/memory'
+      fullPath: '/api/memory'
+      preLoaderRoute: typeof ApiMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/healthz': {
       id: '/api/healthz'
       path: '/api/healthz'
@@ -238,11 +278,13 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentRoute: AgentRoute,
+  MemoryRoute: MemoryRoute,
   SystemCardRoute: SystemCardRoute,
   ApiAccountRoute: ApiAccountRoute,
   ApiChatRoute: ApiChatRoute,
   ApiConfigRoute: ApiConfigRoute,
   ApiHealthzRoute: ApiHealthzRoute,
+  ApiMemoryRoute: ApiMemoryRoute,
   ApiTranscribeRoute: ApiTranscribeRoute,
   ApiVoiceRoute: ApiVoiceRoute,
   LabCardsRoute: LabCardsRoute,

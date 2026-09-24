@@ -1,0 +1,608 @@
+/* Memory inspector (Stage 12). Same dark glass, type and mono labels as the resources panel. */
+
+.memory-page {
+  max-width: 1120px;
+  min-height: 100svh;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 48px) clamp(16px, 3vw, 42px) 64px;
+  color: var(--white);
+}
+
+.memory-header {
+  margin-bottom: 22px;
+}
+
+.memory-header h1 {
+  margin: 14px 0 6px;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.memory-header p {
+  max-width: 62ch;
+  margin: 0;
+  color: rgba(224, 230, 240, 0.62);
+  line-height: 1.5;
+}
+
+.memory-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(191, 233, 255, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.memory-back:hover,
+.memory-back:focus-visible {
+  color: var(--white);
+}
+
+.memory-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .memory-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .memory-side {
+    order: -1;
+  }
+}
+
+.memory-column {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.memory-card {
+  padding: 18px 20px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(24, 28, 37, 0.78), rgba(10, 12, 16, 0.86));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 24px 60px -30px rgba(0, 0, 0, 0.7);
+}
+
+.memory-card h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.memory-card h3 {
+  margin: 20px 0 8px;
+  color: rgba(191, 233, 255, 0.66);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.memory-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-counts li {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(224, 230, 240, 0.7);
+  font-size: 0.8rem;
+}
+
+.memory-counts b {
+  color: var(--white);
+  font-weight: 600;
+}
+
+.memory-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-item {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.memory-item[data-status='candidate'] {
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.memory-item[data-freshness='expired'] .memory-item-text {
+  color: rgba(236, 240, 247, 0.55);
+}
+
+.memory-item[data-forgotten='true'] {
+  border-color: rgba(63, 201, 160, 0.25);
+}
+
+.memory-item-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.memory-item-text {
+  flex: 1;
+  margin: 0;
+  color: rgba(236, 240, 247, 0.92);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.memory-item-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.memory-item-actions button,
+.memory-edit-actions button,
+.memory-confirm button,
+.memory-error button,
+.memory-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(230, 236, 245, 0.8);
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out;
+}
+
+.memory-item-actions button:hover,
+.memory-edit-actions button:hover,
+.memory-confirm button:hover,
+.memory-tabs button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--white);
+}
+
+.memory-item-actions button:focus-visible,
+.memory-edit-actions button:focus-visible,
+.memory-confirm button:focus-visible,
+.memory-tabs button:focus-visible,
+.memory-button:focus-visible,
+.memory-sources-toggle:focus-visible {
+  outline: 2px solid var(--ice);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.memory-danger {
+  border-color: rgba(255, 183, 172, 0.35) !important;
+  color: var(--danger) !important;
+}
+
+.memory-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-badges li {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(191, 233, 255, 0.07);
+  color: rgba(191, 233, 255, 0.78);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+}
+
+.memory-badges li[data-tone='proposed'] {
+  background: rgba(91, 45, 79, 0.45);
+  color: #f0c9e3;
+}
+
+.memory-badges li[data-tone='warn'] {
+  background: rgba(255, 183, 172, 0.12);
+  color: var(--danger);
+}
+
+.memory-badges li[data-tone='muted'] {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--quiet);
+}
+
+.memory-meta {
+  margin: 6px 0 0;
+  color: rgba(224, 230, 240, 0.5);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.memory-empty {
+  margin: 0;
+  color: rgba(224, 230, 240, 0.45);
+  font-size: 0.85rem;
+}
+
+.memory-sources-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(191, 233, 255, 0.7);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.memory-sources-toggle svg {
+  transition: transform 180ms ease-out;
+}
+
+.memory-sources-toggle svg[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.memory-detail {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.memory-sources,
+.memory-history,
+.memory-recent {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-sources li,
+.memory-history li,
+.memory-recent li {
+  display: grid;
+  gap: 2px;
+}
+
+.memory-sources q {
+  color: rgba(236, 240, 247, 0.85);
+  font-size: 0.84rem;
+  font-style: italic;
+}
+
+.memory-sources small,
+.memory-history small,
+.memory-recent small {
+  color: rgba(224, 230, 240, 0.45);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+.memory-history li[data-current='true'] span {
+  color: var(--white);
+}
+
+.memory-history li span,
+.memory-recent li span {
+  color: rgba(224, 230, 240, 0.72);
+  font-size: 0.82rem;
+}
+
+.memory-subhead {
+  margin: 12px 0 6px;
+  color: rgba(191, 233, 255, 0.6);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.memory-edit,
+.memory-confirm {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.memory-confirm p {
+  margin: 0;
+  color: rgba(236, 240, 247, 0.85);
+  font-size: 0.84rem;
+}
+
+.memory-confirm div,
+.memory-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.memory-edit label,
+.memory-select {
+  display: grid;
+  gap: 4px;
+  color: rgba(224, 230, 240, 0.75);
+  font-size: 0.8rem;
+}
+
+.memory-edit fieldset {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.memory-edit legend {
+  margin-bottom: 4px;
+  color: rgba(224, 230, 240, 0.75);
+  font-size: 0.8rem;
+}
+
+.memory-edit fieldset label,
+.memory-inline {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-page textarea,
+.memory-page input[type='text'],
+.memory-page input[type='search'],
+.memory-page input[type='date'],
+.memory-page select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--white);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.memory-page input[type='date'] {
+  width: auto;
+  color-scheme: dark;
+}
+
+.memory-page textarea:focus-visible,
+.memory-page input:focus-visible,
+.memory-page select:focus-visible {
+  outline: 2px solid var(--ice);
+  outline-offset: 1px;
+}
+
+.memory-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.memory-settings h2 {
+  margin-bottom: 0;
+}
+
+.memory-setting p {
+  margin: 5px 0 0;
+  color: rgba(224, 230, 240, 0.5);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.memory-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(236, 240, 247, 0.9);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.memory-switch input {
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  position: relative;
+  transition: background 180ms ease-out;
+}
+
+.memory-switch input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--white);
+  transition: transform 180ms ease-out;
+}
+
+.memory-switch input:checked {
+  background: var(--cobalt);
+}
+
+.memory-switch input:checked::after {
+  transform: translateX(14px);
+}
+
+.memory-switch input:focus-visible {
+  outline: 2px solid var(--ice);
+  outline-offset: 2px;
+}
+
+.memory-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(236, 240, 247, 0.9);
+  font-size: 0.8rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 160ms ease-out;
+}
+
+.memory-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.memory-button:focus-within {
+  outline: 2px solid var(--ice);
+  outline-offset: 2px;
+}
+
+.memory-more {
+  margin-top: 12px;
+}
+
+.memory-browse-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.memory-browse-bar form {
+  flex: 1 1 160px;
+}
+
+.memory-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.memory-tabs button[aria-selected='true'] {
+  border-color: rgba(191, 233, 255, 0.4);
+  background: rgba(191, 233, 255, 0.12);
+  color: var(--white);
+}
+
+.memory-error,
+.memory-ok {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+}
+
+.memory-error {
+  color: var(--danger);
+}
+
+.memory-ok {
+  color: rgba(120, 220, 190, 0.9);
+}
+
+.memory-toast {
+  position: fixed;
+  z-index: 40;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(420px, calc(100vw - 36px));
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(63, 201, 160, 0.3);
+  border-radius: 14px;
+  background: rgba(10, 14, 16, 0.92);
+  color: rgba(236, 240, 247, 0.92);
+  font-size: 0.8rem;
+  animation: panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.memory-banner {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(91, 45, 79, 0.8);
+  border-radius: 14px;
+  background: rgba(91, 45, 79, 0.3);
+  color: #f0c9e3;
+  font-size: 0.84rem;
+}
+
+.memory-state {
+  max-width: 640px;
+  color: rgba(224, 230, 240, 0.75);
+}
+
+.memory-state p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spin {
+  animation: memory-spin 900ms linear infinite;
+}
+
+@keyframes memory-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .memory-toast {
+    animation: none;
+  }
+}
