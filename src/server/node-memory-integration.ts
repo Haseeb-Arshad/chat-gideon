@@ -192,6 +192,13 @@ function assertionKind(value: unknown): 'fact' | 'preference' | 'constraint' | '
  * The reserves come out of the memory tier's own token budget, so they must
  * leave room: 512 + 256 once consumed all 768 tokens of `standard`, and every
  * automatic recall was rejected as invalid before it ran.
+ *
+ * Without a provider tokenizer the pack is measured in UTF-8 bytes (a safe
+ * upper bound), and the fixed pack header alone is several hundred bytes. At
+ * `standard` (576 bytes left after reserves) not even one remembered
+ * constraint fit, so every pack collapsed to "budget exhausted" and the model
+ * was shown no memory at all. The largest tier leaves about 2,900 bytes, which
+ * is roughly 700 real tokens of English; a deep lookup drops the reserves.
  */
 export function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep') {
   return {
@@ -204,8 +211,8 @@ export function createRecallInput(query: string, timezone: string, conversationS
     requestedTime: { mode: 'current', instant: null, timeZone: timezone || 'UTC' },
     consistency: 'warm_preferred',
     budget: depth
-      ? { tier: 'expanded', reserveAnswerTokens: 256, reserveToolTokens: 128 }
-      : { tier: 'standard', reserveAnswerTokens: 128, reserveToolTokens: 64 },
+      ? { tier: 'maximum', reserveAnswerTokens: 0, reserveToolTokens: 0 }
+      : { tier: 'maximum', reserveAnswerTokens: 128, reserveToolTokens: 64 },
     deadlineAt: new Date(Date.now() + 1_500).toISOString(),
   }
 }
