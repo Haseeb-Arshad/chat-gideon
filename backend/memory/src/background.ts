@@ -62,7 +62,8 @@ export interface MaintenanceReport {
   at: string
   purge: { claimed: number; completed: number; failed: number }
   retention: { scopes: number; suppressedEvents: number }
-  projections: { jobs: number; scopesRebuilt: number; requeued: number; failed: number }
+  /** `failureReasons` counts failed rebuilds by failure code (no content), so a dead projection job is explainable. */
+  projections: { jobs: number; scopesRebuilt: number; requeued: number; failed: number; failureReasons: Record<string, number> }
   learning: { processed: number; learned: number; corroborated: number; disputed: number; rejected: number; skipped: number; deferred: number; failed: number; disabledScopes: number }
   promotion: PromotionPassResult
   queue: { pendingInterpret: number; pendingProjection: number; dead: number; oldestPendingSeconds: number | null }
@@ -75,19 +76,28 @@ async function rebuildProjections(store: PostgresMemoryStore, jobs: readonly Cla
     // Coalesce: one rebuild covers every pending invalidation of the scope.
     const session = { ...createServerMemorySession({ owner: scopeId, store, channel: 'worker_http', authority: 'worker_internal_owner', policyEpoch: scopeJobs[0]!.policyEpoch }), store }
     let outcome: 'rebuilt' | 'stale' | 'failed' = 'failed'
+    let reason = 'threw'
+    let retryable = true
     try {
       const result = await rebuildWarmSnapshot(session, { now })
       outcome = result.status === 'published' ? 'rebuilt' : result.status === 'stale' ? 'stale' : 'failed'
+      if (result.status === 'unavailable') {
+        // Snapshot validation messages are fixed strings (never memory content), so they name the broken rule.
+        reason = result.failure.code === 'validation' ? `validation: ${result.failure.message}` : result.failure.code
+        retryable = result.failure.retryable
+      }
     } catch {
       outcome = 'failed'
     }
+    if (outcome === 'failed') report.projections.failureReasons[reason] = (report.projections.failureReasons[reason] ?? 0) + scopeJobs.length
     for (const job of scopeJobs) {
       await store.forContext({ principalId: job.principalId, scopeId: job.scopeId, policyEpoch: job.policyEpoch }).runTransaction(async (tx) => {
         const check = await checkRunningJob(tx, job, now)
         if (check.status === 'lease_lost') return
         if (outcome === 'rebuilt' || check.status === 'revoked') await finishCheckedJob(tx, job, now)
         else if (outcome === 'stale' || check.status === 'stale_epoch') await requeueCheckedJob(tx, job, { availableAt: now, reason: 'stale_projection', ...(check.status === 'stale_epoch' ? { epochs: { policyEpoch: check.policyEpoch, deletionEpoch: check.deletionEpoch } } : {}) })
-        else await retryCheckedJob(tx, job, { code: 'transient_provider', retryable: true }, now)
+        // A non-retryable failure goes dead at once instead of burning its attempts.
+        else await retryCheckedJob(tx, job, retryable ? { code: 'transient_provider', retryable: true } : { code: 'permanent_invalid', retryable: false }, now)
       }).catch(() => undefined)
     }
     if (outcome === 'rebuilt') report.projections.scopesRebuilt += 1
@@ -119,7 +129,7 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
     at: now,
     purge: { claimed: 0, completed: 0, failed: 0 },
     retention: { scopes: 0, suppressedEvents: 0 },
-    projections: { jobs: 0, scopesRebuilt: 0, requeued: 0, failed: 0 },
+    projections: { jobs: 0, scopesRebuilt: 0, requeued: 0, failed: 0, failureReasons: {} },
     learning: { processed: 0, learned: 0, corroborated: 0, disputed: 0, rejected: 0, skipped: 0, deferred: 0, failed: 0, disabledScopes: 0 },
     promotion: { examined: 0, promoted: 0, retired: 0 },
     queue: { pendingInterpret: 0, pendingProjection: 0, dead: 0, oldestPendingSeconds: null },
