@@ -2,10 +2,10 @@
   "stage": 13,
   "split": "heldout",
   "label": "held-out pilot (diagnostic; not a competitive claim)",
-  "liveCallsAllowed": false,
+  "liveCallsAllowed": true,
   "answersAvailable": true,
   "manifest": {
-    "commit": "0d87da817d023ce024374f5b78a31bbe4e215a4c",
+    "commit": "8eda6d12fefbeb458d77105efb734b9c192fcf27",
     "fixture": {
       "path": "scripts/fixtures/memory-conversation-heldout.json",
       "sha256": "17fc539675e9c7de976284a4e62ed5539f1f6236f25f21f7ec69db960e92366b"
@@ -524,7 +524,7 @@
         }
       },
       "readerLatencyMs": {
-        "p50": 1309,
+        "p50": 1335,
         "p95": 2669
       }
     },
@@ -804,8 +804,8 @@
       "failures": [],
       "selectionMs": {
         "p50": 0.1,
-        "p95": 1.3,
-        "p99": 4
+        "p95": 0.7,
+        "p99": 2.6
       },
       "estimatedTokens": {
         "mean": 20,
@@ -830,8 +830,8 @@
       "failures": [],
       "selectionMs": {
         "p50": 0.1,
-        "p95": 1,
-        "p99": 1.5
+        "p95": 0.5,
+        "p99": 0.6
       },
       "estimatedTokens": {
         "mean": 20,
@@ -855,9 +855,9 @@
       "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 33.5,
-        "p95": 60.8,
-        "p99": 407.8
+        "p50": 15.6,
+        "p95": 34.5,
+        "p99": 196.2
       },
       "estimatedTokens": {
         "mean": 356,
@@ -907,9 +907,9 @@
       "meanItems": 0.64,
       "failures": [],
       "selectionMs": {
-        "p50": 29.3,
-        "p95": 51.3,
-        "p99": 57.8
+        "p50": 13.4,
+        "p95": 26.9,
+        "p99": 33
       },
       "estimatedTokens": {
         "mean": 341,
@@ -933,9 +933,9 @@
       "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 31.8,
-        "p95": 49.2,
-        "p99": 105.6
+        "p50": 15.2,
+        "p95": 33.8,
+        "p99": 71.8
       },
       "estimatedTokens": {
         "mean": 358,
@@ -959,9 +959,9 @@
       "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 29.7,
-        "p95": 45.8,
-        "p99": 65
+        "p50": 13,
+        "p95": 30.1,
+        "p99": 42.9
       },
       "estimatedTokens": {
         "mean": 356,
@@ -971,14 +971,14 @@
   },
   "construction": {
     "explicitFailures": [],
-    "fullIngestMs": 51.5,
-    "fullMaintenanceMsTotal": 5581,
-    "legacyIngestMs": 0.3
+    "fullIngestMs": 41.7,
+    "fullMaintenanceMsTotal": 2086,
+    "legacyIngestMs": 0.1
   },
   "spend": {
-    "usd": 0,
-    "liveCalls": 0,
-    "cacheHits": 660,
+    "usd": 0.0004,
+    "liveCalls": 6,
+    "cacheHits": 654,
     "errors": 0,
     "capUsd": 0.2
   },

@@ -1,0 +1,192 @@
+{
+  "stage": 14,
+  "label": "bounded synthetic workload on one local machine; not a production capacity claim",
+  "generatedAt": "2026-09-24T17:41:04.615Z",
+  "environment": {
+    "platform": "win32 10.0.19045",
+    "cpus": 8,
+    "cpuModel": "Intel(R) Core(TM) i7-4800MQ CPU @ 2.70GHz",
+    "memoryGb": 12,
+    "node": "v22.13.0",
+    "database": "disposable local cluster, default settings"
+  },
+  "workload": {
+    "concurrency": 8,
+    "poolMax": 8,
+    "corpora": {
+      "small": 20,
+      "medium": 150,
+      "large": 400
+    },
+    "usersPerCorpus": 6,
+    "capturesPerUser": 10,
+    "correctionsPerUser": 5,
+    "lookupsPerUser": 12,
+    "eventToReadySamples": 30,
+    "backlogUsers": 12,
+    "backlogTurnsPerUser": 150,
+    "packCompositionIterations": 400,
+    "users": 18,
+    "seededMemories": 3420
+  },
+  "latencyMs": {
+    "capture": {
+      "n": 180,
+      "p50": 21.7,
+      "p95": 65.3,
+      "p99": 171.2,
+      "max": 189.1
+    },
+    "capture_under_backlog": {
+      "n": 96,
+      "p50": 49.3,
+      "p95": 337.1,
+      "p99": 438,
+      "max": 438
+    },
+    "edit": {
+      "n": 90,
+      "p50": 87,
+      "p95": 165.4,
+      "p99": 279.7,
+      "max": 279.7
+    },
+    "event_to_ready": {
+      "n": 30,
+      "p50": 159.1,
+      "p95": 676.1,
+      "p99": 723.4,
+      "max": 723.4
+    },
+    "lookup_after_rebuild_large": {
+      "n": 72,
+      "p50": 208.9,
+      "p95": 362.4,
+      "p99": 390.1,
+      "max": 390.1
+    },
+    "lookup_after_rebuild_medium": {
+      "n": 72,
+      "p50": 189.8,
+      "p95": 255.9,
+      "p99": 279.9,
+      "max": 279.9
+    },
+    "lookup_after_rebuild_small": {
+      "n": 72,
+      "p50": 137.5,
+      "p95": 297,
+      "p99": 395.7,
+      "max": 395.7
+    },
+    "lookup_cold_large": {
+      "n": 72,
+      "p50": 210.4,
+      "p95": 444.3,
+      "p99": 457.9,
+      "max": 457.9
+    },
+    "lookup_cold_medium": {
+      "n": 72,
+      "p50": 212,
+      "p95": 269.8,
+      "p99": 347.8,
+      "max": 347.8
+    },
+    "lookup_cold_small": {
+      "n": 72,
+      "p50": 118.1,
+      "p95": 169.5,
+      "p99": 182.6,
+      "max": 182.6
+    },
+    "lookup_every_memory_matches_large": {
+      "n": 36,
+      "p50": 232.5,
+      "p95": 332.1,
+      "p99": 340.7,
+      "max": 340.7
+    },
+    "lookup_under_backlog": {
+      "n": 96,
+      "p50": 143.5,
+      "p95": 216.7,
+      "p99": 223,
+      "max": 223
+    },
+    "pack_composition": {
+      "n": 400,
+      "p50": 0.8,
+      "p95": 2.5,
+      "p99": 4.2,
+      "max": 7.5
+    },
+    "remember_large": {
+      "n": 2400,
+      "p50": 90.5,
+      "p95": 134.5,
+      "p99": 200.6,
+      "max": 318.9
+    },
+    "remember_medium": {
+      "n": 900,
+      "p50": 100.1,
+      "p95": 231,
+      "p99": 307.2,
+      "max": 342.9
+    },
+    "remember_small": {
+      "n": 120,
+      "p50": 115.8,
+      "p95": 503.1,
+      "p99": 741.7,
+      "max": 817.2
+    },
+    "remember_under_backlog": {
+      "n": 96,
+      "p50": 53.6,
+      "p95": 138.6,
+      "p99": 438.9,
+      "max": 438.9
+    }
+  },
+  "warmSnapshotRebuildMs": 12113,
+  "backlog": {
+    "queuedInterpretations": 1800,
+    "uninterpretedTurns": 0,
+    "drainedJobs": 1896,
+    "drainMs": 35710,
+    "jobsPerSecond": 53.1
+  },
+  "extraPrefill": {
+    "packBytes": {
+      "n": 432,
+      "p50": 2733,
+      "p95": 2869,
+      "p99": 2880,
+      "max": 2880
+    },
+    "estimatedTokensMean": 677
+  },
+  "failures": {
+    "count": 0,
+    "sample": []
+  },
+  "recallDeadlineMisses": {
+    "count": 0,
+    "of": 432,
+    "rate": 0,
+    "deadlineMs": 1500
+  },
+  "finalQueue": {
+    "interpretPending": 0,
+    "dead": 0,
+    "rebuildFailureReasons": {},
+    "deadByKindAndReason": [],
+    "lostAcceptedCommands24h": 0
+  },
+  "notMeasured": {
+    "firstSubstantiveAudio": "needs the realtime voice provider and a real client; not measured locally",
+    "cacheRenewalTraffic": "no provider prompt cache is used by the memory path"
+  }
+}
