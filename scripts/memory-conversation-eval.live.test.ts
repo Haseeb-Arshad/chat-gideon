@@ -169,7 +169,8 @@ async function completeOnce(key: string, body: string): Promise<Completion> {
 // ---------------------------------------------------------------------------
 
 const flags = Object.freeze({ capture: true, commandWrites: true, recall: true })
-const run = `eval-${split}-${Date.now().toString(36)}`
+// Deterministic, so identifiers inside packs (and therefore cached answers) replay exactly; the schema is fresh per run.
+const run = `eval-${split}`
 const at = (iso: string, offsetSeconds = 0) => new Date(Date.parse(iso) + offsetSeconds * 1000)
 const slug = (text: string) => text.toLocaleLowerCase('en').replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '')
 const legacyKind = (kind: string) => (kind === 'preference' ? 'preference' : kind === 'decision' ? 'plan' : 'fact')
@@ -202,10 +203,15 @@ interface Systems {
   ingestMs: { full: number; legacy: number }
 }
 
+/** Remembered items in a pack; its fixed header and coverage lines are not personal content. */
+function packItems(pack: { sections: { applicableConstraints: readonly unknown[]; relevantFacts: readonly unknown[]; conflicts: readonly unknown[]; evidenceOnly: readonly unknown[] } }): number {
+  return pack.sections.applicableConstraints.length + pack.sections.relevantFacts.length + pack.sections.conflicts.length + pack.sections.evidenceOnly.length
+}
+
 interface ContextRow {
   trajectory: string; query: string; category: string; language: string; arm: ContextArm
   content: string; framed: string; selectionMs: number; estimatedTokens: number
-  evidenceHit: boolean | null; leak: boolean; injectedWhenNone: boolean | null; failure: string | null
+  evidenceHit: boolean | null; leak: boolean; injectedWhenNone: boolean | null; items: number; failure: string | null
 }
 
 describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () => {
@@ -292,21 +298,21 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
     await maintain(systems, end.toISOString())
   }
 
-  async function contexts(systems: Systems, query: Query): Promise<Record<ContextArm, { content: string; framed: string; selectionMs: number; failure: string | null }>> {
+  async function contexts(systems: Systems, query: Query): Promise<Record<ContextArm, { content: string; framed: string; selectionMs: number; items: number; failure: string | null }>> {
     const now = at(query.at)
     vi.setSystemTime(now)
     await maintain(systems, now.toISOString())
-    const out = {} as Record<ContextArm, { content: string; framed: string; selectionMs: number; failure: string | null }>
-    out.none = { content: '', framed: '', selectionMs: 0, failure: null }
+    const out = {} as Record<ContextArm, { content: string; framed: string; selectionMs: number; items: number; failure: string | null }>
+    out.none = { content: '', framed: '', selectionMs: 0, items: 0, failure: null }
 
     let started = performance.now()
     const legacy = await contextMemories(systems.legacy, query.text, 4, true)
-    out.legacy = { content: legacy.map((memory) => memory.text).join('\n'), framed: legacy.length ? legacyMemoryMessage(legacy.map((memory) => memory.text)) : '', selectionMs: performance.now() - started, failure: null }
+    out.legacy = { content: legacy.map((memory) => memory.text).join('\n'), framed: legacy.length ? legacyMemoryMessage(legacy.map((memory) => memory.text)) : '', selectionMs: performance.now() - started, items: legacy.length, failure: null }
 
     started = performance.now()
     const profileSummary = createProfileSessionSummaryBaseline({ profile: systems.profile.join('. '), sessions: systems.digests }).select(query.text)
     const records = profileSummary.records.filter((record) => record.text.trim())
-    out.profile_summary = { content: records.map((record) => record.text).join('\n'), framed: records.length ? `${NEUTRAL_HEADER}\n${records.map((record) => `- ${record.text}`).join('\n')}` : '', selectionMs: performance.now() - started, failure: null }
+    out.profile_summary = { content: records.map((record) => record.text).join('\n'), framed: records.length ? `${NEUTRAL_HEADER}\n${records.map((record) => `- ${record.text}`).join('\n')}` : '', selectionMs: performance.now() - started, items: records.length, failure: null }
 
     const state = topicState(`conversation/${run}/${systems.trajectory.id}/query-${query.id}`, query.text, query.topic ?? null, now.toISOString())
     for (const arm of ['full', 'full_no_source_evidence', 'full_no_applicability', 'full_no_relationships'] as const) {
@@ -315,13 +321,13 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       const result = await retrieveMemory(systems.full, { ...input, deadlineAt: new Date(now.getTime() + 15_000).toISOString() }, { now: now.toISOString(), ablate: ABLATIONS[arm] })
       const selectionMs = performance.now() - started
       if (!result.ok || !result.pack || result.pack.status === 'unavailable') {
-        out[arm] = { content: '', framed: '', selectionMs, failure: result.ok ? `pack_${result.pack?.status ?? 'missing'}` : result.failure.code }
+        out[arm] = { content: '', framed: '', selectionMs, items: 0, failure: result.ok ? `pack_${result.pack?.status ?? 'missing'}` : result.failure.code }
       } else {
-        out[arm] = { content: result.pack.text, framed: result.pack.text.trim() ? contextPackMessage(result.pack.text) : '', selectionMs, failure: null }
+        out[arm] = { content: result.pack.text, framed: result.pack.text.trim() ? contextPackMessage(result.pack.text) : '', selectionMs, items: packItems(result.pack), failure: null }
       }
     }
 
-    out.oracle = { content: query.evidence.join('\n'), framed: query.evidence.length ? `${NEUTRAL_HEADER}\n${query.evidence.map((line) => `- ${line}`).join('\n')}` : '', selectionMs: 0, failure: null }
+    out.oracle = { content: query.evidence.join('\n'), framed: query.evidence.length ? `${NEUTRAL_HEADER}\n${query.evidence.map((line) => `- ${line}`).join('\n')}` : '', selectionMs: 0, items: query.evidence.length, failure: null }
     return out
   }
 
@@ -353,7 +359,7 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
             trajectory: trajectory.id, query: query.id, category: query.category, language: trajectory.language, arm,
             content: context.content, framed: context.framed, selectionMs: context.selectionMs, estimatedTokens: Math.ceil(context.framed.length / 4),
             evidenceHit: personal && query.rubric.mustInclude.length ? coverage.evidenceHit : null,
-            leak: coverage.leak, injectedWhenNone: personal ? null : context.content.trim().length > 0, failure: context.failure,
+            leak: coverage.leak, injectedWhenNone: personal ? null : context.items > 0, items: context.items, failure: context.failure,
           })
         }
         const system = `${CONTROLLED_READER_SYSTEM}\nToday's date is ${query.at.slice(0, 10)}.`
@@ -449,6 +455,7 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
         evidenceCoverage: rate(rows.map((row) => row.evidenceHit)),
         forbiddenLeak: rate(rows.map((row) => row.leak)),
         personalContentWhenNoneNeeded: rate(rows.map((row) => row.injectedWhenNone)),
+        meanItems: Math.round(mean(rows.map((row) => row.items)) * 100) / 100,
         failures: rows.filter((row) => row.failure).map((row) => `${row.trajectory}/${row.query}: ${row.failure}`),
         selectionMs: { p50: percentile(rows.map((row) => row.selectionMs), 50), p95: percentile(rows.map((row) => row.selectionMs), 95), p99: percentile(rows.map((row) => row.selectionMs), 99) },
         estimatedTokens: { mean: Math.round(mean(rows.map((row) => row.estimatedTokens)) || 0), max: Math.max(0, ...rows.map((row) => row.estimatedTokens)) },
