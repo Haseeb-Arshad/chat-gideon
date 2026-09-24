@@ -315,8 +315,10 @@ describe.skipIf(!enabled)('Stage 14 isolation, deletion under load and restore d
     surfaces.push(await listMemoryItems(attacker))
     surfaces.push(await memoryItemDetail(attacker, victimMemory.assertion_id))
     surfaces.push(await exportMemory(attacker))
-    const forged = await executeForgetCommand(attacker, { schemaVersion: 1, commandId: `command/${run}/forge-forget`, kind: 'forget', targetAssertionId: victimMemory.assertion_id, targetRevision: 1, query: 'vault phrase' })
+    // A well-formed exact forget of the victim's memory: refused for authorization, not for shape.
+    const forged = await executeForgetCommand(attacker, { schemaVersion: 1, commandId: `command/${run}/forge-forget`, kind: 'forget', targetAssertionId: victimMemory.assertion_id, targetRevision: 1, query: null })
     expect(forged.ok).toBe(false)
+    expect(forged.ok ? null : forged.failure.code).not.toBe('validation')
     surfaces.push(forged)
     const forgedEdit = await executeExplicitCommand(attacker, { schemaVersion: 1, commandId: `command/${run}/forge-edit`, kind: 'correct', targetAssertionId: victimMemory.assertion_id, targetRevision: 1, text: 'hijacked', assertionKind: 'fact', conditions: [] })
     expect(forgedEdit.ok).toBe(false)
