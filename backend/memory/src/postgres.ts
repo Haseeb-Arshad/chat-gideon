@@ -21,7 +21,7 @@ import {
   type ScopedCandidateQuery,
   type PrincipalId,
 } from '../../../src/lib/memory/contracts.ts'
-import { DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA, MEMORY_SCHEMA, memoryPostgresConfig } from './config.ts'
+import { DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA, DEFAULT_MEMORY_INTERPRET_BACKLOG, MEMORY_SCHEMA, memoryPostgresConfig } from './config.ts'
 import { assertionVersionHash, canonicalJson, eventContentHash, isoNow, subjectKey } from './serialization.ts'
 
 const SQL = {
@@ -659,6 +659,20 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     await this.insertJob(event, 'interpret_event')
   }
 
+  /** Queued or running interpretations for this scope, counted up to `limit`. */
+  async interpretBacklog(limit: number): Promise<number> {
+    const context = this.scope()
+    const result = await this.query<{ count: string }>(
+      `SELECT count(*) AS count FROM (
+         SELECT 1 FROM ${SQL.jobs}
+         WHERE scope_id = $1 AND kind = 'interpret_event' AND state IN ('pending', 'retry', 'running')
+         LIMIT $2
+       ) backlog`,
+      [context.scopeId, limit],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  }
+
   async insertProjectionJob(event: EventEnvelope): Promise<void> {
     await this.insertJob(event, 'rebuild_projection')
   }
@@ -705,6 +719,8 @@ export interface CaptureOptions {
   /** Allocate a unique scope sequence inside the authorized transaction. */
   assignSequence?: boolean
   injectFailureAfterEventInsert?: boolean
+  /** Queued interpretations per owner before new turns stop being queued (default `DEFAULT_MEMORY_INTERPRET_BACKLOG`). */
+  interpretBacklogLimit?: number
 }
 
 /**
@@ -894,7 +910,11 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
         if (options.injectFailureAfterEventInsert) throw new Error('injected capture crash after event insert')
         const receipt = receiptCaptured(committedEvent.id, now)
         await transaction.insertCapturedReceipt(receipt, committedEvent.id)
-        await transaction.insertCaptureJob(committedEvent)
+        // Backpressure: past the owner's backlog the turn is kept (the
+        // conversation and source evidence still work) but not queued for
+        // learning; operational metrics count these as uninterpreted turns.
+        const backlogLimit = options.interpretBacklogLimit ?? DEFAULT_MEMORY_INTERPRET_BACKLOG
+        if (await transaction.interpretBacklog(backlogLimit) < backlogLimit) await transaction.insertCaptureJob(committedEvent)
         return receipt
       })
     } catch (error) {

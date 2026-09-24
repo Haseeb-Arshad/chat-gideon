@@ -6,6 +6,12 @@ export const DEFAULT_MEMORY_CONNECTION_TIMEOUT_MS = 3_000
 export const DEFAULT_MEMORY_IDLE_TIMEOUT_MS = 30_000
 export const DEFAULT_MEMORY_STATEMENT_TIMEOUT_MS = 10_000
 export const DEFAULT_MEMORY_ACCEPTED_ASSERTION_QUOTA = 1_000
+/**
+ * Per-owner cap on queued turn interpretations. Past it a turn is still
+ * captured, but not queued for learning, so a stalled or disabled learner
+ * cannot grow the queue without bound.
+ */
+export const DEFAULT_MEMORY_INTERPRET_BACKLOG = 500
 
 export interface MemoryPostgresConfig extends PoolConfig {
   connectionString: string
