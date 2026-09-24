@@ -92,7 +92,8 @@ export interface ProjectionChange {
   scopeId: ScopeId
   changeWatermark: string
   operation: 'remember' | 'correct'
-  changeKind: 'remembered' | 'corrected' | 'temporary_exception'
+  /** Every change kind the change feed records; learning (Stage 10) adds the last three. */
+  changeKind: 'remembered' | 'corrected' | 'temporary_exception' | 'learned' | 'promoted' | 'retired'
   assertion: ExactVersionRef
   version: AssertionVersion
 }
@@ -283,7 +284,7 @@ function isProjectionChange(value: unknown, scopeId: string): value is Projectio
   if (!isRecord(value) || value.scopeId !== scopeId || typeof value.changeWatermark !== 'string') return false
   if (safeWatermark(value.changeWatermark) < 1 || !value.changeWatermark.includes(`/${scopeId}/`)) return false
   if (value.operation !== 'remember' && value.operation !== 'correct') return false
-  if (value.changeKind !== 'remembered' && value.changeKind !== 'corrected' && value.changeKind !== 'temporary_exception') return false
+  if (!['remembered', 'corrected', 'temporary_exception', 'learned', 'promoted', 'retired'].includes(value.changeKind as string)) return false
   if (!isExactRef(value.assertion)) return false
   const parsed = parseAssertionVersion(value.version)
   return parsed.ok

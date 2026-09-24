@@ -151,6 +151,17 @@ describe('warm profile and snapshot projections', () => {
     expect(parseWarmSnapshot(malformed).ok).toBe(false)
   })
 
+  it('accepts learned and promoted changes in a cached snapshot, as the change feed records them', () => {
+    const learned = version('assertion/learned-hiking', 'preference', { kind: 'preference', text: 'Enjoys hiking on weekends', conditions: [], exceptions: [] })
+    const cached = JSON.parse(JSON.stringify(snapshot([learned]))) as { recentAcceptedChanges: unknown[] }
+    for (const [index, changeKind] of (['learned', 'promoted'] as const).entries()) {
+      cached.recentAcceptedChanges.push({ scopeId, changeWatermark: `watermark/${scopeId}/${20 + index}`, operation: 'remember', changeKind, assertion: { assertionId: learned.id, revision: learned.revision }, version: learned })
+    }
+    expect(parseWarmSnapshot(cached)).toMatchObject({ ok: true })
+    cached.recentAcceptedChanges.push({ scopeId, changeWatermark: `watermark/${scopeId}/30`, operation: 'remember', changeKind: 'invented', assertion: { assertionId: learned.id, revision: learned.revision }, version: learned })
+    expect(parseWarmSnapshot(cached).ok).toBe(false)
+  })
+
   it('marks capped input coverage incomplete and retains references only for composed inputs', () => {
     const many = Array.from({ length: MAX_INPUT_VERSIONS + 1 }, (_, index) => version(`assertion/cap-${index}`, 'preference', { kind: 'preference', text: `Preference ${index}`, conditions: [], exceptions: [] }))
     const result = snapshot(many)
