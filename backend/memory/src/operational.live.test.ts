@@ -95,11 +95,6 @@ describe.skipIf(!enabled)('Stage 14 operational conformance', () => {
     return (result as { ok: true; assertion: AssertionVersion }).assertion
   }
 
-  async function packText(owner: Bound, query: string, extra: Record<string, unknown> = {}) {
-    const result = await retrieveMemory(owner, recall(query, extra))
-    return result.ok ? result.pack.text : `failure:${result.failure.code}`
-  }
-
   // --- concurrency ---------------------------------------------------------------
 
   it('four OS processes correcting three shared memories lose no acknowledged write, and a first-insert race yields one memory', async () => {
