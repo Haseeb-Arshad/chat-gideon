@@ -1858,3 +1858,27 @@ describe.skipIf(!enabled)('Job claims under contention', () => {
     expect(failures).toEqual([])
   }, 60_000)
 })
+
+describe.skipIf(!enabled)('Capture under contention', () => {
+  const run = `capture-race-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 12, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  it('concurrent deliveries of one event always get the same successful receipt (C21)', async () => {
+    const memorySession = session(`user/${run}`)
+    await store.provisionTrustedContext(memorySession)
+    const failures: unknown[] = []
+    for (let round = 0; round < 150; round += 1) {
+      const event = eventFor(memorySession, `${run}-${round}`, round + 1, '2026-09-21T00:01:00.000Z')
+      const receipts = await Promise.all([0, 1, 2].map(() => captureCommittedEvent(store, memorySession, event, { now: event.receivedAt, assignSequence: round % 2 === 0 })))
+      if (!receipts.every((receipt) => receipt.ok && receipt.eventId === event.id)) failures.push({ round, receipts: receipts.map((receipt) => receipt.ok ? receipt.state : receipt.failure) })
+    }
+    expect(failures).toEqual([])
+    const events = await database.query<{ count: string }>(`SELECT count(*) FROM gideon_memory.events WHERE scope_id = $1`, [memorySession.scope.id])
+    expect(events.rows[0]?.count).toBe('150')
+  }, 60_000)
+})

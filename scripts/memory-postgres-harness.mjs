@@ -40,7 +40,11 @@ function freePort() {
 function testCommand(env) {
   const vitest = resolve(root, 'node_modules/vitest/vitest.mjs')
   if (!existsSync(vitest)) throw new Error('Vitest is not installed; run npm install first.')
-  const args = [vitest, 'run', 'backend/memory/src/postgres.live.test.ts', '--mode', 'memory-postgres']
+  // Extra arguments choose other live files (the Stage 13 evaluation); by
+  // default the authority suite and the seed conformance suite both run.
+  const files = process.argv.slice(2).filter((arg) => arg.endsWith('.live.test.ts'))
+  const targets = files.length ? files : ['backend/memory/src/postgres.live.test.ts', 'backend/memory/src/seed-conformance.live.test.ts']
+  const args = [vitest, 'run', ...targets, '--mode', 'memory-postgres', '--maxWorkers=1']
   if (env.MEMORY_TEST_VERBOSE === '1') args.push('--silent=false', '--reporter=verbose')
   const result = spawnSync(process.execPath, args, {
     cwd: root,
