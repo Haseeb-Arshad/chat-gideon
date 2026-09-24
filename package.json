@@ -22,6 +22,7 @@
     "memory:ops": "jiti scripts/memory-ops.ts",
     "memory:postgres:ops": "node scripts/memory-postgres-harness.mjs backend/memory/src/operational.live.test.ts",
     "memory:postgres:load": "node scripts/memory-postgres-harness.mjs scripts/memory-load.live.test.ts",
+    "memory:postgres:rehearsal": "node scripts/memory-postgres-harness.mjs scripts/memory-cutover-rehearsal.live.test.ts",
     "deploy:cloudflare": "npm run build:cloudflare && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "deploy": "npm run deploy:cloudflare",
     "cf:typegen": "wrangler types",
