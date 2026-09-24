@@ -327,9 +327,39 @@ async function insertPurgeTask(
   )
 }
 
-async function expandDeletionTargets(transaction: PostgresMemoryTransaction, root: AssertionVersion): Promise<DeletionExpansion> {
+/**
+ * Captured user turns that share a source document with the given events.
+ * An explicit command is recorded as its own event, but the turn that said it
+ * was also captured verbatim; forgetting only the command event left that
+ * turn (and anything learned from it) to bring the forgotten text back. Other
+ * command events from the same turn are separate memories and are not added.
+ */
+async function capturedSourceSiblings(transaction: PostgresMemoryTransaction, scopeId: string, eventIds: readonly string[], sourceIds: readonly string[] = []): Promise<string[]> {
+  if (!eventIds.length && !sourceIds.length) return []
+  const rows = await transaction.query<{ event_id: string }>(
+    `SELECT DISTINCT sibling.event_id
+     FROM ${SQL.events} sibling
+     WHERE sibling.scope_id = $1
+       AND sibling.envelope #> '{payload,commandId}' IS NULL
+       AND sibling.envelope #>> '{sourceSpans,0,document,sourceId}' IN (
+         SELECT known.envelope #>> '{sourceSpans,0,document,sourceId}'
+         FROM ${SQL.events} known
+         WHERE known.scope_id = $1 AND known.event_id = ANY($2::text[])
+           AND known.envelope #>> '{sourceSpans,0,document,sourceId}' IS NOT NULL
+         UNION
+         SELECT unnest($3::text[])
+       )
+     LIMIT $4`,
+    [scopeId, [...eventIds], [...sourceIds], MAX_DELETION_DEPENDENCY_NODES],
+  )
+  return rows.rows.map((row) => row.event_id)
+}
+
+async function expandDeletionTargets(transaction: PostgresMemoryTransaction, root: AssertionVersion, requestSourceIds: readonly string[] = []): Promise<DeletionExpansion> {
   const versions = new Map<string, ExactVersionRef>()
   const eventIds = new Set<string>(root.evidence.map((edge) => edge.eventId))
+  // The turn that asked to forget quotes what is being forgotten.
+  for (const eventId of await capturedSourceSiblings(transaction, root.scopeId, [], requestSourceIds)) eventIds.add(eventId)
   const addVersion = (reference: ExactVersionRef): boolean => {
     if (versions.size >= MAX_DELETION_DEPENDENCY_NODES) return false
     const key = targetKey(reference)
@@ -358,6 +388,7 @@ async function expandDeletionTargets(transaction: PostgresMemoryTransaction, roo
         [root.scopeId, reference.assertionId, reference.revision],
       )
       for (const row of edgeRows.rows) eventIds.add(row.event_id)
+      for (const eventId of await capturedSourceSiblings(transaction, root.scopeId, edgeRows.rows.map((row) => row.event_id))) eventIds.add(eventId)
       const dependentRows = await transaction.query<{ assertion_id: string; assertion_revision: string | number }>(
         `SELECT assertion_id, assertion_revision
          FROM ${SQL.dependencies}
@@ -631,7 +662,7 @@ export async function createDeletionPlan(
 export async function executeDeletionPlan(
   session: MemorySession,
   planId: string,
-  options: { now?: string } = {},
+  options: { now?: string; requestSourceIds?: readonly string[] } = {},
 ): Promise<{ ok: true; receipt: DeletionReceipt } | { ok: false; receipt: null; failure: MemoryFailure }> {
   try {
     const durable = postgresSession(session)
@@ -660,7 +691,7 @@ export async function executeDeletionPlan(
         if (await transaction.isSuppressed(target)) throw operationFailure('suppressed', 'The deletion target is already suppressed.', false)
         throw operationFailure('not_found', 'The exact deletion target is no longer available.', false)
       }
-      const expansion = await expandDeletionTargets(transaction, root)
+      const expansion = await expandDeletionTargets(transaction, root, options.requestSourceIds)
       const deletionId = `deletion/${crypto.randomUUID()}`
       const deletionEpoch = Number(epoch.deletion_epoch) + 1
       await suppressionAndInvalidation(transaction, durable.scope.id, deletionId, durable.principal.id, planFromRow(planRow), expansion, Number(epoch.policy_epoch), deletionEpoch, now)
@@ -679,7 +710,8 @@ export async function executeDeletionPlan(
 export async function executeForgetCommand(
   session: MemorySession,
   input: PublicForgetCommand | unknown,
-  options: { now?: string; ttlMs?: number } = {},
+  /** `requestSourceIds`: the source document of the turn that asked to forget, whose captured text is removed too. */
+  options: { now?: string; ttlMs?: number; requestSourceIds?: readonly string[] } = {},
 ): Promise<DeletionCommandResult> {
   const parsed = parsePublicMemoryCommand(input)
   if (!parsed.ok || parsed.value.kind !== 'forget') {

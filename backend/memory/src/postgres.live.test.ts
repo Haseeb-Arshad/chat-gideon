@@ -1882,3 +1882,72 @@ describe.skipIf(!enabled)('Capture under contention', () => {
     expect(events.rows[0]?.count).toBe('150')
   }, 60_000)
 })
+
+describe.skipIf(!enabled)('Explicit turns are represented by their command', () => {
+  const run = `explicit-turn-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 6, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  it('learns no second copy, and neither a replaced nor a forgotten value comes back from the captured turns', async () => {
+    const memorySession = session(`user/${run}`)
+    await store.provisionTrustedContext(memorySession)
+    const bound = postgresSession(memorySession, store)
+    const scopeId = bound.scope.id
+    const runtime = createRuntime(bound, { capture: true, commandWrites: true, recall: true })
+    const signal = new AbortController().signal
+    const turn = async (index: number, text: string, tool?: ['remember' | 'correct' | 'forget', Record<string, unknown>]) => {
+      const base = { turnId: `turn-${run}-${index}`, principalId: bound.principal.id, scopeId, policyEpoch: bound.policyEpoch, latestUserText: text, transcriptHash: 'x'.repeat(64) }
+      expect(await runtime.captureUserTurn!({ ...base, conversationId: `conversation/${run}` }, signal)).toMatchObject({ status: 'captured' })
+      if (tool) expect(await runtime.execute(tool[0], tool[1], { ...base, callId: 'call-1', responseId: `response-${index}`, timezone: 'UTC', conversationState: null, speculative: false, signal })).toMatchObject({ ok: true })
+    }
+    const learn = () => runMemoryMaintenance(store, { workerId: `${run}-learner`, extractor: RULE_EXTRACTOR, learning: true, learningEnabledFor: () => true, settleMs: 0, scopeId })
+    const pack = async (query: string) => {
+      const result = await retrieveMemory(bound, retrievalInput(query))
+      expect(result.ok).toBe(true)
+      return result.ok ? result.pack.text : ''
+    }
+    const containing = (needle: string, suppressed: boolean) => database.query<{ event_id: string }>(
+      `SELECT e.event_id FROM gideon_memory.events e
+       WHERE e.scope_id = $1 AND e.envelope::text LIKE $2
+         AND ${suppressed ? '' : 'NOT'} EXISTS (SELECT 1 FROM gideon_memory.deletion_suppressions s WHERE s.scope_id = e.scope_id AND s.event_id = e.event_id)`,
+      [scopeId, `%${needle}%`],
+    )
+
+    await turn(1, 'Please remember that my phone is a Pixel 8', ['remember', { text: 'My phone is a Pixel 8', kind: 'fact' }])
+    await turn(2, 'Please remember that my locker code is 4471', ['remember', { text: 'My locker code is 4471', kind: 'fact' }])
+    await turn(3, 'By the way, my car registration expires on October 14.')
+    const learned = await learn()
+    expect(learned.learning.skipped).toBe(2)
+    const decisions = await database.query<{ reason: string }>(`SELECT reason FROM gideon_memory.learning_decisions WHERE scope_id = $1 AND action = 'skip'`, [scopeId])
+    expect(decisions.rows.map((row) => row.reason)).toEqual(['handled_by_explicit_command', 'handled_by_explicit_command'])
+    const texts = await database.query<{ text: string }>(
+      `SELECT v.version::text AS text FROM gideon_memory.assertions a
+       JOIN gideon_memory.assertion_versions v ON v.scope_id = a.scope_id AND v.assertion_id = a.assertion_id AND v.revision = a.current_revision
+       WHERE a.scope_id = $1 AND a.current_status IN ('candidate', 'accepted', 'disputed')
+         AND v.version #>> '{producer,name}' <> 'explicit-command'`,
+      [scopeId],
+    )
+    expect(texts.rows.filter((row) => /Please remember/u.test(row.text))).toEqual([])
+
+    await turn(4, 'Update that: my phone is now an iPhone 16', ['correct', { query: 'My phone is a Pixel 8', text: 'My phone is an iPhone 16', change: 'changed' }])
+    const phone = await pack('Which phone do I have?')
+    expect(phone).toContain('iPhone 16')
+    expect(phone).not.toContain('Pixel 8')
+
+    await turn(5, 'Forget that my locker code is 4471', ['forget', { query: 'My locker code is 4471' }])
+    expect(await pack('What is my locker code?')).not.toContain('4471')
+    // Both captured turns that quote it (the request to remember and the request to forget) are suppressed with the command.
+    expect((await containing('4471', false)).rows).toEqual([])
+    expect((await containing('4471', true)).rows.length).toBeGreaterThanOrEqual(3)
+    await runPurgeBatch(store, { now: new Date(Date.now() + 60_000).toISOString(), limit: 50, scopeId })
+    const physical = await database.query(`SELECT 1 FROM gideon_memory.events WHERE scope_id = $1 AND envelope::text LIKE '%4471%'`, [scopeId])
+    expect(physical.rows).toEqual([])
+
+    // An ordinary turn is untouched: still available as attributed source evidence.
+    expect(await pack('When does my car registration expire?')).toContain('October 14')
+  })
+})

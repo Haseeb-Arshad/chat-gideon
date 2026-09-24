@@ -368,6 +368,9 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
           targetAssertionId: null,
           targetRevision: null,
           query,
+        }, {
+          // The captured text of this very turn quotes what is being forgotten.
+          requestSourceIds: [committedSourceSpan(session, context.turnId, context.latestUserText)?.document.sourceId].filter((sourceId): sourceId is SourceSpan['document']['sourceId'] => Boolean(sourceId)),
         })
         if (!result.ok) {
           if (result.failure.code === 'ambiguous' && result.candidates?.length) return ambiguousTarget(result.candidates, 'Choose the memory to forget', 'More than one memory matches. Which one should I remove?')

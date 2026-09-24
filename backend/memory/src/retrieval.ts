@@ -662,6 +662,17 @@ async function searchSourceEvidence(
              )
              AND ${visibilityPredicate('represented_v')}
          )
+         -- A turn that carried an explicit memory command is represented by
+         -- that command (its memory, its correction history or its deletion);
+         -- its raw text would repeat a replaced or forgotten value.
+         AND NOT EXISTS (
+           SELECT 1
+           FROM ${SQL.events} command_event
+           WHERE command_event.scope_id = e.scope_id
+             AND command_event.event_id <> e.event_id
+             AND command_event.envelope #> '{payload,commandId}' IS NOT NULL
+             AND command_event.envelope #>> '{sourceSpans,0,document,sourceId}' = e.envelope #>> '{sourceSpans,0,document,sourceId}'
+         )
          -- A statement behind an earlier revision of a memory that was since
          -- corrected or changed is represented by that memory's history; shown
          -- as free-standing evidence it would bring the corrected text back.

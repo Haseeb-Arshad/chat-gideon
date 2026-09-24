@@ -135,6 +135,30 @@ function payloadText(event: EventEnvelope): string {
 }
 
 /** Committed user text of this turn plus at most three earlier committed user turns in the conversation. */
+/**
+ * Whether the user's own explicit command (remember, correct, forget) was
+ * recorded from this same turn. That command is the authoritative reading of
+ * the turn; interpreting it again learned a second, differently worded copy
+ * ("User said: Please remember this: …") beside the explicit memory. The
+ * settle delay exists so the command lands first.
+ */
+async function handledByExplicitCommand(store: PostgresMemoryStore, job: ClaimedMemoryJob): Promise<boolean> {
+  const sourceId = job.event.sourceSpans[0]?.document.sourceId
+  if (!sourceId) return false
+  const result = await scoped(store, job).runTransaction(async (tx) => tx.query(
+    `
+      SELECT 1 FROM ${SQL.events} command_event
+      WHERE command_event.scope_id = $1
+        AND command_event.event_id <> $2
+        AND command_event.envelope #> '{payload,commandId}' IS NOT NULL
+        AND command_event.envelope #>> '{sourceSpans,0,document,sourceId}' = $3
+      LIMIT 1
+    `,
+    [job.scopeId, job.event.id, sourceId],
+  ))
+  return result.rows.length > 0
+}
+
 async function loadWindow(store: PostgresMemoryStore, job: ClaimedMemoryJob): Promise<ExtractionWindow | null> {
   const event = job.event
   if (event.sourceKind !== 'user_statement' || event.committedPhase !== 'committed') return null
@@ -426,6 +450,7 @@ export async function processLearningJob(
   if (job.kind !== 'interpret_event') return closeWithoutExtraction('not_an_interpretation_job')
   const loaded = await loadWindow(store, job)
   if (!loaded) return closeWithoutExtraction('not_a_committed_user_turn')
+  if (await handledByExplicitCommand(store, job)) return closeWithoutExtraction('handled_by_explicit_command')
   let window = loaded
   if (options.includeKnownMemories) {
     // Scope is bound by the job's context before anything is read; the
