@@ -1813,3 +1813,48 @@ describe.skipIf(!enabled)('Stage 12 memory controls on PostgreSQL', () => {
     }
   })
 })
+
+describe.skipIf(!enabled)('Job claims under contention', () => {
+  const run = `claims-${Date.now()}`
+  const database = new Pool({ connectionString: process.env.MEMORY_TEST_DATABASE_URL, max: 12, connectionTimeoutMillis: 3_000 })
+  const store = new PostgresMemoryStore(database)
+
+  // Regression for a READ COMMITTED race in claimJobs: a job claimed and committed by
+  // another worker after this statement's snapshot was re-locked and re-claimed,
+  // leaving a free job unclaimed. A fresh schema reproduces the tiny, unanalysed
+  // jobs table on which the race showed up (about 1 run in 3 of the Stage 03 test).
+  beforeAll(async () => {
+    await resetSchema(database)
+  })
+
+  afterAll(async () => {
+    await store.close()
+  })
+
+  it('two concurrent single-job claimers always get two distinct jobs when two are eligible', async () => {
+    const timestamp = '2026-09-21T00:01:00.000Z'
+    const failures: unknown[] = []
+    for (let round = 0; round < 200; round += 1) {
+      const memorySession = session(`user/${run}-${round}`)
+      await store.provisionTrustedContext(memorySession)
+      await captureCommittedEvent(store, memorySession, eventFor(memorySession, `${run}-${round}`, 1, timestamp), { now: timestamp })
+      await captureCommittedEvent(store, memorySession, eventFor(memorySession, `${run}-${round}`, 2, timestamp), { now: timestamp })
+      // Vary the start offset so the claims interleave at every point of the other's transaction.
+      const offset = (round % 7) * 0.5
+      const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+      const [one, two] = await Promise.all([
+        claimJobs(store, { workerId: `${run}-one`, scopeId: memorySession.scope.id, limit: 1, now: timestamp, leaseMs: 10_000 }),
+        later(offset).then(() => claimJobs(store, { workerId: `${run}-two`, scopeId: memorySession.scope.id, limit: 1, now: timestamp, leaseMs: 10_000 })),
+      ])
+      const ids = [...one, ...two].map((job) => job.jobId)
+      const rows = await database.query<{ job_id: string; state: string; worker_id: string | null; attempts: number; fence: string }>(
+        `SELECT job_id, state, worker_id, attempts, fence FROM gideon_memory.jobs WHERE scope_id = $1 ORDER BY created_at`, [memorySession.scope.id])
+      // Each job claimed exactly once: a re-claim would bump attempts and fence and steal the first lease.
+      const claimedOnce = rows.rows.every((row) => row.state === 'running' && row.attempts === 1 && Number(row.fence) === 1)
+      if (ids.length !== 2 || new Set(ids).size !== 2 || !claimedOnce) {
+        failures.push({ round, one: one.map((job) => job.jobId), two: two.map((job) => job.jobId), rows: rows.rows })
+      }
+    }
+    expect(failures).toEqual([])
+  }, 60_000)
+})

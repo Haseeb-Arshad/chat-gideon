@@ -127,12 +127,22 @@ export async function claimJobs(store: PostgresMemoryStore, options: ClaimJobsOp
                   AND (g.status = 'blocked' OR g.reconciled_ledger_sequence < g.required_ledger_sequence)
               )
           ),
+          -- Eligibility is repeated on the locked row itself. Under READ
+          -- COMMITTED a row another worker claimed and committed after this
+          -- statement's snapshot is still in \`eligible\`; when SKIP LOCKED then
+          -- locks its new version, PostgreSQL rechecks only this level's
+          -- conditions. Without them here the claimed row passed the recheck,
+          -- was claimed a second time (stealing the lease) and used up the
+          -- LIMIT, leaving a free job unclaimed.
           picked AS (
-            SELECT job_id
-            FROM ${JOBS}
-            WHERE job_id IN (SELECT job_id FROM eligible WHERE scope_rank <= $8)
-            ORDER BY available_at, created_at
-            FOR UPDATE SKIP LOCKED
+            SELECT c.job_id
+            FROM ${JOBS} c
+            WHERE c.job_id IN (SELECT job_id FROM eligible WHERE scope_rank <= $8)
+              AND c.state IN ('pending', 'retry', 'running')
+              AND c.available_at <= $1::timestamptz
+              AND (c.lease_until IS NULL OR c.lease_until <= $1::timestamptz)
+            ORDER BY c.available_at, c.created_at
+            FOR UPDATE OF c SKIP LOCKED
             LIMIT $3
           )
           UPDATE ${JOBS} j
