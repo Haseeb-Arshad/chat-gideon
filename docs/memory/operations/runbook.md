@@ -125,6 +125,66 @@ Purge tasks need the original deletion operation, which the old backup lacks.
 Until replay also purges, restore only backups inside the retention window,
 and treat a restored copy as holding deleted data.
 
+## Moving owners from the legacy JSON files (Stage 15)
+
+Nothing here has been run against a staging or production host. It was
+rehearsed locally (`npm run memory:postgres:rehearsal`). Run it only in an
+environment you have authorized.
+
+1. **Checks, no secrets printed.**
+   ```
+   npm run memory:ops -- config-check
+   npm run memory:postgres:migrate    # with GIDEON_MEMORY_MIGRATE=1; applies 011-authority-cutover
+   npm run memory:ops -- readiness
+   ```
+   `config-check` must show `databaseUrlSet`, `identitySecretSet` and
+   `productionCutoverGate` (in production) as true. Back up the legacy
+   directory (`GIDEON_MEMORY_DIR`) and start ledger shipping first.
+2. **Plan (dry run).**
+   ```
+   npm run memory:ops -- cutover-plan "$GIDEON_MEMORY_DIR" staging > manifest.json
+   ```
+   Review the owner count, expected counts, quarantined rows and
+   `unrecognizedFiles`. Unrecognized files are never guessed into an
+   account; resolve them by hand or leave them.
+3. **Turn on per-request routing** by restarting the host with
+   `GIDEON_MEMORY_CUTOVER_ENABLED=1` and the capture/command/recall switches
+   for the cohort (`GIDEON_MEMORY_ROLLOUT_PERCENT`). Owners with no legacy
+   memory move at once; everyone else keeps writing their file.
+4. **Move a small internal cohort first**, then widen:
+   ```
+   GIDEON_MEMORY_CUTOVER=1 npm run memory:ops -- cutover manifest.json <owner> [owner ...]
+   ```
+   Exit code 1 means some owner was not activated. `changed_since_plan`
+   means re-plan that owner. `aborted` leaves the owner fenced (their writes
+   answer "paused, nothing saved") until you fix the cause or roll back.
+5. **Stop conditions:** any false receipt, cross-owner disclosure,
+   resurrection, lost write (`lost_accepted_commands`), critical alert,
+   learning backlog past its alert, or a lookup-latency regression beyond the
+   SLO report. On any of them, roll back the affected owners and stop
+   widening. Record the cohort size and every rollback in the environment's
+   log.
+6. **Rollback.**
+   ```
+   GIDEON_MEMORY_CUTOVER=1 npm run memory:ops -- rollback "$GIDEON_MEMORY_DIR" <owner>
+   ```
+   The file is rewritten from the current new-authority projection, so
+   corrections stay and forgotten memories do not return. Do not copy an old
+   backup of the file over it. To stop routing entirely, restart with
+   `GIDEON_MEMORY_CUTOVER_ENABLED=0`.
+7. **After cutover** the legacy files are read-only projections. Keep them
+   (and their backups) until the retention and rollback window you chose has
+   passed, then delete them deliberately. The migration never deletes them.
+
+Proving an environment means doing all of the following, and a successful
+deploy command proves none of them:
+- open the deployed hostname;
+- sign in as a test owner;
+- confirm an HTTP turn and a realtime socket both read and write the new
+  authority;
+- correct a fact on one device and see it on another;
+- confirm a stale socket is refused after cutover.
+
 ## SLOs
 
 See `docs/memory/reports/stage-14-slo.md`.

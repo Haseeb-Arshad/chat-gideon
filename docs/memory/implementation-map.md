@@ -645,6 +645,28 @@ competitors are blocked. See `handoffs/13-comparative-evaluation.md`.
 Stage 14 is locally verified. Rollout stays blocked; see
 `handoffs/14-operational-hardening.md`.
 
+## Stage 15 single-writer cutover
+
+- `backend/memory/migrations/011-authority-cutover.sql`: `authority_cutovers`
+  (legacy / fenced / active / rolled_back per owner, compare-and-set revision).
+- `backend/memory/src/cutover.ts`: legacy parsing with quarantine, idempotent
+  import (`legacyCommandId`), hash verification, `cutoverScope`,
+  `rollbackScope`, `legacyCompatibilityView`, writer locks
+  (`withWriterLock`, `closeWriterLocks`). `commands.ts`: import origin carries
+  `legacyId`/`legacyCreatedAt`; `assertionIdFor` exported.
+- `src/server/node-memory-integration.ts`: `resolveNodeMemoryForTurn`
+  (behind `GIDEON_MEMORY_CUTOVER_ENABLED`), `FencedLegacyStore`, guarded and
+  paused runtimes, `legacySourceFor`; the Worker stub mirrors it.
+  `src/server/identity.ts`: `legacyMemoryFile`, `uncachedLegacyStore`.
+  `openrouter.server.ts` and `realtime-host.ts` resolve memory through it.
+- `src/server/memory-migration.ts`: manifest plan/execute/rollback and
+  `memoryConfigCheck`; operator commands in `scripts/memory-ops.ts`.
+- Tests: `backend/memory/src/cutover.live.test.ts`,
+  `scripts/memory-cutover-rehearsal.live.test.ts`
+  (`npm run memory:postgres:rehearsal`).
+
+Stage 15 is rehearsed locally only; staging and production were not performed.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
