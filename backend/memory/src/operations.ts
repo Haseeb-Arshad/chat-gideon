@@ -31,7 +31,9 @@ export interface QueueMetrics {
   running: number
   /** Running with an expired lease: a worker died or stalled holding it. */
   expiredLeases: number
+  /** Gave up for a real reason; jobs a deletion cancelled on purpose are `revokedByDeletion`. */
   dead: number
+  revokedByDeletion: number
   oldestWaitingSeconds: number | null
 }
 
@@ -55,13 +57,14 @@ const seconds = (value: string | null | undefined, now: string): number | null =
   value ? Math.max(0, Math.round((Date.parse(now) - Date.parse(value)) / 1000)) : null
 
 async function queue(pool: Pool, kind: 'interpret_event' | 'rebuild_projection', now: string): Promise<QueueMetrics> {
-  const result = await pool.query<{ pending: string; retry: string; running: string; expired: string; dead: string; oldest: string | null }>(
+  const result = await pool.query<{ pending: string; retry: string; running: string; expired: string; dead: string; revoked: string; oldest: string | null }>(
     `SELECT
        count(*) FILTER (WHERE state = 'pending') AS pending,
        count(*) FILTER (WHERE state = 'retry') AS retry,
        count(*) FILTER (WHERE state = 'running') AS running,
        count(*) FILTER (WHERE state = 'running' AND lease_until < $2::timestamptz) AS expired,
-       count(*) FILTER (WHERE state = 'dead') AS dead,
+       count(*) FILTER (WHERE state = 'dead' AND last_failure_code IS DISTINCT FROM 'revoked_input') AS dead,
+       count(*) FILTER (WHERE state = 'dead' AND last_failure_code = 'revoked_input') AS revoked,
        min(available_at) FILTER (WHERE state IN ('pending', 'retry')) AS oldest
      FROM ${T.jobs} WHERE kind = $1`,
     [kind, now],
@@ -73,6 +76,7 @@ async function queue(pool: Pool, kind: 'interpret_event' | 'rebuild_projection',
     running: Number(row?.running ?? 0),
     expiredLeases: Number(row?.expired ?? 0),
     dead: Number(row?.dead ?? 0),
+    revokedByDeletion: Number(row?.revoked ?? 0),
     oldestWaitingSeconds: seconds(row?.oldest, now),
   }
 }

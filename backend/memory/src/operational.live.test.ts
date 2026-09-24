@@ -247,7 +247,7 @@ describe.skipIf(!enabled)('Stage 14 operational conformance', () => {
   it('metrics are counts only, raise the privacy alerts, and never carry memory text', async () => {
     const owner = await bound('metrics')
     await remember(owner, `My locker code is ${CANARY}`)
-    await database.query(`UPDATE gideon_memory.jobs SET state = 'dead' WHERE job_id = (SELECT job_id FROM gideon_memory.jobs WHERE scope_id = $1 LIMIT 1)`, [owner.scope.id])
+    await database.query(`UPDATE gideon_memory.jobs SET state = 'dead', last_failure_code = 'transient_provider' WHERE job_id = (SELECT job_id FROM gideon_memory.jobs WHERE scope_id = $1 LIMIT 1)`, [owner.scope.id])
     await markRestorePending(store, owner.scope.id as never)
     const metrics = await collectMemoryMetrics(database)
     const alerts = evaluateMemoryAlerts(metrics)
