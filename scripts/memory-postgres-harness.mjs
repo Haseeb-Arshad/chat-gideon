@@ -93,6 +93,8 @@ async function main() {
       GIDEON_MEMORY_POSTGRES_TEST: '1',
       MEMORY_TEST_DATABASE_URL: `postgresql://gideon_test@127.0.0.1:${port}/postgres`,
       MEMORY_TEST_DATABASE_OWNED: '1',
+      // pg_dump/pg_restore for the Stage 14 restore drill.
+      MEMORY_TEST_POSTGRES_BIN_DIR: bin,
     }
     process.exitCode = testCommand(env)
   } finally {
