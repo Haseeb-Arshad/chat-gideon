@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createServerMemorySession } from '../../server/memory-session'
+import { createConversationState, replayConversationState } from '../conversation-state'
 import { EphemeralMemoryStore } from '../tools/memory'
 import type { ExactVersionRef } from './contracts'
 import {
@@ -317,6 +318,26 @@ describe('Stage 08 context packs, budgets, and deep recall', () => {
     expect(pack.sections.omittedConstraintRefs).toContain('assertion/hard@1')
     expect(pack.tokenUsage.renderedMemoryTokens).toBeLessThanOrEqual(pack.tokenUsage.memoryTokenLimit)
     expect(pack.text === '' || /budget exhausted|not evidence of absence/i.test(pack.text)).toBe(true)
+  })
+
+  it('counts the dropped-conversation note while selecting, so a pack that fits never collapses to the exhausted fallback', () => {
+    const chars = { id: 'chars', countTokens: (text: string) => text.length }
+    const fact = candidate(makeDocument())
+    const budget = (limit: number) => ({ tier: 'standard', promptTokenLimit: limit + 160, reserveAnswerTokens: 96, reserveToolTokens: 64 })
+    // The smallest memory limit at which the fact fits when there is no conversation state.
+    let limit = 96
+    while (!composeContextPack({ request: makeRequest({ budget: budget(limit) }), coverage: coverage(makeRequest()), candidates: [fact] }, chars).sections.relevantFacts.length) limit += 1
+    const state = replayConversationState(createConversationState({ conversationId: 'conversation/budget', now: '2026-09-20T12:00:00.000Z' }), [{
+      type: 'turn_committed',
+      turn: { turnId: 'turn/long', revision: 1, sequence: 1, role: 'user', text: 'plan '.repeat(400), source: 'final_transcript', committedAt: '2026-09-20T12:00:00.000Z', delivery: 'committed', heardText: null },
+    }])
+    const request = makeRequest({ budget: budget(limit), conversationState: state })
+    const pack = composeContextPack({ request, coverage: coverage(request), candidates: [fact] }, chars)
+    expect(pack.sections.conversationState).toBeNull()
+    expect(pack.text).toContain('Conversation-state coverage: bounded state was unavailable')
+    expect(pack.text).not.toMatch(/^Memory context budget exhausted/u)
+    expect(pack.status).toBe('partial')
+    expect(pack.tokenUsage.renderedMemoryTokens).toBeLessThanOrEqual(pack.tokenUsage.memoryTokenLimit)
   })
 
   it('uses a supplied tokenizer against fully rendered text and reserves answer/tool overhead', () => {

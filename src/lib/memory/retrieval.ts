@@ -931,7 +931,15 @@ export function composeContextPack(input: ContextPackInput, tokenizer?: TokenCou
   const omittedFactRefs: string[] = []
   let conversationText = conversation
 
-  const render = () => renderPackText({
+  // The note that the conversation state was dropped is part of what must fit:
+  // appended afterwards, it pushed a full pack over the limit and the whole
+  // pack collapsed to the exhausted fallback.
+  const conversationDroppedNote = 'Conversation-state coverage: bounded state was unavailable within the context budget; continuity is not assumed complete.'
+  const render = () => {
+    const text = renderPackBody()
+    return conversation !== null && conversationText === null ? `${text}\n${conversationDroppedNote}` : text
+  }
+  const renderPackBody = () => renderPackText({
     coverage,
     conversationState: conversationText,
     constraints: selectedConstraints,
@@ -986,9 +994,7 @@ export function composeContextPack(input: ContextPackInput, tokenizer?: TokenCou
     ? 'unavailable'
     : omittedConstraintRefs.length ? 'budget_exhausted'
       : coverage.outcome === 'partial' || coverage.outcome === 'exhausted' || omittedAny ? 'partial' : coverage.outcome === 'unavailable' ? 'unavailable' : 'ready'
-  let finalText = conversation !== null && conversationText === null
-    ? `${rendered}\nConversation-state coverage: bounded state was unavailable within the context budget; continuity is not assumed complete.`
-    : rendered
+  let finalText = rendered
   let finalTokens = safeTokenCount(counter, finalText)
   if (finalTokens > memoryTokenLimit) {
     omittedConstraintRefs.push(...constraints.map((item) => referenceLabel(item.document)).filter((ref) => !omittedConstraintRefs.includes(ref)))
