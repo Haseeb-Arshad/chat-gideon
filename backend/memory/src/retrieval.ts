@@ -646,20 +646,24 @@ async function searchSourceEvidence(
          AND NOT EXISTS (
            SELECT 1 FROM ${SQL.suppressions} s WHERE s.scope_id = e.scope_id AND s.event_id = e.event_id
          )
+         -- Already represented by an accepted memory that cites it (through the
+         -- indexed evidence edges, not a scan of every version's evidence).
          AND NOT EXISTS (
            SELECT 1
-           FROM ${SQL.assertions} represented
+           FROM ${SQL.evidence} linked
+           JOIN ${SQL.assertions} represented
+             ON represented.scope_id = linked.scope_id
+            AND represented.assertion_id = linked.assertion_id
+            AND represented.current_revision = linked.assertion_revision
            JOIN ${SQL.versions} represented_v
              ON represented_v.scope_id = represented.scope_id
             AND represented_v.assertion_id = represented.assertion_id
             AND represented_v.revision = represented.current_revision
-           WHERE represented.scope_id = e.scope_id
+           WHERE linked.scope_id = e.scope_id
+             AND linked.event_id = e.event_id
+             AND linked.relation IN ('supports', 'derived_from')
              AND represented.current_status = 'accepted'
              AND represented_v.status = 'accepted'
-             AND EXISTS (
-               SELECT 1 FROM jsonb_array_elements(COALESCE(represented_v.version->'evidence', '[]'::jsonb)) linked
-               WHERE linked->>'eventId' = e.event_id
-             )
              AND ${visibilityPredicate('represented_v')}
          )
          -- A turn that carried an explicit memory command is represented by
