@@ -269,6 +269,17 @@ function conditionLabel(conditions: readonly Condition[]): string {
   return conditions.map((condition) => condition.key === 'scope' && condition.value === 'current_task' ? 'one task only' : `${condition.key} ${condition.operator.replace('_', ' ')} ${Array.isArray(condition.value) ? condition.value.join(', ') : String(condition.value)}`).join('; ')
 }
 
+/** A day-precision bound reads as the calendar day where it was said; anything else stays an instant. */
+function boundLabel(instant: string, validTime: ValidTime): string {
+  if (validTime.precision !== 'day' || !validTime.sourceTimeZone) return instant
+  try {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: validTime.sourceTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant))
+    return `${day} (${validTime.sourceTimeZone})`
+  } catch {
+    return instant
+  }
+}
+
 /** A readable view of an export. The JSON is the authority; this is for people. */
 export function renderMemoryMarkdown(document: MemoryExportDocument): string {
   const lines = [
@@ -290,7 +301,7 @@ export function renderMemoryMarkdown(document: MemoryExportDocument): string {
     lines.push(`## ${KIND_HEADINGS[kind]}`, '')
     for (const item of items) {
       const status = item.status === 'accepted' ? '' : ` _(${item.status === 'candidate' ? 'proposed' : 'disputed'})_`
-      const time = item.validTime.from || item.validTime.until ? `; valid ${item.validTime.from ?? '…'} to ${item.validTime.until ?? '…'}` : ''
+      const time = item.validTime.from || item.validTime.until ? `; valid ${item.validTime.from ? boundLabel(item.validTime.from, item.validTime) : '…'} to ${item.validTime.until ? boundLabel(item.validTime.until, item.validTime) : '…'}` : ''
       lines.push(`- ${markdownText(item.text)}${status}`)
       lines.push(`  - ${BASIS_LABELS[item.basis] ?? item.basis}; ${conditionLabel(item.conditions)}${time}; accepted ${item.interpretedAt}`)
       for (const source of item.sources.slice(0, 3)) {

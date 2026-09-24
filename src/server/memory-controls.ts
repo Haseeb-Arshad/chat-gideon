@@ -153,6 +153,7 @@ export async function handleMemoryControls(request: Request): Promise<Response> 
       text: text(body.text) ?? '',
       change: body.change === 'changed' ? 'changed' : body.change === 'mistake' ? 'mistake' : ('' as never),
       since: text(body.since),
+      timeZone: text(body.timeZone),
       context: text(body.context),
       requestId: text(body.requestId) ?? '',
     }), (edit) => ({ edit }))

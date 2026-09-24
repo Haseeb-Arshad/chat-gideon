@@ -78,14 +78,14 @@ describe('Stage 12 readable projection', () => {
       settings: { learningEnabled: true, temporaryUntil: null, evidenceRetentionDays: null },
       counts: { items: 2, accepted: 1, proposed: 1, disputed: 0 }, itemsSha256: 'x',
       items: [
-        { ...item, text: 'I like *bold* <script>', basis: 'explicit_user_statement', status: 'accepted' } as MemoryExportDocument['items'][number],
+        { ...item, text: 'I like *bold* <script>', basis: 'explicit_user_statement', status: 'accepted', validTime: { from: '2026-09-19T19:00:00.000Z', until: null, precision: 'day', sourceTimeZone: 'Asia/Karachi' } } as MemoryExportDocument['items'][number],
         { ...item, assertionId: 'assertion/learned/x', kind: 'fact', text: 'Works nights', basis: 'imported_legacy', status: 'candidate', conditions: [], sources: [] } as MemoryExportDocument['items'][number],
       ],
     }
     const markdown = renderMemoryMarkdown(exported)
     expect(markdown).toContain('## Preferences')
     expect(markdown).toContain('I like \\*bold\\* \\<script\\>')
-    expect(markdown).toContain('you said this; topic equals mornings')
+    expect(markdown).toContain('you said this; topic equals mornings; valid 2026-09-20 (Asia/Karachi) to …')
     expect(markdown).toContain('Works nights _(proposed)_')
     expect(markdown).toContain('imported, no conversation citation')
     expect(markdown).toContain('No source citation is available for this item.')

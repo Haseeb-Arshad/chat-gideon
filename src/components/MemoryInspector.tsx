@@ -82,6 +82,14 @@ function when(iso: string | null): string {
 }
 
 type Announce = (message: string) => void
+type Removal = { deletionId: string; text: string }
+type Changed = (removed?: Removal) => void
+
+/** A valid-time bound as the user's local calendar date. */
+function day(iso: string): string {
+  const date = new Date(iso)
+  return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { dateStyle: 'medium' }) : ''
+}
 
 // ---------------------------------------------------------------------------
 // Item card with source inspection, edit and forget
@@ -93,7 +101,7 @@ type ItemState =
   | { mode: 'confirm-forget' }
   | { mode: 'forgotten'; deletionId: string; physical: string }
 
-function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem; announce: Announce; onChanged: () => void }) {
+function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem; announce: Announce; onChanged: Changed }) {
   const [item, setItem] = useState(initial)
   const [state, setState] = useState<ItemState>({ mode: 'view' })
   const [detail, setDetail] = useState<InspectorDetail | null>(null)
@@ -145,6 +153,7 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
       text: draft,
       change,
       since: change === 'changed' && since ? new Date(`${since}T00:00:00`).toISOString() : null,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       context: contextual ? context : null,
       requestId: pendingRequest.current,
     })
@@ -186,8 +195,8 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
     pendingRequest.current = null
     if (result.ok) {
       setState({ mode: 'forgotten', deletionId: result.value.forget.deletionId, physical: result.value.forget.physical.status })
-      announce('Forgotten. It is no longer used or shown. Cleanup of stored copies is tracked below.')
-      onChanged()
+      announce('Forgotten. It is no longer used or shown. Cleanup of stored copies is shown under Removals.')
+      onChanged({ deletionId: result.value.forget.deletionId, text: item.text })
       return
     }
     if (result.error.code === 'conflict') {
@@ -264,8 +273,8 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
       {item.proposedReason && REASON_LABEL[item.proposedReason] ? <p className="memory-meta">{REASON_LABEL[item.proposedReason]}</p> : null}
       <p className="memory-meta">
         Remembered {when(item.interpretedAt)}
-        {item.validTime.from ? ` · true from ${item.validTime.from.slice(0, 10)}` : ''}
-        {item.validTime.until ? ` · until ${item.validTime.until.slice(0, 10)}` : ''}
+        {item.validTime.from ? ` · true from ${day(item.validTime.from)}` : ''}
+        {item.validTime.until ? ` · until ${day(item.validTime.until)}` : ''}
       </p>
 
       {state.mode === 'confirm-forget' ? (
@@ -280,30 +289,30 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
 
       {state.mode === 'edit' ? (
         <form id={formId} className="memory-edit" onSubmit={submitEdit}>
-          <label>
+          <label htmlFor={`${formId}-text`}>
             <span>New wording</span>
-            <textarea value={draft} onChange={(event) => { setDraft(event.target.value); pendingRequest.current = null }} maxLength={1000} rows={2} required />
           </label>
+          <textarea id={`${formId}-text`} value={draft} onChange={(event) => { setDraft(event.target.value); pendingRequest.current = null }} maxLength={1000} rows={2} required />
           <fieldset>
             <legend>What happened?</legend>
-            <label><input type="radio" name={`${formId}-change`} checked={change === 'mistake'} onChange={() => setChange('mistake')} /> It was wrong — it was never true</label>
-            <label><input type="radio" name={`${formId}-change`} checked={change === 'changed'} onChange={() => setChange('changed')} /> It changed — it was true before</label>
+            <div className="memory-inline"><input id={`${formId}-mistake`} type="radio" name={`${formId}-change`} checked={change === 'mistake'} onChange={() => setChange('mistake')} /><label htmlFor={`${formId}-mistake`}>It was wrong — it was never true</label></div>
+            <div className="memory-inline"><input id={`${formId}-changed`} type="radio" name={`${formId}-change`} checked={change === 'changed'} onChange={() => setChange('changed')} /><label htmlFor={`${formId}-changed`}>It changed — it was true before</label></div>
             {change === 'changed' ? (
-              <label className="memory-inline">
-                <span>Since</span>
-                <input type="date" value={since} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setSince(event.target.value)} />
-              </label>
+              <div className="memory-inline">
+                <label htmlFor={`${formId}-since`}>Since</label>
+                <input id={`${formId}-since`} type="date" value={since} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setSince(event.target.value)} />
+              </div>
             ) : null}
           </fieldset>
-          <label className="memory-inline">
-            <input type="checkbox" checked={contextual} onChange={(event) => setContextual(event.target.checked)} />
-            <span>Only when working on a specific topic (keep the general memory)</span>
-          </label>
+          <div className="memory-inline">
+            <input id={`${formId}-contextual`} type="checkbox" checked={contextual} onChange={(event) => setContextual(event.target.checked)} />
+            <label htmlFor={`${formId}-contextual`}>Only when working on a specific topic (keep the general memory)</label>
+          </div>
           {contextual ? (
-            <label>
-              <span>Topic</span>
-              <input type="text" value={context} onChange={(event) => setContext(event.target.value)} maxLength={120} required placeholder="for example: investor deck" />
-            </label>
+            <>
+              <label htmlFor={`${formId}-topic`}><span>Topic</span></label>
+              <input id={`${formId}-topic`} type="text" value={context} onChange={(event) => setContext(event.target.value)} maxLength={120} required placeholder="for example: investor deck" />
+            </>
           ) : null}
           <div className="memory-edit-actions">
             <button type="submit" disabled={busy || !draft.trim()}>{busy ? <Loader2 size={13} className="spin" /> : <Check size={13} />} Save</button>
@@ -343,7 +352,7 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
                       <li key={version.revision} data-current={version.revision === item.revision}>
                         <span>{version.text}</span>
                         <small>
-                          {version.relation === 'correction' ? 'corrected — the earlier wording was wrong' : version.relation === 'transition' ? `changed${version.validTime.from ? ` from ${version.validTime.from.slice(0, 10)}` : ''} — the earlier wording was true before` : version.revision === 1 ? 'first remembered' : version.relation}
+                          {version.relation === 'correction' ? 'corrected — the earlier wording was wrong' : version.relation === 'transition' ? `changed${version.validTime.from ? ` from ${day(version.validTime.from)}` : ''} — the earlier wording was true before` : version.revision === 1 ? 'first remembered' : version.relation}
                           {' · '}{when(version.interpretedAt)}
                         </small>
                       </li>
@@ -359,7 +368,7 @@ function ItemCard({ item: initial, announce, onChanged }: { item: InspectorItem;
   )
 }
 
-function ItemList({ items, announce, onChanged, empty }: { items: readonly InspectorItem[]; announce: Announce; onChanged: () => void; empty: string }) {
+function ItemList({ items, announce, onChanged, empty }: { items: readonly InspectorItem[]; announce: Announce; onChanged: Changed; empty: string }) {
   if (!items.length) return <p className="memory-empty">{empty}</p>
   return (
     <ul className="memory-list">
@@ -399,25 +408,25 @@ function SettingsPanel({ settings, onSettings, announce }: { settings: MemorySet
     <section className="memory-card memory-settings" aria-labelledby="memory-settings-title">
       <h2 id="memory-settings-title">Controls</h2>
       <div className="memory-setting">
-        <label className="memory-switch">
-          <input type="checkbox" role="switch" checked={settings.learningEnabled} disabled={busy}
+        <label className="memory-switch" htmlFor="memory-learning">
+          <input id="memory-learning" type="checkbox" role="switch" aria-labelledby="memory-learning-label" aria-describedby="memory-learning-effect" checked={settings.learningEnabled} disabled={busy}
             onChange={(event) => save({ learningEnabled: event.target.checked }, event.target.checked ? 'Learning is on.' : 'Learning is off. Nothing was deleted.')} />
-          <span>Learn from conversations</span>
+          <span id="memory-learning-label">Learn from conversations</span>
         </label>
-        <p>{SETTING_EFFECTS.learning}</p>
+        <p id="memory-learning-effect">{SETTING_EFFECTS.learning}</p>
       </div>
       <div className="memory-setting">
-        <label className="memory-switch">
-          <input type="checkbox" role="switch" checked={settings.temporaryActive} disabled={busy}
+        <label className="memory-switch" htmlFor="memory-temporary">
+          <input id="memory-temporary" type="checkbox" role="switch" aria-labelledby="memory-temporary-label" aria-describedby="memory-temporary-effect" checked={settings.temporaryActive} disabled={busy}
             onChange={(event) => save({ temporary: event.target.checked }, event.target.checked ? 'Temporary conversation is on for 24 hours.' : 'Temporary conversation is off.')} />
-          <span>Temporary conversation</span>
+          <span id="memory-temporary-label">Temporary conversation</span>
         </label>
-        <p>{SETTING_EFFECTS.temporary}{settings.temporaryActive && settings.temporaryUntil ? ` On until ${when(settings.temporaryUntil)}.` : ''}</p>
+        <p id="memory-temporary-effect">{SETTING_EFFECTS.temporary}{settings.temporaryActive && settings.temporaryUntil ? ` On until ${when(settings.temporaryUntil)}.` : ''}</p>
       </div>
       <div className="memory-setting">
-        <label className="memory-select">
-          <span>Keep conversation turns that never became a memory</span>
-          <select value={settings.evidenceRetentionDays ?? ''} disabled={busy}
+        <label className="memory-select" htmlFor="memory-retention">
+          <span id="memory-retention-label">Keep conversation turns that never became a memory</span>
+          <select id="memory-retention" aria-labelledby="memory-retention-label" aria-describedby="memory-retention-effect" value={settings.evidenceRetentionDays ?? ''} disabled={busy}
             onChange={(event) => {
               const days = event.target.value ? Number(event.target.value) : null
               void save({ evidenceRetentionDays: days }, days ? `Unused conversation turns will be deleted after ${days} days.` : 'Unused conversation turns are kept until you delete them.')
@@ -425,7 +434,7 @@ function SettingsPanel({ settings, onSettings, announce }: { settings: MemorySet
             {RETENTION_CHOICES.map((choice) => <option key={choice ?? 'forever'} value={choice ?? ''}>{choice ? `${choice} days` : 'Until I delete them'}</option>)}
           </select>
         </label>
-        <p>{SETTING_EFFECTS.retention}</p>
+        <p id="memory-retention-effect">{SETTING_EFFECTS.retention}</p>
       </div>
       {error ? <p className="memory-error" role="alert"><CircleAlert size={13} /> {error}</p> : null}
     </section>
@@ -489,13 +498,54 @@ function TransferPanel({ announce, onImported }: { announce: Announce; onImporte
         <a className="memory-button" href="/api/memory?view=export&format=md" download><Download size={14} /> Readable copy (Markdown)</a>
         <label className="memory-button" data-busy={busy}>
           {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} Import a JSON export
-          <input ref={input} type="file" accept="application/json,.json" className="sr-only" disabled={busy}
+          <input ref={input} type="file" accept="application/json,.json" className="sr-only" disabled={busy} aria-label="Import a JSON export"
             onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file) }} />
         </label>
       </div>
       <p className="memory-meta">A downloaded file is a copy outside GIDEON. Forgetting something later removes it here, not from files you saved or shared. Importing never brings back something you forgot, and it adds items as imported rather than as things you said.</p>
       {result ? <p className="memory-ok" role="status"><Check size={13} /> {result}</p> : null}
       {error ? <p className="memory-error" role="alert"><CircleAlert size={13} /> {error}</p> : null}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Removals: forgetting is immediate; physical cleanup is its own, later fact
+// ---------------------------------------------------------------------------
+
+function RemovalStatus({ removal }: { removal: Removal }) {
+  const [physical, setPhysical] = useState('pending')
+  useEffect(() => {
+    let attempts = 0
+    let stopped = false
+    const check = async () => {
+      attempts += 1
+      const result = await api<{ status: { physical: { status: string } } }>(`/api/memory?view=deletion&id=${encodeURIComponent(removal.deletionId)}`)
+      if (stopped) return
+      if (result.ok) setPhysical(result.value.status.physical.status)
+      if (attempts < 20 && (!result.ok || result.value.status.physical.status === 'pending')) timer = window.setTimeout(check, 3_000)
+    }
+    let timer = window.setTimeout(check, 1_000)
+    return () => { stopped = true; window.clearTimeout(timer) }
+  }, [removal.deletionId])
+  return (
+    <li data-physical={physical}>
+      <span>{removal.text}</span>
+      <small>
+        No longer used · {physical === 'complete' ? 'stored copies cleaned up' : physical === 'failed' ? 'cleanup failed; it will be retried' : 'cleaning up stored copies…'}
+      </small>
+    </li>
+  )
+}
+
+function RemovalsPanel({ removals }: { removals: readonly Removal[] }) {
+  return (
+    <section className="memory-card" aria-labelledby="memory-removals-title">
+      <h2 id="memory-removals-title">Removals</h2>
+      <ul className="memory-recent" aria-live="polite">
+        {removals.map((removal) => <RemovalStatus key={removal.deletionId} removal={removal} />)}
+      </ul>
+      <p className="memory-meta">Copies you downloaded earlier are not affected.</p>
     </section>
   )
 }
@@ -511,7 +561,7 @@ type PageState =
   | { phase: 'off' }
   | { phase: 'ready'; overview: InspectorOverview }
 
-function Browser({ announce, version, onChanged }: { announce: Announce; version: number; onChanged: () => void }) {
+function Browser({ announce, version, onChanged }: { announce: Announce; version: number; onChanged: Changed }) {
   const [filter, setFilter] = useState<InspectorFilter>('all')
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
@@ -568,6 +618,7 @@ export function MemoryInspector() {
   const [message, setMessage] = useState('')
   const [version, setVersion] = useState(0)
   const [enabling, setEnabling] = useState(false)
+  const [removals, setRemovals] = useState<Removal[]>([])
 
   const announce = useCallback((text: string) => setMessage(text), [])
 
@@ -593,7 +644,8 @@ export function MemoryInspector() {
 
   useEffect(() => { void load() }, [load])
 
-  const changed = useCallback(() => {
+  const changed = useCallback((removed?: Removal) => {
+    if (removed) setRemovals((current) => [removed, ...current.filter((entry) => entry.deletionId !== removed.deletionId)].slice(0, 10))
     setVersion((value) => value + 1)
     void api<{ overview: InspectorOverview }>('/api/memory?view=overview').then((result) => {
       if (result.ok) setState({ phase: 'ready', overview: result.value.overview })
@@ -675,7 +727,8 @@ export function MemoryInspector() {
             </div>
             <div className="memory-column memory-side">
               <SettingsPanel settings={overview.settings} onSettings={(settings) => setState({ phase: 'ready', overview: { ...overview, settings } })} announce={announce} />
-              <TransferPanel announce={announce} onImported={changed} />
+              {removals.length ? <RemovalsPanel removals={removals} /> : null}
+              <TransferPanel announce={announce} onImported={() => changed()} />
               {overview.recentChanges.length ? (
                 <section className="memory-card" aria-labelledby="memory-recent-title">
                   <h2 id="memory-recent-title">Recent changes</h2>
