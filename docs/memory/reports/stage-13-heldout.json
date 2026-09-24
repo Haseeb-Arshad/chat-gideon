@@ -1,14 +1,14 @@
 {
   "stage": 13,
-  "split": "dev",
-  "label": "development split (harness debugging only)",
-  "liveCallsAllowed": true,
+  "split": "heldout",
+  "label": "held-out pilot (diagnostic; not a competitive claim)",
+  "liveCallsAllowed": false,
   "answersAvailable": true,
   "manifest": {
     "commit": "0d87da817d023ce024374f5b78a31bbe4e215a4c",
     "fixture": {
-      "path": "scripts/fixtures/memory-conversation-dev.json",
-      "sha256": "4a2427559e342bc46e7373888449d51b273a69f1c213c462bedea5e940b353bb"
+      "path": "scripts/fixtures/memory-conversation-heldout.json",
+      "sha256": "17fc539675e9c7de976284a4e62ed5539f1f6236f25f21f7ec69db960e92366b"
     },
     "scoringLibrarySha256": "b24a11682d7d98e547209fab8d82931c0b60bdd9967b31e955d1a403b1e44174",
     "preregistration": "docs/memory/reports/stage-13-preregistration.md",
@@ -44,44 +44,44 @@
     "node": "v22.13.0"
   },
   "counts": {
-    "trajectories": 5,
-    "queries": 7
+    "trajectories": 24,
+    "queries": 33
   },
   "answers": {
     "none": {
       "diagnosticOnly": false,
-      "queries": 7,
+      "queries": 33,
       "errors": 0,
       "deterministicPass": {
-        "rate": 0.429,
-        "n": 7
+        "rate": 0.333,
+        "n": 33
       },
       "judgePass": {
-        "rate": 0.429,
-        "n": 7
+        "rate": 0.303,
+        "n": 33
       },
       "falsePersonalClaim": {
-        "rate": 0.286,
-        "n": 7
+        "rate": 0.121,
+        "n": 33
       },
       "unnecessaryPersonalization": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "judgeDeterministicAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "judgeRepeatAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "repeatRun": {
         "deterministicPassSeed2": {
-          "rate": 0.429,
-          "n": 7
+          "rate": 0.364,
+          "n": 33
         },
-        "changedVerdicts": 0
+        "changedVerdicts": 1
       },
       "byCategory": {
         "abstention": {
@@ -90,76 +90,116 @@
         },
         "attribution": {
           "rate": 0,
-          "n": 1
+          "n": 2
         },
         "constraint_adherence": {
+          "rate": 0.5,
+          "n": 4
+        },
+        "correction": {
+          "rate": 0,
+          "n": 1
+        },
+        "cutoff": {
           "rate": 0,
           "n": 1
         },
         "deletion": {
           "rate": 1,
+          "n": 2
+        },
+        "extraction_miss": {
+          "rate": 0,
+          "n": 1
+        },
+        "hypothetical": {
+          "rate": 0,
           "n": 1
         },
         "multilingual": {
           "rate": 0,
-          "n": 1
+          "n": 3
         },
         "negative_personalization": {
           "rate": 1,
-          "n": 1
+          "n": 3
+        },
+        "preference_application": {
+          "rate": 0.333,
+          "n": 3
+        },
+        "recall": {
+          "rate": 0,
+          "n": 3
+        },
+        "resumption": {
+          "rate": 0,
+          "n": 2
+        },
+        "scoped_preference": {
+          "rate": 0.667,
+          "n": 3
         },
         "temporal": {
           "rate": 0,
-          "n": 1
+          "n": 3
         }
       },
       "byLanguage": {
+        "code_switch": {
+          "rate": 1,
+          "n": 1
+        },
         "en": {
-          "rate": 0.5,
-          "n": 6
+          "rate": 0.345,
+          "n": 29
         },
         "roman_urdu": {
+          "rate": 0,
+          "n": 2
+        },
+        "urdu": {
           "rate": 0,
           "n": 1
         }
       },
       "readerLatencyMs": {
-        "p50": 1400,
-        "p95": 3497
+        "p50": 1470,
+        "p95": 3084
       }
     },
     "legacy": {
       "diagnosticOnly": false,
-      "queries": 7,
+      "queries": 33,
       "errors": 0,
       "deterministicPass": {
-        "rate": 0.571,
-        "n": 7
+        "rate": 0.636,
+        "n": 33
       },
       "judgePass": {
-        "rate": 0.571,
-        "n": 7
+        "rate": 0.606,
+        "n": 33
       },
       "falsePersonalClaim": {
-        "rate": 0.286,
-        "n": 7
+        "rate": 0.152,
+        "n": 33
       },
       "unnecessaryPersonalization": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "judgeDeterministicAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "judgeRepeatAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "repeatRun": {
         "deterministicPassSeed2": {
-          "rate": 0.571,
-          "n": 7
+          "rate": 0.636,
+          "n": 33
         },
         "changedVerdicts": 0
       },
@@ -169,79 +209,119 @@
           "n": 1
         },
         "attribution": {
-          "rate": 0,
-          "n": 1
+          "rate": 0.5,
+          "n": 2
         },
         "constraint_adherence": {
+          "rate": 0.75,
+          "n": 4
+        },
+        "correction": {
+          "rate": 1,
+          "n": 1
+        },
+        "cutoff": {
           "rate": 0,
           "n": 1
         },
         "deletion": {
           "rate": 1,
+          "n": 2
+        },
+        "extraction_miss": {
+          "rate": 0,
+          "n": 1
+        },
+        "hypothetical": {
+          "rate": 1,
           "n": 1
         },
         "multilingual": {
           "rate": 0,
-          "n": 1
+          "n": 3
         },
         "negative_personalization": {
           "rate": 1,
-          "n": 1
+          "n": 3
+        },
+        "preference_application": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "recall": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "resumption": {
+          "rate": 0,
+          "n": 2
+        },
+        "scoped_preference": {
+          "rate": 1,
+          "n": 3
         },
         "temporal": {
-          "rate": 1,
-          "n": 1
+          "rate": 0.667,
+          "n": 3
         }
       },
       "byLanguage": {
+        "code_switch": {
+          "rate": 1,
+          "n": 1
+        },
         "en": {
-          "rate": 0.667,
-          "n": 6
+          "rate": 0.69,
+          "n": 29
         },
         "roman_urdu": {
+          "rate": 0,
+          "n": 2
+        },
+        "urdu": {
           "rate": 0,
           "n": 1
         }
       },
       "readerLatencyMs": {
-        "p50": 1400,
-        "p95": 3497
+        "p50": 1363,
+        "p95": 3084
       }
     },
     "profile_summary": {
       "diagnosticOnly": false,
-      "queries": 7,
+      "queries": 33,
       "errors": 0,
       "deterministicPass": {
-        "rate": 0.571,
-        "n": 7
+        "rate": 0.758,
+        "n": 33
       },
       "judgePass": {
-        "rate": 0.571,
-        "n": 7
+        "rate": 0.727,
+        "n": 33
       },
       "falsePersonalClaim": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.121,
+        "n": 33
       },
       "unnecessaryPersonalization": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.061,
+        "n": 33
       },
       "judgeDeterministicAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "judgeRepeatAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "repeatRun": {
         "deterministicPassSeed2": {
-          "rate": 0.571,
-          "n": 7
+          "rate": 0.788,
+          "n": 33
         },
-        "changedVerdicts": 0
+        "changedVerdicts": 1
       },
       "byCategory": {
         "abstention": {
@@ -249,79 +329,119 @@
           "n": 1
         },
         "attribution": {
-          "rate": 0,
-          "n": 1
+          "rate": 1,
+          "n": 2
         },
         "constraint_adherence": {
+          "rate": 0.75,
+          "n": 4
+        },
+        "correction": {
+          "rate": 1,
+          "n": 1
+        },
+        "cutoff": {
           "rate": 0,
           "n": 1
         },
         "deletion": {
           "rate": 1,
+          "n": 2
+        },
+        "extraction_miss": {
+          "rate": 1,
+          "n": 1
+        },
+        "hypothetical": {
+          "rate": 1,
           "n": 1
         },
         "multilingual": {
-          "rate": 0,
-          "n": 1
+          "rate": 0.333,
+          "n": 3
         },
         "negative_personalization": {
           "rate": 1,
-          "n": 1
+          "n": 3
+        },
+        "preference_application": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "recall": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "resumption": {
+          "rate": 0.5,
+          "n": 2
+        },
+        "scoped_preference": {
+          "rate": 1,
+          "n": 3
         },
         "temporal": {
-          "rate": 1,
-          "n": 1
+          "rate": 0.667,
+          "n": 3
         }
       },
       "byLanguage": {
+        "code_switch": {
+          "rate": 1,
+          "n": 1
+        },
         "en": {
-          "rate": 0.667,
-          "n": 6
+          "rate": 0.793,
+          "n": 29
         },
         "roman_urdu": {
+          "rate": 0.5,
+          "n": 2
+        },
+        "urdu": {
           "rate": 0,
           "n": 1
         }
       },
       "readerLatencyMs": {
-        "p50": 1499,
-        "p95": 3497
+        "p50": 1324,
+        "p95": 3084
       }
     },
     "full": {
       "diagnosticOnly": false,
-      "queries": 7,
+      "queries": 33,
       "errors": 0,
       "deterministicPass": {
-        "rate": 0.714,
-        "n": 7
+        "rate": 0.788,
+        "n": 33
       },
       "judgePass": {
-        "rate": 0.714,
-        "n": 7
+        "rate": 0.818,
+        "n": 33
       },
       "falsePersonalClaim": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.03,
+        "n": 33
       },
       "unnecessaryPersonalization": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.03,
+        "n": 33
       },
       "judgeDeterministicAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "judgeRepeatAgreement": {
         "rate": 1,
-        "n": 7
+        "n": 33
       },
       "repeatRun": {
         "deterministicPassSeed2": {
-          "rate": 0.714,
-          "n": 7
+          "rate": 0.788,
+          "n": 33
         },
-        "changedVerdicts": 0
+        "changedVerdicts": 2
       },
       "byCategory": {
         "abstention": {
@@ -329,79 +449,119 @@
           "n": 1
         },
         "attribution": {
-          "rate": 0,
-          "n": 1
+          "rate": 1,
+          "n": 2
         },
         "constraint_adherence": {
+          "rate": 0.75,
+          "n": 4
+        },
+        "correction": {
+          "rate": 1,
+          "n": 1
+        },
+        "cutoff": {
           "rate": 1,
           "n": 1
         },
         "deletion": {
           "rate": 1,
+          "n": 2
+        },
+        "extraction_miss": {
+          "rate": 1,
+          "n": 1
+        },
+        "hypothetical": {
+          "rate": 1,
           "n": 1
         },
         "multilingual": {
-          "rate": 0,
-          "n": 1
+          "rate": 0.333,
+          "n": 3
         },
         "negative_personalization": {
           "rate": 1,
-          "n": 1
+          "n": 3
+        },
+        "preference_application": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "recall": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "resumption": {
+          "rate": 0.5,
+          "n": 2
+        },
+        "scoped_preference": {
+          "rate": 1,
+          "n": 3
         },
         "temporal": {
-          "rate": 1,
-          "n": 1
+          "rate": 0.667,
+          "n": 3
         }
       },
       "byLanguage": {
+        "code_switch": {
+          "rate": 1,
+          "n": 1
+        },
         "en": {
-          "rate": 0.833,
-          "n": 6
+          "rate": 0.828,
+          "n": 29
         },
         "roman_urdu": {
+          "rate": 0.5,
+          "n": 2
+        },
+        "urdu": {
           "rate": 0,
           "n": 1
         }
       },
       "readerLatencyMs": {
-        "p50": 1334,
-        "p95": 2169
+        "p50": 1309,
+        "p95": 2669
       }
     },
     "oracle": {
       "diagnosticOnly": true,
-      "queries": 7,
+      "queries": 33,
       "errors": 0,
       "deterministicPass": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.939,
+        "n": 33
       },
       "judgePass": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "falsePersonalClaim": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "unnecessaryPersonalization": {
-        "rate": 0,
-        "n": 7
+        "rate": 0.03,
+        "n": 33
       },
       "judgeDeterministicAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "judgeRepeatAgreement": {
-        "rate": 1,
-        "n": 7
+        "rate": 0.97,
+        "n": 33
       },
       "repeatRun": {
         "deterministicPassSeed2": {
           "rate": 1,
-          "n": 7
+          "n": 33
         },
-        "changedVerdicts": 0
+        "changedVerdicts": 2
       },
       "byCategory": {
         "abstention": {
@@ -410,42 +570,82 @@
         },
         "attribution": {
           "rate": 1,
-          "n": 1
+          "n": 2
         },
         "constraint_adherence": {
+          "rate": 0.75,
+          "n": 4
+        },
+        "correction": {
+          "rate": 1,
+          "n": 1
+        },
+        "cutoff": {
           "rate": 1,
           "n": 1
         },
         "deletion": {
           "rate": 1,
+          "n": 2
+        },
+        "extraction_miss": {
+          "rate": 1,
+          "n": 1
+        },
+        "hypothetical": {
+          "rate": 1,
           "n": 1
         },
         "multilingual": {
           "rate": 1,
-          "n": 1
+          "n": 3
         },
         "negative_personalization": {
           "rate": 1,
-          "n": 1
+          "n": 3
+        },
+        "preference_application": {
+          "rate": 0.667,
+          "n": 3
+        },
+        "recall": {
+          "rate": 1,
+          "n": 3
+        },
+        "resumption": {
+          "rate": 1,
+          "n": 2
+        },
+        "scoped_preference": {
+          "rate": 1,
+          "n": 3
         },
         "temporal": {
           "rate": 1,
-          "n": 1
+          "n": 3
         }
       },
       "byLanguage": {
-        "en": {
+        "code_switch": {
           "rate": 1,
-          "n": 6
+          "n": 1
+        },
+        "en": {
+          "rate": 0.931,
+          "n": 29
         },
         "roman_urdu": {
+          "rate": 1,
+          "n": 2
+        },
+        "urdu": {
           "rate": 1,
           "n": 1
         }
       },
       "readerLatencyMs": {
-        "p50": 1311,
-        "p95": 2806
+        "p50": 1238,
+        "p95": 2644
       }
     }
   },
@@ -453,109 +653,109 @@
     "deterministicPass": [
       {
         "comparison": "full − none",
-        "difference": 0.286,
+        "difference": 0.455,
         "ci95": [
-          0,
-          0.625
+          0.286,
+          0.613
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − legacy",
-        "difference": 0.143,
+        "difference": 0.152,
         "ci95": [
           0,
-          0.375
+          0.303
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − profile_summary",
-        "difference": 0.143,
+        "difference": 0.03,
         "ci95": [
-          0,
-          0.375
+          -0.065,
+          0.129
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       }
     ],
     "judgePass": [
       {
         "comparison": "full − none",
-        "difference": 0.286,
+        "difference": 0.515,
         "ci95": [
-          0,
-          0.625
+          0.4,
+          0.636
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − legacy",
-        "difference": 0.143,
+        "difference": 0.212,
         "ci95": [
-          0,
-          0.375
+          0.091,
+          0.344
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − profile_summary",
-        "difference": 0.143,
+        "difference": 0.091,
         "ci95": [
           0,
-          0.375
+          0.182
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       }
     ],
     "falsePersonalClaim": [
       {
         "comparison": "full − legacy",
-        "difference": -0.143,
+        "difference": -0.121,
         "ci95": [
-          -0.375,
-          0
+          -0.229,
+          -0.029
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − profile_summary",
-        "difference": 0,
+        "difference": -0.091,
         "ci95": [
-          0,
+          -0.194,
           0
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       }
     ],
     "unnecessaryPersonalization": [
       {
         "comparison": "full − legacy",
-        "difference": 0.143,
+        "difference": 0.03,
         "ci95": [
           0,
-          0.375
+          0.1
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       },
       {
         "comparison": "full − profile_summary",
-        "difference": 0,
+        "difference": -0.03,
         "ci95": [
-          0,
+          -0.1,
           0
         ],
-        "trajectories": 5,
-        "queries": 7
+        "trajectories": 24,
+        "queries": 33
       }
     ]
   },
@@ -564,15 +764,15 @@
       "diagnosticOnly": false,
       "evidenceCoverage": {
         "rate": 0,
-        "n": 4
+        "n": 26
       },
       "forbiddenLeak": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
         "rate": 0,
-        "n": 3
+        "n": 6
       },
       "meanItems": 0,
       "failures": [],
@@ -589,96 +789,96 @@
     "legacy": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.25,
-        "n": 4
+        "rate": 0.462,
+        "n": 26
       },
       "forbiddenLeak": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
         "rate": 0,
-        "n": 3
+        "n": 6
       },
-      "meanItems": 0.14,
+      "meanItems": 0.45,
       "failures": [],
       "selectionMs": {
         "p50": 0.1,
-        "p95": 2,
-        "p99": 2
+        "p95": 1.3,
+        "p99": 4
       },
       "estimatedTokens": {
-        "mean": 6,
-        "max": 42
+        "mean": 20,
+        "max": 59
       }
     },
     "profile_summary": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.25,
-        "n": 4
+        "rate": 0.692,
+        "n": 26
       },
       "forbiddenLeak": {
-        "rate": 0,
-        "n": 7
+        "rate": 0.03,
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
         "rate": 0,
-        "n": 3
+        "n": 6
       },
-      "meanItems": 0.29,
+      "meanItems": 0.67,
       "failures": [],
       "selectionMs": {
-        "p50": 0.2,
-        "p95": 0.5,
-        "p99": 0.5
+        "p50": 0.1,
+        "p95": 1,
+        "p99": 1.5
       },
       "estimatedTokens": {
-        "mean": 7,
-        "max": 26
+        "mean": 20,
+        "max": 59
       }
     },
     "full": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.5,
-        "n": 4
+        "rate": 0.769,
+        "n": 26
       },
       "forbiddenLeak": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.121,
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
-        "rate": 0.333,
-        "n": 3
+        "rate": 0.5,
+        "n": 6
       },
-      "meanItems": 0.57,
+      "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 25.1,
-        "p95": 264.9,
-        "p99": 264.9
+        "p50": 33.5,
+        "p95": 60.8,
+        "p99": 407.8
       },
       "estimatedTokens": {
-        "mean": 328,
-        "max": 372
+        "mean": 356,
+        "max": 465
       }
     },
     "oracle": {
       "diagnosticOnly": true,
       "evidenceCoverage": {
         "rate": 1,
-        "n": 4
+        "n": 26
       },
       "forbiddenLeak": {
         "rate": 0,
-        "n": 7
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
         "rate": 0,
-        "n": 3
+        "n": 6
       },
-      "meanItems": 0.71,
+      "meanItems": 1.06,
       "failures": [],
       "selectionMs": {
         "p50": 0,
@@ -686,99 +886,99 @@
         "p99": 0
       },
       "estimatedTokens": {
-        "mean": 16,
-        "max": 37
+        "mean": 28,
+        "max": 57
       }
     },
     "full_no_source_evidence": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.5,
-        "n": 4
+        "rate": 0.654,
+        "n": 26
       },
       "forbiddenLeak": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.091,
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
-        "rate": 0.333,
-        "n": 3
+        "rate": 0.5,
+        "n": 6
       },
-      "meanItems": 0.43,
+      "meanItems": 0.64,
       "failures": [],
       "selectionMs": {
-        "p50": 18.6,
-        "p95": 51.5,
-        "p99": 51.5
+        "p50": 29.3,
+        "p95": 51.3,
+        "p99": 57.8
       },
       "estimatedTokens": {
-        "mean": 324,
-        "max": 364
+        "mean": 341,
+        "max": 413
       }
     },
     "full_no_applicability": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.5,
-        "n": 4
+        "rate": 0.769,
+        "n": 26
       },
       "forbiddenLeak": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.121,
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
-        "rate": 0.333,
-        "n": 3
+        "rate": 0.5,
+        "n": 6
       },
-      "meanItems": 0.57,
+      "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 22,
-        "p95": 66.3,
-        "p99": 66.3
+        "p50": 31.8,
+        "p95": 49.2,
+        "p99": 105.6
       },
       "estimatedTokens": {
-        "mean": 330,
-        "max": 372
+        "mean": 358,
+        "max": 465
       }
     },
     "full_no_relationships": {
       "diagnosticOnly": false,
       "evidenceCoverage": {
-        "rate": 0.5,
-        "n": 4
+        "rate": 0.769,
+        "n": 26
       },
       "forbiddenLeak": {
-        "rate": 0.143,
-        "n": 7
+        "rate": 0.121,
+        "n": 33
       },
       "personalContentWhenNoneNeeded": {
-        "rate": 0.333,
-        "n": 3
+        "rate": 0.5,
+        "n": 6
       },
-      "meanItems": 0.57,
+      "meanItems": 0.88,
       "failures": [],
       "selectionMs": {
-        "p50": 18.2,
-        "p95": 37.1,
-        "p99": 37.1
+        "p50": 29.7,
+        "p95": 45.8,
+        "p99": 65
       },
       "estimatedTokens": {
-        "mean": 328,
-        "max": 372
+        "mean": 356,
+        "max": 465
       }
     }
   },
   "construction": {
     "explicitFailures": [],
-    "fullIngestMs": 112.5,
-    "fullMaintenanceMsTotal": 745,
-    "legacyIngestMs": 0.5
+    "fullIngestMs": 51.5,
+    "fullMaintenanceMsTotal": 5581,
+    "legacyIngestMs": 0.3
   },
   "spend": {
-    "usd": 0.0007,
-    "liveCalls": 12,
-    "cacheHits": 128,
+    "usd": 0,
+    "liveCalls": 0,
+    "cacheHits": 660,
     "errors": 0,
     "capUsd": 0.2
   },

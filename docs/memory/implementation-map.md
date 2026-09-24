@@ -598,6 +598,31 @@ Stage 11 is locally verified with a measured deferral: no Jev call was made
 Stage 12 is locally verified, including an in-browser run against a disposable
 database. No deployment or real-user data.
 
+## Stage 13 evaluation and the defects it found
+
+- `backend/memory/src/seed-conformance.live.test.ts`: C01–C36, one titled test
+  per case and layer.
+- `scripts/lib/memory-eval.ts` (pure scoring, bootstrap, prompts) with
+  `scripts/memory-eval-lib.test.ts`; `scripts/memory-conversation-eval.live.test.ts`
+  (the harness, run through `scripts/memory-postgres-harness.mjs <file>`);
+  manifests `scripts/fixtures/memory-conversation-{dev,heldout}.json`;
+  preregistration and results in `docs/memory/reports/stage-13-*`.
+- `src/lib/agent-core.ts`: `contextPackMessage` and `legacyMemoryMessage`
+  (the prompt framing, shared by the app and the harness).
+- `src/server/node-memory-integration.ts`: automatic recall uses the `maximum`
+  tier (deep: no reserves); forget passes the request turn's source.
+- `src/lib/memory/retrieval.ts`: the dropped-conversation note counts toward
+  the budget during selection.
+- `backend/memory/src/retrieval.ts`: a captured turn sharing its source with a
+  command event is not free-standing source evidence.
+- `backend/memory/src/deletion.ts`: forget also expands to captured turns that
+  share a source with the forgotten lineage's events, and to the forget
+  request's own turn (`requestSourceIds`).
+- `backend/memory/src/learning.ts`: `handled_by_explicit_command` skip.
+
+Stage 13 is locally verified with a held-out pilot; external benchmarks and
+competitors are blocked. See `handoffs/13-comparative-evaluation.md`.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.

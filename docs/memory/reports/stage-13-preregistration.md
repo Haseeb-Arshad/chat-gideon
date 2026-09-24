@@ -76,7 +76,7 @@ latency.
 
 ## Size and status
 
-24 held-out trajectories, 34 queries, 4 language groups (English, Roman Urdu,
+24 held-out trajectories, 33 queries (an earlier draft of this line said 34; the manifest has always had 33), 4 language groups (English, Roman Urdu,
 code-switched, Urdu script). This is a pilot: it is sized to find large
 effects and regressions, not to establish small differences, and its results
 are diagnostic. No result here is a competitive claim against another
