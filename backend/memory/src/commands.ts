@@ -52,7 +52,8 @@ export interface ExplicitCommandOptions {
    * legacy-import authority and the assertion basis is `imported_legacy`, so
    * the inspector never presents it as something the user said.
    */
-  origin?: { kind: 'import'; importId: string; exportedAt: string | null }
+  /** `legacyId`/`legacyCreatedAt` carry a legacy record's own id and creation time through a cutover import (Stage 15). */
+  origin?: { kind: 'import'; importId: string; exportedAt: string | null; legacyId?: string; legacyCreatedAt?: string | null }
 }
 
 export interface AcceptedChangeOverlay {
@@ -220,7 +221,8 @@ function eventIdFor(scopeId: string, commandId: string): string {
   return `event/command/${sha256({ scopeId, commandId }).slice(0, 40)}`
 }
 
-function assertionIdFor(scopeId: string, commandId: string): string {
+/** The assertion an explicit command with this id creates (exported so an importer can check for a prior deletion first). */
+export function assertionIdFor(scopeId: string, commandId: string): string {
   return `assertion/command/${sha256({ scopeId, commandId }).slice(0, 40)}`
 }
 
@@ -395,6 +397,7 @@ function buildEvent(
         assertionKind: command.assertionKind,
         importId: origin.importId,
         exportedAt: origin.exportedAt,
+        ...(origin.legacyId ? { legacyId: origin.legacyId, legacyCreatedAt: origin.legacyCreatedAt ?? null } : {}),
       },
     }
   }
