@@ -28,6 +28,9 @@ describe('Stage 13 evaluation arithmetic (hand-calculated fixtures)', () => {
     const abstain = { mustInclude: [], mustNotInclude: ['Iron Temple'], expectAbstain: true }
     expect(deterministicPass(scoreText("I don't know which gym you go to.", abstain), abstain)).toBe(true)
     expect(deterministicPass(scoreText('You go to a gym downtown.', abstain), abstain)).toBe(false)
+    // Typographic apostrophes and dashes, as models actually write them.
+    expect(deterministicPass(scoreText('I don’t know your locker code—you haven’t told me.', abstain), abstain)).toBe(true)
+    expect(scoreText('You’re vegetarian', { mustInclude: [["you're"]], mustNotInclude: [] }).groupHits).toEqual([true])
     expect(contextCoverage('- Hira birthday November 3', rubric)).toEqual({ evidenceHit: true, leak: false })
   })
 

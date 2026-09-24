@@ -60,12 +60,17 @@ export interface TextScore {
   abstained: boolean
 }
 
+/** Models write typographic apostrophes and dashes; rubrics are typed with plain ones. */
+function normalise(text: string): string {
+  return text.normalize('NFKC').replace(/[‘’ʼ]/gu, "'").replace(/[‐-―]/gu, '-').toLocaleLowerCase('und')
+}
+
 export function scoreText(text: string, rubric: Rubric): TextScore {
-  const lower = text.toLocaleLowerCase('und')
+  const lower = normalise(text)
   return {
-    groupHits: rubric.mustInclude.map((group) => group.some((term) => lower.includes(term.toLocaleLowerCase('und')))),
-    forbiddenHits: rubric.mustNotInclude.filter((term) => lower.includes(term.toLocaleLowerCase('und'))),
-    abstained: ABSTAIN.test(text),
+    groupHits: rubric.mustInclude.map((group) => group.some((term) => lower.includes(normalise(term)))),
+    forbiddenHits: rubric.mustNotInclude.filter((term) => lower.includes(normalise(term))),
+    abstained: ABSTAIN.test(lower),
   }
 }
 

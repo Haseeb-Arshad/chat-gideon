@@ -88,6 +88,24 @@ Only `openai/gpt-6-luna` is called (the harness refuses any other model).
 Responses are cached on disk and replayed; a hard stop at $0.20 of
 provider-reported cost per run applies.
 
+## Amendments before the first held-out run
+
+Found while debugging on the development split only; the held-out split had
+not been run.
+
+- Product defects, fixed in the product with their own regression tests (not
+  eval tuning): automatic recall's budget could not hold a single memory, so
+  every pack reached the model as "budget exhausted"; the dropped-conversation
+  note overflowed a full pack; a captured turn that carried a remember,
+  correct or forget command was not linked to that command, so forgotten and
+  replaced values came back as source evidence, forgotten turns were never
+  purged, and learning stored a second copy of every explicit memory.
+- Scoring: typographic apostrophes and dashes are normalised before rubric
+  and abstention matching ("I don’t know" was scored as not abstaining).
+- Judge: identical requests in flight are shared, so identical answers get
+  one verdict; every verdict is asked twice (seeds 7 and 8) and their
+  agreement is reported. The first verdict is the one scored.
+
 ## Out of scope for this run (reported as blocked, not simulated)
 
 - Jev: no TypeSafe API key is available.

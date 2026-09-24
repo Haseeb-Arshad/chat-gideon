@@ -1,0 +1,784 @@
+{
+  "stage": 13,
+  "split": "dev",
+  "label": "development split (harness debugging only)",
+  "liveCallsAllowed": true,
+  "answersAvailable": true,
+  "manifest": {
+    "commit": "eaa0265632dbd14d05871cfdebc33f1ed26c88ae",
+    "fixture": {
+      "path": "scripts/fixtures/memory-conversation-dev.json",
+      "sha256": "4a2427559e342bc46e7373888449d51b273a69f1c213c462bedea5e940b353bb"
+    },
+    "scoringLibrarySha256": "b24a11682d7d98e547209fab8d82931c0b60bdd9967b31e955d1a403b1e44174",
+    "preregistration": "docs/memory/reports/stage-13-preregistration.md",
+    "reader": {
+      "model": "openai/gpt-6-luna",
+      "promptVersion": "reader-2026-09-24",
+      "temperature": 0,
+      "seeds": [
+        1,
+        2
+      ],
+      "reasoningEffort": "minimal",
+      "maxTokens": 300
+    },
+    "judge": {
+      "model": "openai/gpt-6-luna",
+      "promptVersion": "judge-2026-09-24",
+      "temperature": 0,
+      "seeds": [
+        7,
+        8
+      ],
+      "verdictFromSeed": 7,
+      "blindedToArm": true
+    },
+    "extractor": "gideon-rules@1.0.0 (production default)",
+    "retrieval": "lexical (PostgreSQL simple tsvector + prefix stem); standard budget via createRecallInput",
+    "bootstrap": {
+      "resamples": 10000,
+      "seed": 13,
+      "unit": "trajectory"
+    },
+    "node": "v22.13.0"
+  },
+  "counts": {
+    "trajectories": 5,
+    "queries": 7
+  },
+  "answers": {
+    "none": {
+      "diagnosticOnly": false,
+      "queries": 7,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.429,
+        "n": 7
+      },
+      "judgePass": {
+        "rate": 0.429,
+        "n": 7
+      },
+      "falsePersonalClaim": {
+        "rate": 0.286,
+        "n": 7
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0,
+        "n": 7
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgeRepeatAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.429,
+          "n": 7
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "abstention": {
+          "rate": 1,
+          "n": 1
+        },
+        "attribution": {
+          "rate": 0,
+          "n": 1
+        },
+        "constraint_adherence": {
+          "rate": 0,
+          "n": 1
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 1
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 1
+        },
+        "negative_personalization": {
+          "rate": 1,
+          "n": 1
+        },
+        "temporal": {
+          "rate": 0,
+          "n": 1
+        }
+      },
+      "byLanguage": {
+        "en": {
+          "rate": 0.5,
+          "n": 6
+        },
+        "roman_urdu": {
+          "rate": 0,
+          "n": 1
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1400,
+        "p95": 3497
+      }
+    },
+    "legacy": {
+      "diagnosticOnly": false,
+      "queries": 7,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.571,
+        "n": 7
+      },
+      "judgePass": {
+        "rate": 0.571,
+        "n": 7
+      },
+      "falsePersonalClaim": {
+        "rate": 0.286,
+        "n": 7
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0,
+        "n": 7
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgeRepeatAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.571,
+          "n": 7
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "abstention": {
+          "rate": 1,
+          "n": 1
+        },
+        "attribution": {
+          "rate": 0,
+          "n": 1
+        },
+        "constraint_adherence": {
+          "rate": 0,
+          "n": 1
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 1
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 1
+        },
+        "negative_personalization": {
+          "rate": 1,
+          "n": 1
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 1
+        }
+      },
+      "byLanguage": {
+        "en": {
+          "rate": 0.667,
+          "n": 6
+        },
+        "roman_urdu": {
+          "rate": 0,
+          "n": 1
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1400,
+        "p95": 3497
+      }
+    },
+    "profile_summary": {
+      "diagnosticOnly": false,
+      "queries": 7,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.571,
+        "n": 7
+      },
+      "judgePass": {
+        "rate": 0.571,
+        "n": 7
+      },
+      "falsePersonalClaim": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgeRepeatAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.571,
+          "n": 7
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "abstention": {
+          "rate": 1,
+          "n": 1
+        },
+        "attribution": {
+          "rate": 0,
+          "n": 1
+        },
+        "constraint_adherence": {
+          "rate": 0,
+          "n": 1
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 1
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 1
+        },
+        "negative_personalization": {
+          "rate": 1,
+          "n": 1
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 1
+        }
+      },
+      "byLanguage": {
+        "en": {
+          "rate": 0.667,
+          "n": 6
+        },
+        "roman_urdu": {
+          "rate": 0,
+          "n": 1
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1499,
+        "p95": 3497
+      }
+    },
+    "full": {
+      "diagnosticOnly": false,
+      "queries": 7,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.714,
+        "n": 7
+      },
+      "judgePass": {
+        "rate": 0.714,
+        "n": 7
+      },
+      "falsePersonalClaim": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgeRepeatAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.714,
+          "n": 7
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "abstention": {
+          "rate": 1,
+          "n": 1
+        },
+        "attribution": {
+          "rate": 0,
+          "n": 1
+        },
+        "constraint_adherence": {
+          "rate": 1,
+          "n": 1
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 1
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 1
+        },
+        "negative_personalization": {
+          "rate": 1,
+          "n": 1
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 1
+        }
+      },
+      "byLanguage": {
+        "en": {
+          "rate": 0.833,
+          "n": 6
+        },
+        "roman_urdu": {
+          "rate": 0,
+          "n": 1
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1213,
+        "p95": 2436
+      }
+    },
+    "oracle": {
+      "diagnosticOnly": true,
+      "queries": 7,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgePass": {
+        "rate": 1,
+        "n": 7
+      },
+      "falsePersonalClaim": {
+        "rate": 0,
+        "n": 7
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0,
+        "n": 7
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "judgeRepeatAgreement": {
+        "rate": 1,
+        "n": 7
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 1,
+          "n": 7
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "abstention": {
+          "rate": 1,
+          "n": 1
+        },
+        "attribution": {
+          "rate": 1,
+          "n": 1
+        },
+        "constraint_adherence": {
+          "rate": 1,
+          "n": 1
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 1
+        },
+        "multilingual": {
+          "rate": 1,
+          "n": 1
+        },
+        "negative_personalization": {
+          "rate": 1,
+          "n": 1
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 1
+        }
+      },
+      "byLanguage": {
+        "en": {
+          "rate": 1,
+          "n": 6
+        },
+        "roman_urdu": {
+          "rate": 1,
+          "n": 1
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1311,
+        "p95": 2806
+      }
+    }
+  },
+  "comparisons": {
+    "deterministicPass": [
+      {
+        "comparison": "full − none",
+        "difference": 0.286,
+        "ci95": [
+          0,
+          0.625
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − legacy",
+        "difference": 0.143,
+        "ci95": [
+          0,
+          0.375
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0.143,
+        "ci95": [
+          0,
+          0.375
+        ],
+        "trajectories": 5,
+        "queries": 7
+      }
+    ],
+    "judgePass": [
+      {
+        "comparison": "full − none",
+        "difference": 0.286,
+        "ci95": [
+          0,
+          0.625
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − legacy",
+        "difference": 0.143,
+        "ci95": [
+          0,
+          0.375
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0.143,
+        "ci95": [
+          0,
+          0.375
+        ],
+        "trajectories": 5,
+        "queries": 7
+      }
+    ],
+    "falsePersonalClaim": [
+      {
+        "comparison": "full − legacy",
+        "difference": -0.143,
+        "ci95": [
+          -0.375,
+          0
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "trajectories": 5,
+        "queries": 7
+      }
+    ],
+    "unnecessaryPersonalization": [
+      {
+        "comparison": "full − legacy",
+        "difference": 0.143,
+        "ci95": [
+          0,
+          0.375
+        ],
+        "trajectories": 5,
+        "queries": 7
+      },
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "trajectories": 5,
+        "queries": 7
+      }
+    ]
+  },
+  "context": {
+    "none": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "estimatedTokens": {
+        "mean": 0,
+        "max": 0
+      }
+    },
+    "legacy": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.25,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 0.2,
+        "p95": 3,
+        "p99": 3
+      },
+      "estimatedTokens": {
+        "mean": 6,
+        "max": 42
+      }
+    },
+    "profile_summary": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.25,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 0.3,
+        "p95": 1,
+        "p99": 1
+      },
+      "estimatedTokens": {
+        "mean": 7,
+        "max": 26
+      }
+    },
+    "full": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.5,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 38.5,
+        "p95": 433,
+        "p99": 433
+      },
+      "estimatedTokens": {
+        "mean": 328,
+        "max": 372
+      }
+    },
+    "oracle": {
+      "diagnosticOnly": true,
+      "evidenceCoverage": {
+        "rate": 1,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "estimatedTokens": {
+        "mean": 16,
+        "max": 37
+      }
+    },
+    "full_no_source_evidence": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.5,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 51.8,
+        "p95": 99.5,
+        "p99": 99.5
+      },
+      "estimatedTokens": {
+        "mean": 324,
+        "max": 364
+      }
+    },
+    "full_no_applicability": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.5,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 43.7,
+        "p95": 78.4,
+        "p99": 78.4
+      },
+      "estimatedTokens": {
+        "mean": 330,
+        "max": 372
+      }
+    },
+    "full_no_relationships": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.5,
+        "n": 4
+      },
+      "forbiddenLeak": {
+        "rate": 0.143,
+        "n": 7
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 3
+      },
+      "failures": [],
+      "selectionMs": {
+        "p50": 42.6,
+        "p95": 57.6,
+        "p99": 57.6
+      },
+      "estimatedTokens": {
+        "mean": 328,
+        "max": 372
+      }
+    }
+  },
+  "construction": {
+    "explicitFailures": [],
+    "fullIngestMs": 211.9,
+    "fullMaintenanceMsTotal": 932,
+    "legacyIngestMs": 1
+  },
+  "spend": {
+    "usd": 0.002,
+    "liveCalls": 27,
+    "cacheHits": 113,
+    "errors": 0,
+    "capUsd": 0.2
+  },
+  "blocked": {
+    "jev": "no TypeSafe API key available",
+    "hybridRetrieval": "not implemented in the runtime",
+    "externalProviders": "no provider account authorized",
+    "publicBenchmarks": "LongMemEval / PersonaMem / LoCoMo-Plus need a dataset download that has not been authorized",
+    "humanReview": "needs a reviewer"
+  }
+}
