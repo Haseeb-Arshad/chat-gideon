@@ -1,0 +1,28 @@
+{
+  "name": "@gideon/memory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable, explicitly scoped long-term memory: SQLite and PostgreSQL backends, a local server, a TypeScript SDK and an MCP server.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": "./src/core.ts",
+    "./contract": "./src/contract.ts",
+    "./sqlite": "./src/sqlite.ts",
+    "./postgres": "./src/postgres.ts",
+    "./server": "./src/server.ts",
+    "./sdk": "./src/sdk.ts",
+    "./mcp": "./src/mcp.ts"
+  },
+  "peerDependencies": {
+    "pg": "^8.23.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
+  }
+}
