@@ -623,6 +623,28 @@ database. No deployment or real-user data.
 Stage 13 is locally verified with a held-out pilot; external benchmarks and
 competitors are blocked. See `handoffs/13-comparative-evaluation.md`.
 
+## Stage 14 operational hardening
+
+- `backend/memory/src/operations.ts`: `collectMemoryMetrics`,
+  `evaluateMemoryAlerts`, `exportControlLedger`, `importControlLedger`.
+- `backend/memory/src/postgres.ts`: broken clients are destroyed in
+  `runTransaction`; capture stops queueing interpretations past
+  `DEFAULT_MEMORY_INTERPRET_BACKLOG` (`config.ts`).
+- `backend/memory/migrations/010-operational-indexes.sql`: evidence-by-event,
+  events-by-source-document, and lexical GIN indexes.
+- `backend/memory/src/background.ts`: `projections.failureReasons`; invalid
+  rebuilds go dead at once. `src/lib/memory/projections.ts`: learned,
+  promoted and retired changes are valid snapshot entries.
+- `scripts/memory-ops.ts` (`npm run memory:ops`), `scripts/memory-load.live.test.ts`
+  (`npm run memory:postgres:load`), `backend/memory/src/operational.live.test.ts`
+  (`npm run memory:postgres:ops`) with `scripts/memory-contention-worker.ts`.
+- `scripts/check-worker-bundle.mjs`: secret and server-credential checks.
+- Operations: `docs/memory/operations/runbook.md`; service levels:
+  `docs/memory/reports/stage-14-slo.md`.
+
+Stage 14 is locally verified. Rollout stays blocked; see
+`handoffs/14-operational-hardening.md`.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.

@@ -41,6 +41,11 @@ or connection strings reach default logs or metrics.
 
 1. `npm run memory:postgres:migrate` with `GIDEON_MEMORY_MIGRATE=1` (remote
    databases also need `GIDEON_MEMORY_ALLOW_REMOTE=1`). Migrations are additive.
+   On a database that already holds real traffic, create migration 010's
+   indexes first with `CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` (same names
+   and definitions). A plain `CREATE INDEX` blocks writes to `events` and
+   `assertion_versions` while it builds; the migration's `IF NOT EXISTS` then
+   skips them.
 2. `npm run memory:ops -- readiness` must pass before the switches are turned on.
 3. After any bulk load (legacy import, restore), run `ANALYZE` on the schema
    before opening traffic. With fresh statistics missing, the planner costs a
