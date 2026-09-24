@@ -45,6 +45,32 @@ export function nodeMemoryStore(headers?: { get(name: string): string | null }):
   }
   return store
 }
+/** Where a signed Node owner's legacy memory array lives. */
+export function legacyMemoryFile(owner: string): string {
+  return join(resolve(process.env.GIDEON_MEMORY_DIR || '.gideon/memories'), `${owner.slice(5)}.json`)
+}
+
+/**
+ * The legacy file for the Stage 15 cutover, read from disk on every access.
+ * A cutover or rollback may rewrite the file from another process, so a
+ * cached copy could put stale (even deleted) memories back on the next
+ * write. Writes in this process are still serialised.
+ */
+export function uncachedLegacyStore(owner: string): VersionedMemoryAuthority {
+  const path = legacyMemoryFile(owner)
+  const key = `${path}\0uncached`
+  let store = registry().stores.get(key) as VersionedMemoryAuthority | undefined
+  if (!store) {
+    store = new VersionedMemoryAuthority({
+      all: () => new JsonMemoryStore(path).all(),
+      save: (memories) => new JsonMemoryStore(path).save(memories),
+      mutate: () => Promise.reject(new Error('Serialised by the authority')),
+    })
+    registry().stores.set(key, store)
+  }
+  return store
+}
+
 /** Bootstrap contract: 200 confirmed cookie, 503 retryable configuration/issuance failure. */
 export async function ensureNodeAccount(request: Request): Promise<Response> {
   if (!originAllowed(request.headers.get('origin'), request.url, true)) {

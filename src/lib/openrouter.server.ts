@@ -18,8 +18,7 @@ import {
 import { gate, type GateResult, type LimitName } from './guard'
 import { apiError, type ChatMessageInput } from './openrouter'
 import { encodeFrame } from './protocol'
-import { resolveNodeMemorySession } from '../server/node-memory-session'
-import { resolveNodeMemoryIntegration } from '../server/node-memory-integration'
+import { resolveNodeMemoryForTurn } from '../server/node-memory-integration'
 import { readConversationState, type ConversationState } from './conversation-state'
 
 export { getPublicConfig, warmUpstream }
@@ -68,12 +67,13 @@ export function streamChat(
   request?: Request,
 ): Response {
   const encoder = new TextEncoder()
-  const memorySession = request ? resolveNodeMemorySession(request, 'http') : undefined
-  const memoryRuntime = request ? resolveNodeMemoryIntegration(request, 'http') : undefined
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
+        // Which store is this owner's memory writer is decided per request
+        // (Stage 15 cutover), before the turn reads or writes anything.
+        const { memorySession, memoryRuntime } = request ? await resolveNodeMemoryForTurn(request, 'http') : { memorySession: undefined, memoryRuntime: undefined }
         // No bridge on this path: a single HTTP response cannot ask the
         // browser a question mid-turn, so browser-run tools are unavailable
         // and the agent loop is told so rather than discovering it late.

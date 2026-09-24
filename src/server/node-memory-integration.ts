@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import {
   captureCommittedEvent,
   executeExplicitCommand,
@@ -12,14 +13,23 @@ import {
   createSubstituteClassifier,
   createTypeSafeClassifier,
   startMemoryBackground,
+  CutoverFenceError,
+  cutoverScope,
+  legacyCompatibilityView,
+  parseLegacyMemories,
+  readAuthority,
+  withWriterLock,
+  type LegacySource,
   type MemoryBackgroundHandle,
   type PostgresMemoryStore,
 } from '../../backend/memory/src/index.ts'
+import type { Memory, MemoryStore } from '../lib/tools/memory'
+import { resolveNodeMemorySession } from './node-memory-session'
 import type { MemoryExtractor } from '../lib/memory/learning'
 import type { MemoryClassifier } from '../lib/memory/classification'
 import { createClassifiedExtractor } from '../lib/memory/classified-extractor'
 import { RULE_EXTRACTOR } from '../lib/memory/rule-extractor'
-import { memoryBackgroundEnabled, memoryClassifierPlan, memoryFeatureFlags, memoryLearningEnabled } from '../lib/memory/rollout'
+import { anyMemoryFeatureEnabled, memoryBackgroundEnabled, memoryClassifierPlan, memoryFeatureFlags, memoryLearningEnabled } from '../lib/memory/rollout'
 import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
 import type { ConversationState } from '../lib/conversation-state'
 import {
@@ -33,7 +43,7 @@ import {
 } from '../lib/memory/contracts'
 import type { MemoryCaptureTurnContext, MemoryRecallTurnContext, MemoryTurnRuntime } from '../lib/memory/turn-runtime'
 import type { ToolOutcome } from '../lib/tools/registry'
-import { nodeOwner } from './identity'
+import { legacyMemoryFile, nodeOwner, uncachedLegacyStore } from './identity'
 import { createServerMemorySession } from './memory-session'
 
 const PG_RUNTIME = Symbol.for('gideon.node.memory-postgres-runtime.v1')
@@ -411,4 +421,159 @@ export function resolveNodeMemoryIntegration(
   }
   const session = createServerMemorySession({ owner, store, channel, authority: 'node_signed_cookie' })
   return createRuntime(session, flags)
+}
+
+// ---------------------------------------------------------------------------
+// Stage 15: per-owner writer fence between the legacy file and PostgreSQL
+// ---------------------------------------------------------------------------
+
+/** Off unless explicitly enabled; with it off every owner behaves exactly as before. */
+export function memoryCutoverEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GIDEON_MEMORY_CUTOVER_ENABLED === '1'
+}
+
+/**
+ * The legacy JSON file of a signed Node owner, as the cutover reads and (on
+ * rollback) rewrites it. Reading is raw: the legacy store refuses a whole
+ * file for one bad row, while the cutover must see every row to quarantine
+ * the bad ones by name. Unparseable text is returned as text, so the cutover
+ * stops with a reason instead of importing nothing.
+ */
+export function legacySourceFor(owner: string): LegacySource {
+  const store = uncachedLegacyStore(owner)
+  return {
+    async read() {
+      let text: string
+      try {
+        text = await readFile(legacyMemoryFile(owner), 'utf8')
+      } catch (error) {
+        if ((error as { code?: string }).code === 'ENOENT') return null
+        throw error
+      }
+      try {
+        return JSON.parse(text) as unknown
+      } catch {
+        return text
+      }
+    },
+    write: (memories) => store.mutate(() => ({ memories, result: undefined })),
+  }
+}
+
+/**
+ * The legacy store the old memory tools see during and after a cutover.
+ * Writes happen only while the file is the owner's writer, under the shared
+ * writer lock; once PostgreSQL is active, reads come from the projection of
+ * the new authority, so a stale socket sees current memory and cannot write.
+ */
+export class FencedLegacyStore implements MemoryStore {
+  constructor(private readonly legacy: MemoryStore, private readonly session: MemorySession<PostgresMemoryStore>) {}
+
+  async all(): Promise<Memory[]> {
+    const { state } = await readAuthority(this.session.store, this.session.scope.id)
+    return state === 'active' ? legacyCompatibilityView(this.session) : this.legacy.all()
+  }
+
+  save(): Promise<void> {
+    return Promise.reject(new Error('Use a fenced mutation'))
+  }
+
+  mutate<T>(change: (memories: Memory[]) => { memories: Memory[]; result: T }): Promise<T> {
+    return withWriterLock(this.session.store, this.session.scope.id, ['legacy', 'rolled_back'], () => this.legacy.mutate(change))
+  }
+}
+
+const PAUSED: ToolOutcome = {
+  ok: false,
+  content: 'Your memory is being moved to its new home right now, so nothing was saved, changed or forgotten. Please try again in a moment.',
+  summary: 'Memory paused while it is moved',
+  receiptState: 'failed',
+}
+
+/** While fenced: nothing is written to or read from the new authority, and every receipt says so. */
+function pausedRuntime(flags: ReturnType<typeof memoryFeatureFlags>): MemoryTurnRuntime {
+  return {
+    flags,
+    captureUserTurn: async () => ({ status: 'unavailable', reason: 'cutover_fenced' }),
+    retrieve: async () => ({ status: 'unavailable', reason: 'failure' }),
+    execute: async () => PAUSED,
+  }
+}
+
+/**
+ * The PostgreSQL runtime, rechecking the writer on every call: a socket that
+ * connected while PostgreSQL was active keeps writing only while it still is.
+ */
+function guardedRuntime(runtime: MemoryTurnRuntime, store: PostgresMemoryStore, scopeId: string): MemoryTurnRuntime {
+  const guard = <T>(work: () => Promise<T>) => withWriterLock(store, scopeId, ['active'], work)
+  const active = async () => (await readAuthority(store, scopeId).catch(() => null))?.state === 'active'
+  return {
+    flags: runtime.flags,
+    async captureUserTurn(context, signal) {
+      try {
+        return await guard(() => runtime.captureUserTurn!(context, signal))
+      } catch (error) {
+        if (error instanceof CutoverFenceError) return { status: 'unavailable', reason: 'cutover_fenced' }
+        throw error
+      }
+    },
+    async retrieve(query, context, signal) {
+      if (!(await active())) return { status: 'unavailable', reason: 'stale' }
+      return runtime.retrieve(query, context, signal)
+    },
+    async execute(name, args, context) {
+      if (name === 'recall') return (await active()) ? runtime.execute(name, args, context) : PAUSED
+      try {
+        return await guard(() => runtime.execute(name, args, context))
+      } catch (error) {
+        if (error instanceof CutoverFenceError) return PAUSED
+        throw error
+      }
+    },
+  }
+}
+
+/**
+ * The memory session and runtime for one HTTP turn or one socket. Without
+ * the cutover switch this is exactly the pre-Stage-15 pair. With it, the
+ * owner's recorded writer decides: the legacy file (fenced store, no
+ * runtime), PostgreSQL (guarded runtime), or neither while fenced. An owner
+ * with no legacy memory is moved at once; anyone else waits for an operator
+ * cutover.
+ */
+export async function resolveNodeMemoryForTurn(
+  request: { headers: { get(name: string): string | null } },
+  channel: 'http' | 'websocket',
+): Promise<{ memorySession: ReturnType<typeof resolveNodeMemorySession>; memoryRuntime: MemoryTurnRuntime | undefined }> {
+  const memorySession = resolveNodeMemorySession(request, channel)
+  if (!memoryCutoverEnabled()) return { memorySession, memoryRuntime: resolveNodeMemoryIntegration(request, channel) }
+  const owner = nodeOwner(request.headers)
+  const flags = memoryFeatureFlags(process.env, owner, Boolean(owner))
+  if (!owner || !anyMemoryFeatureEnabled(flags)) return { memorySession, memoryRuntime: undefined }
+
+  let store: PostgresMemoryStore
+  try {
+    store = postgresStore()
+  } catch {
+    return { memorySession, memoryRuntime: { flags, retrieve: async () => ({ status: 'unavailable', reason: 'not_configured' }), execute: async () => unavailableOutcome() } }
+  }
+  const session = createServerMemorySession({ owner, store, channel, authority: 'node_signed_cookie' })
+  const legacy = legacySourceFor(owner)
+  const fencedSession = createServerMemorySession({ owner, store: new FencedLegacyStore(uncachedLegacyStore(owner), session), channel, authority: 'node_signed_cookie' })
+  try {
+    let { state } = await readAuthority(store, session.scope.id)
+    if (state === 'legacy') {
+      const parsed = parseLegacyMemories(await legacy.read())
+      if (!parsed.valid.length && !parsed.quarantined.length) {
+        const report = await cutoverScope(session, legacy)
+        if (report.outcome === 'activated' || report.outcome === 'already_active') state = 'active'
+      }
+    }
+    if (state === 'active') return { memorySession: fencedSession, memoryRuntime: guardedRuntime(createRuntime(session, flags), store, session.scope.id) }
+    if (state === 'fenced') return { memorySession: fencedSession, memoryRuntime: pausedRuntime(flags) }
+    return { memorySession: fencedSession, memoryRuntime: undefined }
+  } catch {
+    // The writer cannot be read: nothing may be written anywhere.
+    return { memorySession: fencedSession, memoryRuntime: pausedRuntime(flags) }
+  }
 }

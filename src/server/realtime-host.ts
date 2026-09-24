@@ -12,8 +12,7 @@
 import { REALTIME_PATH } from '../lib/protocol'
 import { callerKey, isLocalRequest, isTrustedAddress, limiter, originAllowed, rateLimited } from '../lib/guard'
 import { createRealtimeSession } from '../lib/realtime-session'
-import { resolveNodeMemorySession } from './node-memory-session'
-import { resolveNodeMemoryIntegration } from './node-memory-integration'
+import { resolveNodeMemoryForTurn } from './node-memory-integration'
 
 /** Minimal structural view of `ws`, which ships without type declarations. */
 interface NodeWebSocket {
@@ -165,8 +164,9 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
           let closed = false
           const waiting: string[] = []
           const create = options.loadSession ? options.loadSession() : Promise.resolve(createRealtimeSession)
-          void create
-            .then((factory) => {
+          const memory = resolveNodeMemoryForTurn({ headers: { get: (name: string) => headerValue(request, name) } }, 'websocket')
+          void Promise.all([create, memory])
+            .then(([factory, { memorySession, memoryRuntime }]) => {
               // Only a valid server-issued cookie reaches the durable store; an
               // unverified socket gets memory that lives and dies with itself.
               // The same rule the HTTP fallback applies to its own request.
@@ -182,12 +182,8 @@ export function attachRealtime(server: ServerLike, options: AttachOptions = {}) 
                 {
                   caller,
                   host,
-                  memorySession: resolveNodeMemorySession({
-                    headers: { get: (name: string) => headerValue(request, name) },
-                  }, 'websocket'),
-                  memoryRuntime: resolveNodeMemoryIntegration({
-                    headers: { get: (name: string) => headerValue(request, name) },
-                  }, 'websocket'),
+                  memorySession,
+                  memoryRuntime,
                 },
               )
               if (closed) return session.close()

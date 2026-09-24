@@ -1,8 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 const dependencies = vi.hoisted(() => ({ session: null as unknown, runtime: null as unknown }))
-vi.mock('../server/node-memory-session', () => ({ resolveNodeMemorySession: () => dependencies.session }))
-vi.mock('../server/node-memory-integration', () => ({ resolveNodeMemoryIntegration: () => dependencies.runtime }))
+vi.mock('../server/node-memory-integration', () => ({ resolveNodeMemoryForTurn: async () => ({ memorySession: dependencies.session, memoryRuntime: dependencies.runtime }) }))
 import { streamChat } from './openrouter.server'
 import { createServerMemorySession } from '../server/memory-session'
 import { EphemeralMemoryStore } from './tools/memory'
