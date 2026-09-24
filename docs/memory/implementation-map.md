@@ -69,6 +69,7 @@ that its capability is enabled or production-verified.
 | Extractor selection | `GIDEON_MEMORY_EXTRACTOR=rules\|model` | Stage 10; `rules` (local, no network) unless `model` **and** the spend switch below are both set |
 | Remote extraction spend switch | `GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED=1` | Stage 10; required for any paid model extraction; never set by default |
 | Extractor model | `GIDEON_MEMORY_EXTRACTOR_MODEL` | Stage 10; defaults to `openai/gpt-6-luna` (changed in Stage 11 at the user's instruction) when the model extractor is enabled |
+| Memory inspector and controls | `GIDEON_MEMORY_CONTROLS_ENABLED=1` | Stage 12 `/api/memory` and `/memory` on the Node host; same cohort and production gate; default off. Memory for an owner starts only after "Turn on memory" |
 | Semantic/vector search | `GIDEON_MEMORY_SEMANTIC_SEARCH_ENABLED` | Stage 08 adapter exists; no provider configured by default |
 | Classifier-assisted learning | `GIDEON_MEMORY_CLASSIFIER_MODE=shadow\|enforce` | Stage 11; unset = off. Needs `GIDEON_MEMORY_CLASSIFIER_REMOTE_ALLOWED=1`; production gated. See ADR 0001 |
 | Classifier provider / workflow | `GIDEON_MEMORY_CLASSIFIER_PROVIDER=jev\|substitute`, `GIDEON_MEMORY_CLASSIFIER_WORKFLOW=verify\|gate` | Stage 11; defaults `jev`, `verify`; Jev needs `TYPESAFE_API_KEY` (absent) |
@@ -567,6 +568,35 @@ with a regression test; see `handoffs/10-background-learning.md` for detail.
 
 Stage 11 is locally verified with a measured deferral: no Jev call was made
 (no key), and every classifier mode is off by default.
+
+## Stage 12 inspector, controls, forgetting and export
+
+- `src/lib/memory/controls.ts` (edge-safe): inspector view types, the
+  `chatgideon.memory-export` v1 format, the strict import parser
+  (`parseImportDocument`, `safeMemoryId`) and the Markdown projection.
+- `backend/memory/src/controls.ts`: scope-bound overview, filtered keyset
+  pagination, item detail with permitted sources/history, versioned edits
+  (mistake / real change / topic-only), exact forget with separate logical and
+  physical status, versioned settings, export, controlled import, and the
+  background helpers `scopesWithoutLearning` and `runEvidenceRetention`.
+- `backend/memory/src/deletion.ts`: `executeEvidenceRetention` (target-less
+  `retention` deletion operations). `backend/memory/src/commands.ts`: import
+  provenance (`origin: import` → `imported_legacy`).
+- `backend/memory/migrations/009-memory-controls.sql`: `memory_settings` and
+  retention-capable deletion plans/operations.
+- Enforcement: temporary mode in `src/server/node-memory-integration.ts` (capture,
+  recall, tools) and `src/lib/agent-core.ts`; learning-off and retention in
+  `backend/memory/src/background.ts`.
+- HTTP: `src/server/memory-controls.ts` behind `src/routes/api.memory.ts`; the
+  Cloudflare build resolves it to `memory-controls.worker.ts` (`vite.config.ts`).
+- UI: `src/routes/memory.tsx`, `src/components/MemoryInspector.tsx`,
+  `src/styles/memory.css`; receipt labels in `ResourcesPanel.tsx`; a Memory
+  entry point in `AgentPage.tsx`.
+- `backend/memory/src/postgres.ts`: `isPostgresMemoryStore` brand replaces
+  `instanceof` across bundles.
+
+Stage 12 is locally verified, including an in-browser run against a disposable
+database. No deployment or real-user data.
 
 ## Stage 01 receipt contract
 
