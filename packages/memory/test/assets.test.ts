@@ -116,6 +116,10 @@ describe('derived evidence and time', () => {
     expect(assets.recall('dentist Tuesday')[0]!.timeSpan).toEqual({ startMs: 0, endMs: 2_000 })
     expect(assets.recall('gym membership')[0]!.timeSpan).toEqual({ startMs: 2_000, endMs: 2_500 })
     expect(assets.recall('call my sister tonight')).toEqual([])
+    // The inspector shows the lineage: what arrived, what was promised, and who produced each span.
+    const inspected = assets.inspect(assets.recall('dentist Tuesday')[0]!.assetId)
+    expect(inspected.revisions[0]).toMatchObject({ modality: 'audio', rawKept: true, receivedMs: 2_500, declaredMs: 6_000 })
+    expect(inspected.revisions[0]!.derived.map((item) => [item.producer, item.timeSpan])).toEqual([['fixture-asr', { startMs: 0, endMs: 2_000 }], ['fixture-asr', { startMs: 2_000, endMs: 2_500 }]])
   })
 
   it('an interpreter claims only the uploads it can read; the others wait for theirs', async () => {
@@ -169,6 +173,7 @@ describe('deletion and isolation', () => {
     expect(await code(() => assets.fetchSource(saved.assetId, 1))).toBe('not_found')
     expect(assets.exportAll({ includeRaw: true }).assets).toEqual([])
     expect(await code(() => assets.ingest({ assetId: saved.assetId, bytes: photo, contentType: 'image/png' }))).toBe('suppressed')
+    expect(assets.inspect(saved.assetId)).toEqual({ assetId: saved.assetId, status: 'deleted', revisions: [] })
   })
 
   it('withdrawing derived consent removes descriptions; retention removes old bytes', async () => {

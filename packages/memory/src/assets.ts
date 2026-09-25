@@ -440,6 +440,28 @@ export class ScopedAssets {
     return { contentType: row.content_type, bytes: new Uint8Array(readFileSync(join(this.store.objectDir, row.raw_object))) }
   }
 
+  /**
+   * Inspector view of one asset: every revision with what was kept, and every
+   * derived item with its producer, region or span and confidence. A deleted
+   * asset shows only that it existed; nothing it contained.
+   */
+  inspect(assetId: string): { assetId: string; status: 'active' | 'deleted'; revisions: { revision: number; modality: Modality; contentType: string; byteLength: number; observedAt: string; rawKept: boolean; receivedMs: number | null; declaredMs: number | null; derived: { derivedId: string; kind: DerivedKind; text: string | null; producer: string; producerVersion: string; confidence: number; region: DerivedInput['region'] | null; timeSpan: DerivedInput['timeSpan'] | null; status: string }[] }[] } {
+    if (!this.bind(false)) throw new MemoryError('not_found', 'No such asset.')
+    const asset = this.db.prepare('SELECT status FROM assets WHERE scope_id = ? AND asset_id = ?').get(this.scopeId, assetId) as { status: 'active' | 'deleted' } | undefined
+    if (!asset) throw new MemoryError('not_found', 'No such asset.')
+    if (asset.status === 'deleted') return { assetId, status: 'deleted', revisions: [] }
+    const revisions = this.db.prepare('SELECT revision, modality, content_type, byte_length, source_time, received_at, raw_object, received_ms, declared_ms FROM asset_revisions WHERE scope_id = ? AND asset_id = ? ORDER BY revision').all(this.scopeId, assetId) as { revision: number; modality: Modality; content_type: string; byte_length: number; source_time: string | null; received_at: string; raw_object: string | null; received_ms: number | null; declared_ms: number | null }[]
+    return {
+      assetId, status: 'active',
+      revisions: revisions.map((row) => ({
+        revision: row.revision, modality: row.modality, contentType: row.content_type, byteLength: row.byte_length, observedAt: row.source_time ?? row.received_at,
+        rawKept: Boolean(row.raw_object), receivedMs: row.received_ms, declaredMs: row.declared_ms,
+        derived: (this.db.prepare('SELECT derived_id, kind, text, producer, producer_version, confidence, region, time_span, status FROM asset_derived WHERE scope_id = ? AND asset_id = ? AND revision = ? ORDER BY created_at').all(this.scopeId, assetId, row.revision) as { derived_id: string; kind: DerivedKind; text: string | null; producer: string; producer_version: string; confidence: number; region: string | null; time_span: string | null; status: string }[])
+          .map((item) => ({ derivedId: item.derived_id, kind: item.kind, text: item.text, producer: item.producer, producerVersion: item.producer_version, confidence: item.confidence, region: item.region ? JSON.parse(item.region) : null, timeSpan: item.time_span ? JSON.parse(item.time_span) : null, status: item.status })),
+      })),
+    }
+  }
+
   /** Records which exact revision a conversation showed at one display step. */
   recordDisplay(input: { conversationId: string; displayRevision: number; assetId: string; revision: number }): void {
     this.store.write(() => {
