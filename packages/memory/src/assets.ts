@@ -456,7 +456,7 @@ export class ScopedAssets {
       revisions: revisions.map((row) => ({
         revision: row.revision, modality: row.modality, contentType: row.content_type, byteLength: row.byte_length, observedAt: row.source_time ?? row.received_at,
         rawKept: Boolean(row.raw_object), receivedMs: row.received_ms, declaredMs: row.declared_ms,
-        derived: (this.db.prepare('SELECT derived_id, kind, text, producer, producer_version, confidence, region, time_span, status FROM asset_derived WHERE scope_id = ? AND asset_id = ? AND revision = ? ORDER BY created_at').all(this.scopeId, assetId, row.revision) as { derived_id: string; kind: DerivedKind; text: string | null; producer: string; producer_version: string; confidence: number; region: string | null; time_span: string | null; status: string }[])
+        derived: (this.db.prepare('SELECT derived_id, kind, text, producer, producer_version, confidence, region, time_span, status FROM asset_derived WHERE scope_id = ? AND asset_id = ? AND revision = ? ORDER BY rowid').all(this.scopeId, assetId, row.revision) as { derived_id: string; kind: DerivedKind; text: string | null; producer: string; producer_version: string; confidence: number; region: string | null; time_span: string | null; status: string }[])
           .map((item) => ({ derivedId: item.derived_id, kind: item.kind, text: item.text, producer: item.producer, producerVersion: item.producer_version, confidence: item.confidence, region: item.region ? JSON.parse(item.region) : null, timeSpan: item.time_span ? JSON.parse(item.time_span) : null, status: item.status })),
       })),
     }
