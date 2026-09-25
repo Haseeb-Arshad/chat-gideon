@@ -192,13 +192,20 @@ export class SqliteAssetStore {
     this.objectDir = options.objectDir
     this.limits = { ...DEFAULT_ASSET_LIMITS, ...options.limits }
     this.db = new DatabaseSync(options.path)
-    this.db.exec('PRAGMA busy_timeout = 5000')
-    this.db.exec('PRAGMA foreign_keys = ON')
-    if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
-    this.write(() => {
-      this.db.exec(SCHEMA)
-      if (!this.db.prepare("SELECT 1 FROM asset_meta WHERE key = 'schema_version'").get()) this.db.prepare("INSERT INTO asset_meta (key, value) VALUES ('schema_version', '1')").run()
-    })
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000')
+      this.db.exec('PRAGMA foreign_keys = ON')
+      if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
+      this.write(() => {
+        this.db.exec(SCHEMA)
+        const stored = this.db.prepare("SELECT value FROM asset_meta WHERE key = 'schema_version'").get() as { value: string } | undefined
+        if (!stored) this.db.prepare("INSERT INTO asset_meta (key, value) VALUES ('schema_version', '1')").run()
+        else if (stored.value !== '1') throw new MemoryError('unsupported', `Asset store schema ${stored.value} is not 1.`)
+      })
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
   }
 
   write<T>(work: () => T): T {

@@ -141,15 +141,21 @@ export class SqliteMemoryBackend implements MemoryBackend {
       if (!existsSync(options.path)) closeSync(openSync(options.path, 'a', 0o600))
     }
     this.db = new DatabaseSync(options.path)
-    this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.min(options.busyTimeoutMs ?? 5_000, 60_000))}`)
-    this.db.exec('PRAGMA foreign_keys = ON')
-    if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
-    this.write(() => {
-      this.db.exec(SCHEMA)
-      const stored = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as { value: string } | undefined
-      if (!stored) this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', String(STORED_SCHEMA_VERSION))
-      else if (Number(stored.value) !== STORED_SCHEMA_VERSION) throw new MemoryError('unsupported', `This database has stored schema ${stored.value}; this library reads ${STORED_SCHEMA_VERSION}.`)
-    })
+    try {
+      this.db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.min(options.busyTimeoutMs ?? 5_000, 60_000))}`)
+      this.db.exec('PRAGMA foreign_keys = ON')
+      if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
+      this.write(() => {
+        this.db.exec(SCHEMA)
+        const stored = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as { value: string } | undefined
+        if (!stored) this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', String(STORED_SCHEMA_VERSION))
+        else if (Number(stored.value) !== STORED_SCHEMA_VERSION) throw new MemoryError('unsupported', `This database has stored schema ${stored.value}; this library reads ${STORED_SCHEMA_VERSION}.`)
+      })
+    } catch (error) {
+      // A refused database must not stay open (on Windows an open handle locks the file).
+      this.db.close()
+      throw error
+    }
   }
 
   /** One immediate (write-locked) transaction; rolled back on any error. */

@@ -239,15 +239,20 @@ export class SqliteProcedureStore {
       if (!existsSync(options.path)) closeSync(openSync(options.path, 'a', 0o600))
     }
     this.db = new DatabaseSync(options.path)
-    this.db.exec('PRAGMA busy_timeout = 5000')
-    this.db.exec('PRAGMA foreign_keys = ON')
-    if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
-    this.write(() => {
-      this.db.exec(SCHEMA)
-      const stored = this.db.prepare("SELECT value FROM proc_meta WHERE key = 'schema_version'").get() as { value: string } | undefined
-      if (!stored) this.db.prepare("INSERT INTO proc_meta (key, value) VALUES ('schema_version', ?)").run(String(PROCEDURE_STORE_VERSION))
-      else if (Number(stored.value) !== PROCEDURE_STORE_VERSION) throw new MemoryError('unsupported', `Procedure store schema ${stored.value} is not ${PROCEDURE_STORE_VERSION}.`)
-    })
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000')
+      this.db.exec('PRAGMA foreign_keys = ON')
+      if (options.path !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL')
+      this.write(() => {
+        this.db.exec(SCHEMA)
+        const stored = this.db.prepare("SELECT value FROM proc_meta WHERE key = 'schema_version'").get() as { value: string } | undefined
+        if (!stored) this.db.prepare("INSERT INTO proc_meta (key, value) VALUES ('schema_version', ?)").run(String(PROCEDURE_STORE_VERSION))
+        else if (Number(stored.value) !== PROCEDURE_STORE_VERSION) throw new MemoryError('unsupported', `Procedure store schema ${stored.value} is not ${PROCEDURE_STORE_VERSION}.`)
+      })
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
   }
 
   write<T>(work: () => T): T {
