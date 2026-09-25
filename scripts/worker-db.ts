@@ -30,7 +30,8 @@ function files(directory: string): { name: string; sql: string; checksum: string
     .sort()
     .map((name) => {
       const sql = readFileSync(join(directory, name), 'utf8')
-      return { name, sql, checksum: createHash('sha256').update(sql).digest('hex') }
+      // Hashed with LF endings, so a Windows checkout of the same file matches.
+      return { name, sql, checksum: createHash('sha256').update(sql.replace(/\r\n/gu, '\n')).digest('hex') }
     })
 }
 
