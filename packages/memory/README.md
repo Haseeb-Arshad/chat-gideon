@@ -114,6 +114,17 @@ A new backend passes only if it passes that suite unchanged.
 - Exports contain memory text and opaque ids, a scope fingerprint instead of
   the scope id, and never tokens or credentials.
 
+## Optional: verified procedures (Stage 17)
+
+`SqliteProcedureStore` + `openProcedures` learn declarative task procedures
+from episodes whose success was observed (a tool result or an external check),
+promote them only after independent review and held-out and
+negative-precondition checks, and give them back as **advice**. Advice is
+checked at recall against the environment, tool versions, preconditions and
+the capabilities the host granted, and it never runs or grants anything. A
+manifest cannot carry memory policy, credentials, temporary ids, scripts or
+bypass instructions. SQLite only.
+
 ## Dependencies and license
 
 See `RELEASE.md`.

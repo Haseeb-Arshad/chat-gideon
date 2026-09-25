@@ -683,6 +683,17 @@ Stage 15 is rehearsed locally only; staging and production were not performed.
 Nothing in the ChatGideon app imports the package; it is private and
 unpublished. See `handoffs/16-independent-framework.md`.
 
+## Stage 17 procedures (`packages/memory/src/procedures.ts`)
+
+- `validateManifest`, `SqliteProcedureStore`, `openProcedures` →
+  `ScopedProcedures` (`recordEpisode`, `propose`, `review`,
+  `recordVerification`, `promote`, `rollback`, `deleteEpisode`, `advise`,
+  `adviseShadow`, `reviewForEnvironment`, `inspect`, `recordAdoption`),
+  `adviceFromManifest`.
+- Server: `procedures-inspect` / `procedures-advise` when a store is given.
+- Tests: `test/procedures.test.ts`, `test/procedures-eval.test.ts`,
+  `test/procedures-server.test.ts`.
+
 ## Stage 01 receipt contract
 
 `remember()` now returns `stored`, `merged`, or `rejected` with rejection reasons `empty`, `too_long`, and `capacity`. The new record is considered stored only when it is present in the returned corpus. If the full 400-record hot cache would evict the new zero-use record, the input corpus is preserved and the tool returns `ok: false`; it does not promise unlimited durable retention. Text longer than 240 characters is rejected without semantic truncation. A rejecting `MemoryStore.save()` also returns `ok: false`, and its failure summary reaches the action ledger.
