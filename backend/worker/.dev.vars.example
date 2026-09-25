@@ -1,8 +1,8 @@
 OPENROUTER_API_KEY=replace_with_your_openrouter_key
 
 # Accounts. At least 32 random characters: `openssl rand -base64 32`.
-# Without it, memory is ephemeral and isolated. Apply the migration first:
-# npx wrangler d1 migrations apply DB --local
+# Also needs the HYPERDRIVE binding (see backend/worker/README.md). Without
+# both, memory is ephemeral and isolated.
 BETTER_AUTH_SECRET=
 OPENROUTER_SITE_URL=http://localhost:5173
 OPENROUTER_CHAT_MODEL=openai/gpt-4.1-mini
@@ -25,7 +25,7 @@ MAPBOX_SERVER_TOKEN=
 GIDEON_ALLOWED_ORIGINS=http://localhost:5173
 GIDEON_RATE_LIMIT=auto
 
-# Optional alternative memory backend, not a mirror. Leave both empty to use
-# Durable Object storage. Migrate existing data before switching backends.
+# Optional REST route to the same memory table. Ignored when HYPERDRIVE is
+# bound. Leave both empty to use Durable Object storage.
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=

@@ -4,14 +4,13 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * Fails the Cloudflare build when the Worker bundle contains the Node-only
- * PostgreSQL memory authority. The Worker keeps its own account/Durable Object
- * memory; the `pg` driver and the canonical adapter belong to the Node host.
+ * PostgreSQL memory authority. The Worker reaches its own tables (accounts and
+ * account memory) with the `pg` driver through Hyperdrive; the canonical
+ * adapter and its schema still belong to the Node host.
  */
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const bundle = join(root, 'dist', 'server')
 const forbidden = [
-  ['pg driver protocol', 'pg-protocol'],
-  ['pg connection strings', 'pg-connection-string'],
   ['PostgreSQL memory store', 'PostgresMemoryStore'],
   ['memory authority schema', 'gideon_memory.'],
 ]

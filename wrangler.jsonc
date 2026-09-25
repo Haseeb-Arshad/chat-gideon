@@ -8,15 +8,11 @@
     "GIDEON_ALLOWED_ORIGINS": "https://chatgideon.com,https://www.chatgideon.com",
     "OPENROUTER_SITE_URL": "https://chatgideon.com"
   },
-  // Provision once with `wrangler d1 create chat-gideon` and add database_id here.
-  // Migrations must succeed before code depending on them is deployed.
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "chat-gideon",
-      "migrations_dir": "backend/worker/migrations"
-    }
-  ],
+  // Accounts and account memory live in Supabase PostgreSQL, reached through
+  // Hyperdrive. Create the config once, with the direct connection string, and
+  // put its id here (see backend/worker/README.md). `npm run db:migrate` must
+  // succeed before code depending on a migration is deployed.
+  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<hyperdrive config id>" }],
   "durable_objects": {
     "bindings": [
       {
