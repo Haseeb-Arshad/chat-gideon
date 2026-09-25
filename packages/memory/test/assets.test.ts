@@ -118,6 +118,19 @@ describe('derived evidence and time', () => {
     expect(assets.recall('call my sister tonight')).toEqual([])
   })
 
+  it('an interpreter claims only the uploads it can read; the others wait for theirs', async () => {
+    const assets = fresh()
+    assets.setConsent('image', all)
+    assets.setConsent('document', all)
+    const photo = makePng(3, 2, [1, 200, 1])
+    vision.register(photo, [{ kind: 'description', text: 'A blue kayak on a trailer', confidence: 0.8 }])
+    await assets.ingest({ bytes: photo, contentType: 'image/png' })
+    await assets.ingest({ bytes: text('The kayak club meets on Sundays.'), contentType: 'text/plain' })
+    expect(await assets.processPending(TEXT_DOCUMENT_INTERPRETER)).toMatchObject({ committed: 1, skipped: 0 })
+    expect(await assets.processPending(vision.interpreter)).toMatchObject({ committed: 1 })
+    expect(assets.recall('blue kayak trailer').map((item) => item.kind)).toContain('description')
+  })
+
   it('a provider outage leaves the upload uninterpreted and says so, then gives up after three tries', async () => {
     const assets = fresh()
     assets.setConsent('image', all)

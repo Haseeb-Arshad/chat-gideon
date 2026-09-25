@@ -1,0 +1,220 @@
+{
+  "stage": 18,
+  "label": "matched retrieval-level comparison on generated media; image and speech understanding are labelled fixtures, so this measures the pipeline, not a vision or speech model",
+  "tasks": 13,
+  "summary": {
+    "text_only": {
+      "passed": 6,
+      "tasks": 13,
+      "byCategory": {
+        "document_reference": "0/4",
+        "image_reference": "0/2",
+        "stale_scene": "2/2",
+        "interrupted_audio": "1/2",
+        "negative_personalization": "2/2",
+        "deleted_asset": "1/1"
+      }
+    },
+    "multimodal": {
+      "passed": 13,
+      "tasks": 13,
+      "byCategory": {
+        "document_reference": "4/4",
+        "image_reference": "2/2",
+        "stale_scene": "2/2",
+        "interrupted_audio": "2/2",
+        "negative_personalization": "2/2",
+        "deleted_asset": "1/1"
+      }
+    }
+  },
+  "rows": [
+    {
+      "task": "doc-rent",
+      "category": "document_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 0
+    },
+    {
+      "task": "doc-rent",
+      "category": "document_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "doc-deposit",
+      "category": "document_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "doc-deposit",
+      "category": "document_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 3
+    },
+    {
+      "task": "doc-excess",
+      "category": "document_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "doc-excess",
+      "category": "document_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 3
+    },
+    {
+      "task": "doc-renewal",
+      "category": "document_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "doc-renewal",
+      "category": "document_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 3
+    },
+    {
+      "task": "img-sofa",
+      "category": "image_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "img-sofa",
+      "category": "image_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "img-tree",
+      "category": "image_reference",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "img-tree",
+      "category": "image_reference",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "stale-room",
+      "category": "stale_scene",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 1
+    },
+    {
+      "task": "stale-room",
+      "category": "stale_scene",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "stale-garden",
+      "category": "stale_scene",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 1
+    },
+    {
+      "task": "stale-garden",
+      "category": "stale_scene",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "audio-heard",
+      "category": "interrupted_audio",
+      "arm": "text_only",
+      "passed": false,
+      "evidence": 1
+    },
+    {
+      "task": "audio-heard",
+      "category": "interrupted_audio",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 2
+    },
+    {
+      "task": "audio-cut",
+      "category": "interrupted_audio",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 1
+    },
+    {
+      "task": "audio-cut",
+      "category": "interrupted_audio",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 1
+    },
+    {
+      "task": "neg-capital",
+      "category": "negative_personalization",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 0
+    },
+    {
+      "task": "neg-capital",
+      "category": "negative_personalization",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 0
+    },
+    {
+      "task": "neg-maths",
+      "category": "negative_personalization",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 0
+    },
+    {
+      "task": "neg-maths",
+      "category": "negative_personalization",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 0
+    },
+    {
+      "task": "deleted-board",
+      "category": "deleted_asset",
+      "arm": "text_only",
+      "passed": true,
+      "evidence": 0
+    },
+    {
+      "task": "deleted-board",
+      "category": "deleted_asset",
+      "arm": "multimodal",
+      "passed": true,
+      "evidence": 0
+    }
+  ],
+  "staleSceneExample": {
+    "text": "A living room with a green velvet sofa and a tall bookshelf",
+    "observedAt": "2025-11-03T09:00:00.000Z",
+    "note": "A model’s description of an image captured 2025-11-03 (confidence 0.74). It describes that moment, not how things are now."
+  }
+}

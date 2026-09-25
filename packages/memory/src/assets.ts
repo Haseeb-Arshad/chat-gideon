@@ -374,7 +374,12 @@ export class ScopedAssets {
     const report = { committed: 0, stale: 0, failed: 0, skipped: 0 }
     const claimed = this.store.write(() => {
       if (!this.bind(false)) return []
-      const rows = this.db.prepare("SELECT job_id, asset_id, revision, deletion_epoch FROM asset_jobs WHERE scope_id = ? AND state = 'pending' ORDER BY created_at LIMIT ?").all(this.scopeId, options.limit ?? 10) as { job_id: string; asset_id: string; revision: number; deletion_epoch: number }[]
+      // Claim only what this interpreter can read; other modalities wait for theirs.
+      const rows = (this.db.prepare(`SELECT j.job_id, j.asset_id, j.revision, j.deletion_epoch, r.content_type FROM asset_jobs j
+        JOIN asset_revisions r ON r.scope_id = j.scope_id AND r.asset_id = j.asset_id AND r.revision = j.revision
+        WHERE j.scope_id = ? AND j.state = 'pending' ORDER BY j.created_at`).all(this.scopeId) as { job_id: string; asset_id: string; revision: number; deletion_epoch: number; content_type: string }[])
+        .filter((row) => interpreter.handles(row.content_type))
+        .slice(0, options.limit ?? 10)
       return rows.map((row) => {
         this.db.prepare("UPDATE asset_jobs SET state = 'running', fence = fence + 1, attempts = attempts + 1 WHERE job_id = ?").run(row.job_id)
         const job = this.db.prepare('SELECT fence FROM asset_jobs WHERE job_id = ?').get(row.job_id) as { fence: number }
