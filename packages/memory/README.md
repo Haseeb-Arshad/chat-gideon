@@ -125,6 +125,30 @@ the capabilities the host granted, and it never runs or grants anything. A
 manifest cannot carry memory policy, credentials, temporary ids, scripts or
 bypass instructions. SQLite only.
 
+## Optional: media assets (Stage 18)
+
+`SqliteAssetStore` + `openAssets` keep images (PNG, JPEG, WebP), documents
+(PDF, plain text, Markdown) and audio (WAV) under **per-modality consent**:
+raw bytes, derived text (descriptions, OCR, transcripts) and a retention
+window are each opt-in, and text-memory consent never covers media.
+Embeddings are not supported. Uploads are checked by magic bytes and size;
+URLs are refused and nothing is fetched.
+
+- **Interpreters.** Only plain text and Markdown are read out of the box.
+  PDF parsing, OCR, image description and speech recognition need an
+  `AssetInterpreter` from the host; until then those uploads stay
+  uninterpreted and recall says nothing about them.
+- **Old pictures are not the present.** Every recalled item is labelled a
+  historical observation with its capture date, producer and confidence. What
+  something looks like now needs a fresh upload or re-observation.
+- **Interrupted audio** is transcribed only for the part that arrived.
+- **Deletion** removes raw bytes, derived text and search terms, and a parse
+  running at the time cannot bring them back. No thumbnails are generated.
+  Backups, downloaded exports and anything a model already read are out of
+  reach.
+- **Not supported:** face or voice identity linking, sensitive-trait
+  extraction, a permanent microphone archive. SQLite only.
+
 ## Dependencies and license
 
 See `RELEASE.md`.
