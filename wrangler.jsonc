@@ -12,7 +12,7 @@
   // Hyperdrive. Create the config once, with the direct connection string, and
   // put its id here (see backend/worker/README.md). `npm run db:migrate` must
   // succeed before code depending on a migration is deployed.
-  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<hyperdrive config id>" }],
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "d3b0f930e77044aebdd18a06ee11a736" }],
   "durable_objects": {
     "bindings": [
       {
