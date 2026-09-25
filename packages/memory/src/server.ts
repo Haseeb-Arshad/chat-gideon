@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { MemoryError, WIRE_PROTOCOL_VERSION, type Grant, type MemoryBackend } from './contract.ts'
 import { openMemory, type ScopedMemory } from './core.ts'
+import { openProcedures, type SqliteProcedureStore } from './procedures.ts'
 
 /**
  * Local memory server: one JSON RPC per POST /v1/<operation>.
@@ -12,7 +13,8 @@ import { openMemory, type ScopedMemory } from './core.ts'
  * names a scope or principal is refused, not ignored.
  */
 
-export interface TokenIdentity { scopeId: string; principalId: string; grants?: readonly Grant[] }
+/** `capabilities` are what this caller may actually do; procedure advice is checked against them and never adds any. */
+export interface TokenIdentity { scopeId: string; principalId: string; grants?: readonly Grant[]; capabilities?: readonly string[] }
 
 export interface MemoryServerOptions {
   backend: MemoryBackend
@@ -22,13 +24,15 @@ export interface MemoryServerOptions {
   port?: number
   allowRemote?: boolean
   maxBodyBytes?: number
+  /** Optional Stage 17 procedures: read-only inspection and advice, never execution. */
+  procedures?: SqliteProcedureStore
 }
 
 const STATUS: Record<string, number> = {
   validation: 400, unauthorized: 403, not_found: 404, conflict: 409, suppressed: 410, quota: 413,
   unsupported: 422, cancelled: 499, unavailable: 503,
 }
-const FORBIDDEN_FIELDS = ['scopeId', 'principalId', 'scope', 'principal', 'owner', 'grants', 'tenant']
+const FORBIDDEN_FIELDS = ['scopeId', 'principalId', 'scope', 'principal', 'owner', 'grants', 'tenant', 'capabilities']
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost'])
 
 const hash = (value: string) => createHash('sha256').update(value).digest()
@@ -104,8 +108,10 @@ export function createMemoryServer(options: MemoryServerOptions): { server: Serv
     response.on('close', () => { if (!response.writableFinished) aborted.abort() })
     try {
       const match = /^\/v1\/([a-z-]+)$/u.exec(request.url ?? '')
-      const operation = match ? OPERATIONS[match[1]!] : undefined
-      if (!operation) return send(response, 404, { ok: false, protocol: WIRE_PROTOCOL_VERSION, error: { code: 'not_found', message: 'Unknown operation.', retryable: false } })
+      const name = match?.[1] ?? ''
+      const procedureOperation = name === 'procedures-inspect' || name === 'procedures-advise'
+      const operation = OPERATIONS[name]
+      if (!operation && !procedureOperation) return send(response, 404, { ok: false, protocol: WIRE_PROTOCOL_VERSION, error: { code: 'not_found', message: 'Unknown operation.', retryable: false } })
       const identity = identify(request)
       if (!identity) return send(response, 401, { ok: false, protocol: WIRE_PROTOCOL_VERSION, error: { code: 'unauthorized', message: 'A valid bearer token is required.', retryable: false } })
       if (request.method !== 'POST') return send(response, 405, { ok: false, protocol: WIRE_PROTOCOL_VERSION, error: { code: 'validation', message: 'Use POST.', retryable: false } })
@@ -115,7 +121,16 @@ export function createMemoryServer(options: MemoryServerOptions): { server: Serv
       const named = FORBIDDEN_FIELDS.filter((field) => field in body)
       if (named.length) throw new MemoryError('validation', `Identity comes from the token; the request may not name ${named.join(', ')}.`)
       const memory = openMemory({ backend: options.backend, scopeId: identity.scopeId, principalId: identity.principalId, grants: identity.grants })
-      const result = await operation(memory, body, aborted.signal)
+      if (procedureOperation) {
+        if (!options.procedures) throw new MemoryError('unsupported', 'Procedures are not enabled on this server.')
+        if (!memory.scope.grants.includes('read')) throw new MemoryError('unauthorized', 'This session may not read.')
+        const procedures = openProcedures({ store: options.procedures, scopeId: identity.scopeId, principalId: identity.principalId })
+        const result = name === 'procedures-inspect'
+          ? procedures.inspect(String(body.name ?? ''))
+          : procedures.advise({ task: String(body.task ?? ''), environment: (body.environment ?? {}) as Record<string, string>, toolVersions: body.toolVersions as Record<string, string> | undefined, facts: body.facts as Record<string, string> | undefined, capabilities: identity.capabilities ?? [] })
+        return send(response, 200, { ok: true, protocol: WIRE_PROTOCOL_VERSION, result })
+      }
+      const result = await operation!(memory, body, aborted.signal)
       send(response, 200, { ok: true, protocol: WIRE_PROTOCOL_VERSION, result })
     } catch (error) {
       fail(response, error instanceof MemoryError ? error : new MemoryError('unavailable', 'The memory service failed.', true))
