@@ -218,6 +218,19 @@ export function compatibility(manifest: ProcedureManifest, request: Pick<AdviceR
   return { result, notes }
 }
 
+/** Advice for one manifest in one request; the same check the store applies at recall. */
+export function adviceFromManifest(name: string, version: number, manifest: ProcedureManifest, request: AdviceRequest): Advice {
+  const compatible = compatibility(manifest, request)
+  const preconditions = manifest.preconditions.map((pre) => ({ id: pre.id, result: evaluate(pre, request.facts ?? {}), description: pre.description }))
+  const missingCapabilities = manifest.requiredCapabilities.filter((capability) => !request.capabilities.includes(capability))
+  return {
+    name, version, advisory: true,
+    compatibility: compatible.result, compatibilityNotes: compatible.notes, preconditions, missingCapabilities,
+    usable: compatible.result === 'compatible' && preconditions.every((pre) => pre.result === 'met') && missingCapabilities.length === 0,
+    steps: manifest.steps, stopConditions: manifest.stopConditions, verifiedAgainst: { ...manifest.environment, ...manifest.toolVersions },
+  }
+}
+
 export class SqliteProcedureStore {
   readonly db: DatabaseSync
   constructor(options: { path: string }) {
@@ -435,15 +448,7 @@ export class ScopedProcedures {
   }
 
   private toAdvice(item: { name: string; version: number; manifest: ProcedureManifest }, request: AdviceRequest): Advice {
-    const compatible = compatibility(item.manifest, request)
-    const preconditions = item.manifest.preconditions.map((pre) => ({ id: pre.id, result: evaluate(pre, request.facts ?? {}), description: pre.description }))
-    const missingCapabilities = item.manifest.requiredCapabilities.filter((capability) => !request.capabilities.includes(capability))
-    return {
-      name: item.name, version: item.version, advisory: true,
-      compatibility: compatible.result, compatibilityNotes: compatible.notes, preconditions, missingCapabilities,
-      usable: compatible.result === 'compatible' && preconditions.every((pre) => pre.result === 'met') && missingCapabilities.length === 0,
-      steps: item.manifest.steps, stopConditions: item.manifest.stopConditions, verifiedAgainst: { ...item.manifest.environment, ...item.manifest.toolVersions },
-    }
+    return adviceFromManifest(item.name, item.version, item.manifest, request)
   }
 
   /** Advice from verified versions only. Nothing here runs anything or grants anything. */

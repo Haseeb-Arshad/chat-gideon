@@ -1,0 +1,62 @@
+{
+  "stage": 17,
+  "label": "deterministic synthetic deploy simulator; measures the mechanism, not any model or real deployment",
+  "caveat": "The past episodes were chosen to include a stale provider and a preview deploy, so raw replay fails by construction; these rates show the safeguards working on those cases, not a general estimate of benefit.",
+  "heldOutVariants": 12,
+  "arms": {
+    "raw_episode_replay": {
+      "variants": 12,
+      "verifiedSuccess": 0.08333333333333333,
+      "harmfulShortcuts": 0.9166666666666666,
+      "positives": 0,
+      "negativesStoppedCorrectly": 1
+    },
+    "previous_version_v1": {
+      "variants": 12,
+      "verifiedSuccess": 0.5,
+      "harmfulShortcuts": 0,
+      "positives": 0,
+      "negativesStoppedCorrectly": 6
+    },
+    "current_version_v2": {
+      "variants": 12,
+      "verifiedSuccess": 1,
+      "harmfulShortcuts": 0,
+      "positives": 6,
+      "negativesStoppedCorrectly": 6
+    },
+    "shadow_candidate_v3": {
+      "variants": 12,
+      "verifiedSuccess": 0.5833333333333334,
+      "harmfulShortcuts": 0.4166666666666667,
+      "positives": 6,
+      "negativesStoppedCorrectly": 1
+    }
+  },
+  "adoption": [
+    {
+      "version": 2,
+      "decision": "adopt",
+      "reason": "Advisory only: better held-out success than raw episode replay with no harmful shortcut in the synthetic simulator. Automatic execution stays off.",
+      "metrics": {
+        "verifiedSuccess": 1,
+        "harmfulShortcuts": 0
+      },
+      "at": "2026-09-25T10:21:05.948Z"
+    }
+  ],
+  "versions": [
+    {
+      "version": 1,
+      "status": "superseded"
+    },
+    {
+      "version": 2,
+      "status": "verified"
+    },
+    {
+      "version": 3,
+      "status": "candidate"
+    }
+  ]
+}
