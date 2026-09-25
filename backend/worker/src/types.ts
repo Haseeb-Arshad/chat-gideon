@@ -6,8 +6,14 @@ import type { GideonSession } from './realtime'
 export interface Env {
   GIDEON_SESSION: DurableObjectNamespace<GideonSession>
 
-  /** Accounts. Both are needed for verified durable ownership; otherwise memory is ephemeral. */
+  /**
+   * The Supabase PostgreSQL database, reached through Hyperdrive: accounts and
+   * account memory. Preferred over `DB` when both are bound.
+   */
+  HYPERDRIVE?: Hyperdrive
+  /** Accounts on D1, for a deployment without PostgreSQL. */
   DB?: D1Database
+  /** Needed with a database for verified durable ownership; otherwise memory is ephemeral. */
   BETTER_AUTH_SECRET?: string
 
   OPENROUTER_API_KEY?: string

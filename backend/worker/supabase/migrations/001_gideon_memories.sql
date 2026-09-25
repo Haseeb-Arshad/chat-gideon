@@ -22,5 +22,16 @@ create trigger gideon_memories_updated_at
 before update on public.gideon_memories
 for each row execute function public.gideon_memories_set_updated_at();
 
-revoke all on table public.gideon_memories from anon, authenticated;
+-- Supabase's API roles never read this table; only the Worker's database user does.
+-- Skipped on a PostgreSQL without those roles (local development and tests).
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on table public.gideon_memories from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on table public.gideon_memories from authenticated;
+  end if;
+end
+$$;
 

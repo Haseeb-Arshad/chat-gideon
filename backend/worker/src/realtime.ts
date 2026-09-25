@@ -13,8 +13,10 @@ import { createServerMemorySession } from '../../../src/server/memory-session'
 import {
   DurableObjectMemoryStore,
   EphemeralMemoryStore,
+  HyperdriveMemoryStore,
   SupabaseMemoryStore,
   hasSupabaseMemory,
+  hyperdriveClients,
   type MemorySnapshot,
 } from './memory'
 import type { Env } from './types'
@@ -81,9 +83,12 @@ export class GideonSession extends DurableObject<Env> {
     }
     if (this.owner && this.owner !== owner) throw new Error('Memory owner mismatch')
     this.owner = owner
-    this.authority ??= new VersionedMemoryAuthority(hasSupabaseMemory(this.env)
-      ? new SupabaseMemoryStore(this.env, owner)
-      : new DurableObjectMemoryStore(this.ctx.storage))
+    const connectionString = this.env.HYPERDRIVE?.connectionString
+    this.authority ??= new VersionedMemoryAuthority(connectionString
+      ? new HyperdriveMemoryStore(hyperdriveClients(connectionString), owner)
+      : hasSupabaseMemory(this.env)
+        ? new SupabaseMemoryStore(this.env, owner)
+        : new DurableObjectMemoryStore(this.ctx.storage))
     return this.authority
   }
 

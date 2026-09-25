@@ -1,3 +1,4 @@
+import { Client } from 'pg'
 import type { Memory, MemoryStore } from '../../../src/lib/tools/memory'
 
 const MEMORY_KEY = 'memories'
@@ -104,6 +105,53 @@ export class SupabaseMemoryStore extends SerialisedStore {
     this.cache = next
   }
 }
+/** The part of a PostgreSQL client the memory store uses. */
+export interface SqlClient {
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>
+  end(): Promise<void>
+}
+
+/** A fresh client per operation: a Worker cannot reuse a socket across requests, and Hyperdrive pools the real ones. */
+export function hyperdriveClients(connectionString: string): () => Promise<SqlClient> {
+  return async () => {
+    const client = new Client({ connectionString })
+    client.on('error', () => undefined)
+    await client.connect()
+    return client
+  }
+}
+
+/**
+ * The same `gideon_memories` row as the REST store, read and written over
+ * SQL through Hyperdrive. Only instantiated by the owner's DO, which
+ * serialises every write, so the cache stays the source of truth between reads.
+ */
+export class HyperdriveMemoryStore extends SerialisedStore {
+  private cache: Memory[] | null = null
+  constructor(private readonly connect: () => Promise<SqlClient>, private readonly ownerId: string) { super() }
+  private async run<T>(work: (client: SqlClient) => Promise<T>): Promise<T> {
+    const client = await this.connect()
+    try { return await work(client) } finally { await client.end().catch(() => undefined) }
+  }
+  async all() {
+    if (this.cache) return structuredClone(this.cache)
+    const { rows } = await this.run((client) => client.query(`SELECT memories FROM public.${MEMORY_TABLE} WHERE session_id = $1`, [this.ownerId]))
+    if (rows.length > 1) throw new Error('Invalid memory response')
+    this.cache = rows.length === 0 ? [] : decodeMemories((rows[0] as { memories?: unknown }).memories)
+    return structuredClone(this.cache)
+  }
+  async save(memories: Memory[]) {
+    const next = decodeMemories(memories)
+    // Serialised by hand: the driver would send a JavaScript array as a PostgreSQL array, not JSON.
+    await this.run((client) => client.query(
+      `INSERT INTO public.${MEMORY_TABLE} (session_id, memories) VALUES ($1, $2::jsonb)
+       ON CONFLICT (session_id) DO UPDATE SET memories = excluded.memories`,
+      [this.ownerId, JSON.stringify(next)],
+    ))
+    this.cache = next
+  }
+}
+
 export function hasSupabaseMemory(env: MemoryEnv) {
   return Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim())
 }
