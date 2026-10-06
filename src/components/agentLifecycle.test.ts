@@ -76,6 +76,15 @@ describe('segmented transcription', () => {
     await accumulator.release()
     expect(onFinal).toHaveBeenCalledTimes(1)
   })
+  it('puts a withdrawn message back at the head of the sentence', async () => {
+    const { accumulator, transcribe, onFinal } = setup()
+    accumulator.hold('what is the weather ')
+    accumulator.resume()
+    expect(accumulator.heard).toBe('what is the weather')
+    transcribe.mockResolvedValueOnce({ text: 'in Lahore tomorrow' })
+    await accumulator.push(segment())
+    expect(onFinal.mock.calls).toEqual([['what is the weather in Lahore tomorrow']])
+  })
   it('keeps holding when speech resumes again before a release lands', async () => {
     const { accumulator, transcribe, onFinal } = setup()
     transcribe.mockResolvedValueOnce({ text: 'one' })

@@ -113,6 +113,11 @@ export class SegmentAccumulator {
     this.starts += 1
   }
 
+  /** Puts words already sent back at the head of the sentence. */
+  hold(text: string) {
+    this.text = [text.trim(), this.text].filter(Boolean).join(' ')
+  }
+
   /**
    * The speech that resumed produced no utterance (a false start or noise), so
    * nothing is coming to carry what was held. Send it as it stands.

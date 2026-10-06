@@ -201,6 +201,8 @@ interface RunningTurn {
    * guess that is thrown away leaves no trace, and replayed if it is kept.
    */
   actions: ActionEvent[]
+  /** A tool has been seen at work for this turn, visibly or not. */
+  acted?: boolean
   /** The history entry this reply settled into, once it has. */
   messageId?: string
   /**
@@ -525,6 +527,10 @@ export function AgentPage() {
   const accumulatorRef = useRef<SegmentAccumulator | null>(null)
   /** Whether the speech since the last onset has produced any utterance. */
   const heardUtteranceRef = useRef(false)
+  /** The last voice message sent, while it might still be taken back. */
+  const sentVoiceRef = useRef<{ turn: RunningTurn; messageId: string; text: string; revision: number } | null>(null)
+  /** A voice message taken back to be finished; its next send corrects it. */
+  const reopenedRef = useRef<{ messageId: string; revision: number } | null>(null)
   const vadStateRef = useRef<string>('silence')
   /** Set once `runPartial` exists; called from the interrupt handler above it. */
   const runPartialRef = useRef<() => void>(() => undefined)
@@ -590,6 +596,7 @@ export function AgentPage() {
     partialGenerationRef.current.invalidate()
     accumulatorRef.current?.clear()
     accumulatorRef.current = null
+    reopenedRef.current = null
     stopPartials()
     dropEager()
     transcriberRef.current?.reset()
@@ -1752,6 +1759,7 @@ export function AgentPage() {
           },
           onAction: (action) => {
             if (turn.cancelled) return
+            turn.acted = true
             // A speculative turn is invisible, and so are its actions: the guess
             // may yet be thrown away, and a ledger entry for work nobody asked
             // for would be a lie about what happened. They are held instead,
@@ -1811,6 +1819,9 @@ export function AgentPage() {
       const text = rawText.trim()
       if (!text) return
       if (!linkRef.current) return
+      // A voice turn taken back because the sentence carried on comes back as
+      // a correction of itself, not as a second message.
+      const reopened = source === 'voice' ? reopenedRef.current : null
       invalidateInput()
       if (source !== 'voice') {
         listenerRef.current?.abort()
@@ -1830,25 +1841,32 @@ export function AgentPage() {
       captureRef.current?.setDucking(false)
 
       const userMessage: Message = {
-        id: makeId(),
+        id: reopened?.messageId ?? makeId(),
         role: 'user',
         content: text,
         createdAt: new Date().toISOString(),
       }
-      recordConversationEvent({
-        type: 'turn_committed',
-        turn: {
-          turnId: userMessage.id,
-          revision: 1,
-          sequence: conversationStateRef.current.sourceSequence + 1,
-          role: 'user',
-          text,
-          source: 'final_transcript',
-          committedAt: userMessage.createdAt,
-          delivery: 'committed',
-          heardText: null,
-        },
-      })
+      const committed = {
+        turnId: userMessage.id,
+        revision: reopened ? reopened.revision + 1 : 1,
+        sequence: conversationStateRef.current.sourceSequence + 1,
+        role: 'user' as const,
+        text,
+        source: 'final_transcript' as const,
+        committedAt: userMessage.createdAt,
+        delivery: 'committed' as const,
+        heardText: null,
+      }
+      recordConversationEvent(reopened
+        ? {
+            type: 'turn_corrected',
+            correctionId: makeId(),
+            turnId: userMessage.id,
+            previousRevision: reopened.revision,
+            committed,
+            sourceSequence: committed.sequence,
+          }
+        : { type: 'turn_committed', turn: committed })
       const context = [...messagesRef.current, userMessage]
 
       // Resolve any guesses made while this sentence was still being spoken.
@@ -1894,6 +1912,9 @@ export function AgentPage() {
       feel(text, SPEAKER_WEIGHT.user)
 
       promote(turn, text, context)
+      sentVoiceRef.current = source === 'voice'
+        ? { turn, messageId: userMessage.id, text, revision: committed.revision }
+        : null
     },
     [abandon, beginTurn, feel, invalidateInput, posthog, promote, recordConversationEvent, resetSilenceTimer, stopPartials, tuckStage],
   )
@@ -1990,45 +2011,82 @@ export function AgentPage() {
    * cut by the duration cap arrives as several segments, which accumulate one
    * transcript until the segment that ends the sentence.
    */
+  const ensureAccumulator = useCallback(() => {
+    const transcriber = transcriberRef.current
+    if (!transcriber) return null
+    accumulatorRef.current ??= new SegmentAccumulator(
+      (segment, token) => transcriber.run(segment.frames, segment.sampleRate, token.signal, false),
+      {
+        token: () => {
+          const request = inputGenerationRef.current.request()
+          return { signal: request.signal, isCurrent: request.isCurrent, finish: request.finish }
+        },
+        onPartial: (text) => setLiveTranscript(text),
+        onFinal: (text) => {
+          const transcriber = transcriberRef.current
+          if (transcriber) transcriber.reset()
+          partialRef.current = { text: '', changedAt: 0 }
+          if (!text) {
+            // A cough, a door, a chair. Nothing was said, so nothing is sent
+            // and the microphone simply carries on listening.
+            setLiveTranscript('')
+            if (voiceModeRef.current === 'active' && phaseRef.current === 'listening') {
+              setPhase('listening')
+            }
+            return
+          }
+          sendMessage(text, 'voice')
+        },
+      },
+    )
+    return accumulatorRef.current
+  }, [sendMessage, setPhase])
+
   const handleUtterance = useCallback(
     (utterance: Utterance) => {
       stopPartials()
-      const transcriber = transcriberRef.current
-      if (!transcriber) return
-      accumulatorRef.current ??= new SegmentAccumulator(
-        (segment, token) => transcriber.run(segment.frames, segment.sampleRate, token.signal, false),
-        {
-          token: () => {
-            const request = inputGenerationRef.current.request()
-            return { signal: request.signal, isCurrent: request.isCurrent, finish: request.finish }
-          },
-          onPartial: (text) => setLiveTranscript(text),
-          onFinal: (text) => {
-            const transcriber = transcriberRef.current
-            if (transcriber) transcriber.reset()
-            partialRef.current = { text: '', changedAt: 0 }
-            if (!text) {
-              // A cough, a door, a chair. Nothing was said, so nothing is sent
-              // and the microphone simply carries on listening.
-              setLiveTranscript('')
-              if (voiceModeRef.current === 'active' && phaseRef.current === 'listening') {
-                setPhase('listening')
-              }
-              return
-            }
-            sendMessage(text, 'voice')
-          },
-        },
-      )
-      const accumulator = accumulatorRef.current
+      const accumulator = ensureAccumulator()
+      if (!accumulator) return
       const eager = eagerRef.current
       eagerRef.current = null
       // The eager attempt is only valid if nothing was still being said when
       // it was taken; `dropEager` clears it the moment speech resumes.
       void accumulator.push(utterance, eager?.promise)
     },
-    [sendMessage, setPhase, stopPartials],
+    [ensureAccumulator, stopPartials],
   )
+
+  /**
+   * Takes back a voice message the person turned out not to have finished.
+   *
+   * When a pause outlasts both the hangover and the transcription, the first
+   * half has already gone as a message by the time speech resumes. While
+   * GIDEON has neither said nor done anything about it, the message is
+   * withdrawn and its words become the head of the sentence still being
+   * spoken, so the whole thing is answered once. Any visible reply or tool
+   * activity means it has been acted on, and speaking now is an interruption.
+   */
+  const reopenVoiceTurn = useCallback(() => {
+    const turn = turnRef.current
+    const sent = sentVoiceRef.current
+    if (!turn || !sent || sent.turn !== turn) return
+    if (phaseRef.current !== 'thinking' || turn.cancelled || turn.complete || turn.acted) return
+    const messages = messagesRef.current
+    if (messages[messages.length - 1]?.id !== sent.messageId) return
+    const accumulator = ensureAccumulator()
+    if (!accumulator) return
+
+    abandon(turn)
+    turnRef.current = null
+    sentVoiceRef.current = null
+    reopenedRef.current = { messageId: sent.messageId, revision: sent.revision }
+    setWorking(null)
+    messagesRef.current = messages.slice(0, -1)
+    setMessages(messagesRef.current)
+    accumulator.hold(sent.text)
+    setLiveTranscript(sent.text)
+    setPhase('listening')
+  }, [abandon, ensureAccumulator, setPhase])
 
   /**
    * The capture graph, opened once and left open.
@@ -2055,6 +2113,8 @@ export function AgentPage() {
         // of this sentence. Only stale captions are retired; the accumulator
         // holds what it has for the utterance that is starting now.
         partialGenerationRef.current.invalidate()
+        // If the first half already went, take it back while it is unanswered.
+        reopenVoiceTurn()
         accumulatorRef.current?.resume()
         heardUtteranceRef.current = false
         for (const run of speculationRef.current.clear()) abandon(run.handle)
@@ -2169,6 +2229,7 @@ export function AgentPage() {
     invalidateInput,
     dropEager,
     handleUtterance,
+    reopenVoiceTurn,
     interrupt,
     runPartial,
     setPhase,
