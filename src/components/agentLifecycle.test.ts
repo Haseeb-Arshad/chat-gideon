@@ -47,6 +47,48 @@ describe('segmented transcription', () => {
     await accumulator.push(segment())
     expect(onFinal.mock.calls).toEqual([['fresh']])
   })
+  it('joins speech that resumes after a pause to the words before it', async () => {
+    const { accumulator, transcribe, onFinal } = setup()
+    let resolve!: (result: { text: string }) => void
+    transcribe.mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+    // The pause outlasted the hangover, so the first half is its own utterance.
+    const first = accumulator.push(segment())
+    await Promise.resolve()
+    // Speech resumes while that half is still being transcribed.
+    accumulator.resume()
+    resolve({ text: 'book a table for two' })
+    await first
+    expect(onFinal).not.toHaveBeenCalled()
+    expect(accumulator.heard).toBe('book a table for two')
+    transcribe.mockResolvedValueOnce({ text: 'at eight tonight' })
+    await accumulator.push(segment())
+    expect(onFinal.mock.calls).toEqual([['book a table for two at eight tonight']])
+  })
+  it('sends held words when the resumed sound never becomes an utterance', async () => {
+    const { accumulator, transcribe, onFinal } = setup()
+    transcribe.mockResolvedValueOnce({ text: 'remind me tomorrow' })
+    const first = accumulator.push(segment())
+    accumulator.resume()
+    await first
+    expect(onFinal).not.toHaveBeenCalled()
+    await accumulator.release()
+    expect(onFinal.mock.calls).toEqual([['remind me tomorrow']])
+    await accumulator.release()
+    expect(onFinal).toHaveBeenCalledTimes(1)
+  })
+  it('keeps holding when speech resumes again before a release lands', async () => {
+    const { accumulator, transcribe, onFinal } = setup()
+    transcribe.mockResolvedValueOnce({ text: 'one' })
+    const first = accumulator.push(segment())
+    accumulator.resume()
+    const released = accumulator.release()
+    accumulator.resume()
+    await Promise.all([first, released])
+    expect(onFinal).not.toHaveBeenCalled()
+    transcribe.mockResolvedValueOnce({ text: 'two' })
+    await accumulator.push(segment())
+    expect(onFinal.mock.calls).toEqual([['one two']])
+  })
 })
 
 it('publishes only complete playback words', () => {

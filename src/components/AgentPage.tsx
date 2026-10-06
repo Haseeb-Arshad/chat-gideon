@@ -515,9 +515,16 @@ export function AgentPage() {
     promise: Promise<{ text: string } | null>
   } | null>(null)
   const inputGenerationRef = useRef(new InputGeneration())
+  /**
+   * Live captions only. Speech starting again retires these without touching
+   * the transcription of the utterance before it, which is still the sentence.
+   */
+  const partialGenerationRef = useRef(new InputGeneration())
   const captureGenerationRef = useRef(0)
   /** Accumulates the segments of one long utterance into a single turn. */
   const accumulatorRef = useRef<SegmentAccumulator | null>(null)
+  /** Whether the speech since the last onset has produced any utterance. */
+  const heardUtteranceRef = useRef(false)
   const vadStateRef = useRef<string>('silence')
   /** Set once `runPartial` exists; called from the interrupt handler above it. */
   const runPartialRef = useRef<() => void>(() => undefined)
@@ -580,6 +587,7 @@ export function AgentPage() {
 
   const invalidateInput = useCallback(() => {
     inputGenerationRef.current.invalidate()
+    partialGenerationRef.current.invalidate()
     accumulatorRef.current?.clear()
     accumulatorRef.current = null
     stopPartials()
@@ -1944,7 +1952,7 @@ export function AgentPage() {
     // the whole thing.
     if (!snapshot || snapshot.ms < 900 || snapshot.ms > 15_000) return
 
-    const request = inputGenerationRef.current.request()
+    const request = partialGenerationRef.current.request()
     const result = await transcriber.run(snapshot.frames, snapshot.sampleRate, request.signal)
       .finally(request.finish)
     if (!request.isCurrent() || captureRef.current !== capture) return
@@ -1953,10 +1961,12 @@ export function AgentPage() {
     // partial is about a sentence that has already been sent.
     if (midTurn()) return
 
-    if (result.text !== partialRef.current.text) {
-      partialRef.current = { text: result.text, changedAt: Date.now() }
+    // After a pause, the words before it are still part of this sentence.
+    const text = [accumulatorRef.current?.heard, result.text].filter(Boolean).join(' ')
+    if (text !== partialRef.current.text) {
+      partialRef.current = { text, changedAt: Date.now() }
     }
-    setLiveTranscript(result.text)
+    setLiveTranscript(text)
     if (deriveEmotion(result.text) === 'happy') setEmotion('happy')
 
     // Patience where it is needed. Someone whose last word was "and" has not
@@ -1966,7 +1976,7 @@ export function AgentPage() {
     // being cut off, and it costs nothing on the turns that do not need it.
     capture.setHangover(looksUnfinished(result.text) ? 1_400 : null)
 
-    considerSpeculation(result.text, Date.now() - partialRef.current.changedAt)
+    considerSpeculation(text, Date.now() - partialRef.current.changedAt)
   }, [considerSpeculation, midTurn, setEmotion])
 
   runPartialRef.current = () => void runPartial()
@@ -1986,7 +1996,7 @@ export function AgentPage() {
       const transcriber = transcriberRef.current
       if (!transcriber) return
       accumulatorRef.current ??= new SegmentAccumulator(
-        (segment, token) => transcriber.run(segment.frames, segment.sampleRate, token.signal),
+        (segment, token) => transcriber.run(segment.frames, segment.sampleRate, token.signal, false),
         {
           token: () => {
             const request = inputGenerationRef.current.request()
@@ -2040,7 +2050,13 @@ export function AgentPage() {
     const capture = new MicCapture({
       onSpeechStart: () => {
         if (captureRef.current !== capture) return
-        invalidateInput()
+        // Not `invalidateInput`: a pause that outlasted the hangover may still
+        // have its utterance in transcription, and those words are the start
+        // of this sentence. Only stale captions are retired; the accumulator
+        // holds what it has for the utterance that is starting now.
+        partialGenerationRef.current.invalidate()
+        accumulatorRef.current?.resume()
+        heardUtteranceRef.current = false
         for (const run of speculationRef.current.clear()) abandon(run.handle)
         speechEndRef.current = 0
         partialRef.current = { text: '', changedAt: Date.now() }
@@ -2055,6 +2071,8 @@ export function AgentPage() {
 
       onFrame: (result) => {
         if (captureRef.current !== capture) return
+        // Too short to be a word, so no utterance will carry what was held.
+        if (result.onFalseStart) accumulatorRef.current?.release()
         const previous = vadStateRef.current
         vadStateRef.current = result.state
         if (previous === result.state) return
@@ -2077,7 +2095,8 @@ export function AgentPage() {
           eagerRef.current = {
             frames: snapshot.frames.length,
             controller,
-            promise: transcriber.run(snapshot.frames, snapshot.sampleRate, controller.signal).finally(request.finish),
+            promise: transcriber.run(snapshot.frames, snapshot.sampleRate, controller.signal, false)
+              .finally(request.finish),
           }
         } else if (result.state === 'speech' && previous === 'trailing') {
           // It was a pause, not the end. Whatever was transcribed is now short
@@ -2087,12 +2106,19 @@ export function AgentPage() {
       },
 
       onUtterance: (utterance) => {
-        if (captureRef.current === capture) void handleUtterance(utterance)
+        if (captureRef.current !== capture) return
+        heardUtteranceRef.current = true
+        void handleUtterance(utterance)
       },
 
       onSpeechEnd: () => {
         speechEndRef.current = performance.now()
         stopPartials()
+        // Noise rather than speech: capture dropped it, so nothing is coming
+        // to carry what was held from before the pause.
+        if (captureRef.current === capture && !heardUtteranceRef.current) {
+          accumulatorRef.current?.release()
+        }
       },
 
       onBargeIn: () => suspectRef.current(),

@@ -44,11 +44,24 @@ interface SegmentToken {
   finish: () => void
 }
 
-/** Serialize bounded audio segments; only the final segment submits a turn. */
+/**
+ * Serialize bounded audio segments; only the final segment submits a turn.
+ *
+ * A pause long enough to end an utterance is not always the end of the
+ * sentence. When speech resumes, `resume` turns whatever would have been sent
+ * into the head of the next utterance, so carrying on after a breath extends
+ * the sentence instead of discarding the part before it.
+ */
 export class SegmentAccumulator {
   private pending = Promise.resolve()
   private revision = 0
+  private starts = 0
   private text = ''
+
+  /** Everything transcribed so far that has not been sent. */
+  get heard() {
+    return this.text
+  }
 
   constructor(
     private readonly transcribe: (segment: TranscriptSegment, token: SegmentToken) => Promise<{ text: string } | null>,
@@ -61,6 +74,7 @@ export class SegmentAccumulator {
 
   push(segment: TranscriptSegment, eager?: Promise<{ text: string } | null>) {
     const revision = this.revision
+    const starts = this.starts
     const token = this.hooks.token()
     const current = () => revision === this.revision && token.isCurrent()
     this.pending = this.pending.then(async () => {
@@ -76,7 +90,9 @@ export class SegmentAccumulator {
         if (!piece) piece = (await this.transcribe(segment, token))?.text?.trim() ?? ''
         if (!current()) return
         if (piece) this.text = [this.text, piece].filter(Boolean).join(' ')
-        if (segment.continued) {
+        // Speech that resumed after this segment was pushed is the same
+        // sentence carrying on, so it is held for the utterance still to come.
+        if (segment.continued || starts !== this.starts) {
           this.hooks.onPartial(this.text)
         } else {
           const text = this.text
@@ -88,6 +104,27 @@ export class SegmentAccumulator {
       } finally {
         token.finish()
       }
+    })
+    return this.pending
+  }
+
+  /** Speech started again: hold anything not yet sent for the next utterance. */
+  resume() {
+    this.starts += 1
+  }
+
+  /**
+   * The speech that resumed produced no utterance (a false start or noise), so
+   * nothing is coming to carry what was held. Send it as it stands.
+   */
+  release() {
+    const revision = this.revision
+    const starts = this.starts
+    this.pending = this.pending.then(() => {
+      if (revision !== this.revision || starts !== this.starts || !this.text) return
+      const text = this.text
+      this.text = ''
+      this.hooks.onFinal(text)
     })
     return this.pending
   }
