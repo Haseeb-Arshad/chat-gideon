@@ -12,15 +12,15 @@ import tailwindcss from '@tailwindcss/vite'
 import { realtimePlugin } from './realtime-plugin'
 
 /**
- * Keeps the Node PostgreSQL memory adapter out of the Worker bundle.
+ * Keeps Node-only memory migrations and maintenance out of the Worker bundle.
  *
- * The TanStack routes share `openrouter.server.ts` with the Node host, and that
- * imports the adapter. The Worker has its own memory authority, so in
- * Cloudflare mode the adapter resolves to a stub that never enables memory.
+ * TanStack routes share Node adapters with the Worker build. Their framework
+ * stand-ins remain isolated; the Worker API and Durable Object use the
+ * Hyperdrive-backed canonical runtime in `backend/worker/src/worker-memory.ts`.
  */
 function workerMemoryBoundary(): Plugin {
-  // Each Node-only module and its Worker stand-in; the memory controls API
-  // (Stage 12) reads the same PostgreSQL authority, so it is stubbed too.
+  // Each Node-only module and its Worker stand-in. The Worker API has its own
+  // memory adapter and does not depend on these framework route adapters.
   const boundaries = ['node-memory-integration', 'memory-controls'].map((name) => ({
     name,
     nodeModule: new RegExp(`[\\\\/]src[\\\\/]server[\\\\/]${name}\\.ts$`),

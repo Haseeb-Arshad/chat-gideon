@@ -3,16 +3,15 @@ import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * Fails the Cloudflare build when the Worker bundle contains the Node-only
- * PostgreSQL memory authority. The Worker reaches its own tables (accounts and
- * account memory) with the `pg` driver through Hyperdrive; the canonical
- * adapter and its schema still belong to the Node host.
+ * Fails the Cloudflare build when Node-only migration or background-maintenance
+ * code leaks into the Worker. The Worker intentionally bundles the canonical
+ * PostgreSQL memory runtime and reaches Supabase through Hyperdrive.
  */
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const bundle = join(root, 'dist', 'server')
 const forbidden = [
-  ['PostgreSQL memory store', 'PostgresMemoryStore'],
-  ['memory authority schema', 'gideon_memory.'],
+  ['Node migration directory', 'DEFAULT_MIGRATION_DIRECTORY'],
+  ['Node memory maintenance runner', 'startMemoryBackground'],
 ]
 
 function files(directory) {
@@ -35,7 +34,7 @@ if (found.length) {
   for (const line of found) console.error(`  ${line}`)
   process.exitCode = 1
 } else {
-  console.log('Worker bundle is free of the Node PostgreSQL memory adapter.')
+  console.log('Worker bundle contains the canonical memory runtime without Node migration or maintenance code.')
 }
 
 /**

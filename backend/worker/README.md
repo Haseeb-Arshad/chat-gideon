@@ -52,16 +52,27 @@ $env:GIDEON_DATABASE_ALLOW_REMOTE = '1'
 npm run deploy:cloudflare
 ```
 
-Deployment builds and typechecks, applies the migrations in
-`supabase/migrations` (each once, in its own transaction, recorded with a
-checksum in `public.gideon_worker_migrations`), and only then publishes the
+Deployment builds and typechecks, applies the Worker migrations and all 11
+canonical memory migrations (each once, in its own transaction, recorded with
+a checksum in `public.gideon_worker_migrations`), and only then publishes the
 Worker. A migration failure prevents publication. `npm run db:status` lists
 applied and pending migrations without changing anything.
 
-The tables sit in `public` with row level security on and no grants to
-Supabase's `anon` and `authenticated` roles, so the Supabase REST API cannot
-reach sessions, tokens or memories. Only the database user in the Hyperdrive
-config can.
+The account, legacy-memory and audit tables sit in `public` with row level
+security on and no grants to Supabase API roles. Raw chat traces and audio are
+also revoked from `service_role`; only the database user in the Hyperdrive
+config can read them.
+
+When `GIDEON_AUDIT_ENABLED=1` and `GIDEON_AUDIT_REQUIRED=1`, the Worker saves
+each submitted chat before provider work, then records model requests and
+responses, token and cost usage when returned, tool calls and results, source
+links, final answers and released cards/actions. `/api/transcribe` stores the
+uploaded WAV bytes and its transcript; generated speech stores its MP3 bytes.
+Audio is saved as `bytea` in `public.gideon_voice_assets` with a SHA-256 digest,
+MIME type, byte count and provider/model metadata. If the audit database write
+fails, the Worker withholds the answer or audio instead of claiming it was
+saved. The audit tables group activity by a hash of the browser session key,
+never the raw key.
 
 A Worker cannot reuse a database socket across requests, so each account check
 and each memory read or write opens a short-lived connection through
@@ -84,28 +95,31 @@ changing the owner. Requests without a verified account use isolated ephemeral
 memory, never a shared `anonymous` corpus or a client-selected persistent ID.
 
 Anonymous sessions last a year. Clearing the cookie loses access; cross-device
-sign-in/account recovery is not implemented. Configure `DB` and
+sign-in/account recovery is not implemented. Configure Hyperdrive and
 `BETTER_AUTH_SECRET` to enable durable account memory.
 
-**Legacy memory is not automatically imported.** A browser-provided ID is not
-proof of ownership. Existing data is left intact; any migration needs separately
-verified ownership. This avoids copying another person's legacy facts into a
-new account. Account issuance no longer depends on an adoption copy succeeding.
+The Worker HTTP and WebSocket paths use the canonical `gideon_memory` authority
+for capture, recall, explicit memory commands and the `/api/memory` inspector.
+`public.gideon_memories` remains the guarded compatibility store during
+cutover. An owner with no legacy items can move automatically on first use.
+An owner with saved legacy items stays on that writer until an operator runs a
+controlled migration; the Worker does not silently migrate non-empty accounts
+while older code could still be writing.
 
-## Memory backends
+After deploying the Worker code and confirming the previous version and other
+legacy writers have drained, inspect owner states and cut over verified account
+rows with the direct database URL:
 
-With `HYPERDRIVE` bound, account memory is the owner's row in
-`public.gideon_memories`, read and written over SQL. Without it, the older
-choices still work: `SUPABASE_URL` with `SUPABASE_SERVICE_ROLE_KEY` (the same
-table over Supabase's REST API), or Durable Object storage. Hyperdrive wins
-when both are configured. The REST store and the Hyperdrive store share one
-table, so switching between them keeps the data.
+```powershell
+$env:GIDEON_DATABASE_URL = '<direct connection string>'
+$env:GIDEON_DATABASE_MIGRATE = '1'
+$env:GIDEON_DATABASE_ALLOW_REMOTE = '1'
+npm run worker-memory:cutover -- status
+$env:GIDEON_MEMORY_CUTOVER_WRITES_QUIESCED = '1'
+npm run worker-memory:cutover -- cutover
+```
 
-Each backend is an **alternative, not a mirror**: switching between Durable
-Object storage and the table does not copy existing data. Back up and explicitly migrate owner rows
-before switching; use a maintenance window to prevent concurrent writes.
-
-All application writes go through the owner's Durable Object authority, including
-HTTP fallback. Failed reads never become writable empty memory, and failed
-writes are reported rather than claimed successful. External writers bypassing
-this authority are not supported.
+The cutover command migrates only `user/<id>` rows, checks every imported
+memory, and reports aggregate outcomes. It refuses to run until the database
+migrations are complete and the operator explicitly confirms that legacy
+writes have stopped. Browser-generated IDs are not adopted into accounts.

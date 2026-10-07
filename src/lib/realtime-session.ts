@@ -30,6 +30,7 @@ import type { MemoryStore } from './tools/memory'
 import type { MemorySession } from './memory'
 import type { MemoryTurnRuntime } from './memory/turn-runtime'
 import { DeliveryObservationLedger } from './delivery-observations'
+import type { InteractionAudit, InteractionAuditFactory } from './interaction-audit'
 import {
   REALTIME_PROTOCOL_VERSION,
   decodeFrame,
@@ -66,6 +67,15 @@ export interface SessionOptions {
   memorySession?: MemorySession<MemoryStore>
   /** Canonical server-selected memory adapter; never client-supplied. */
   memoryRuntime?: MemoryTurnRuntime
+  /** Optional durable audit writer supplied by a Worker host. */
+  auditFactory?: InteractionAuditFactory | null
+  /** A host may resolve owner-scoped memory afresh for each turn. */
+  resolveMemory?: () => Promise<{
+    memoryStore: MemoryStore
+    memorySession: MemorySession<MemoryStore>
+    memoryRuntime?: MemoryTurnRuntime
+    close(): Promise<void>
+  }>
   /** Roughly where the user is, from the host's address lookup when the socket opened. */
   location?: CoarseLocation | null
 }
@@ -221,14 +231,20 @@ export function createRealtimeSession(
     }
 
     const controller = controllerFor(frame.id)
+    let audit: InteractionAudit | null = null
+    let memoryContext: Awaited<ReturnType<NonNullable<SessionOptions['resolveMemory']>>> | null = null
+    let status: 'completed' | 'failed' | 'cancelled' = 'failed'
     try {
+      audit = await options.auditFactory?.startTurn({ clientTurnId: frame.id, messages }) ?? null
+      memoryContext = await options.resolveMemory?.() ?? null
       for await (const event of streamTurn(frame.id, messages, controller.signal, {
         timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : undefined,
         bridge: bridgeFor(frame.id),
         speculative: frame.speculative === true,
-        memoryStore: options.memoryStore,
-        memorySession: options.memorySession,
-        memoryRuntime: options.memoryRuntime,
+        memoryStore: memoryContext?.memoryStore ?? options.memoryStore,
+        memorySession: memoryContext?.memorySession ?? options.memorySession,
+        memoryRuntime: memoryContext?.memoryRuntime ?? options.memoryRuntime,
+        audit: audit ?? undefined,
         screen: readScreen(frame.screen),
         conversationState: readConversationState(frame.conversationState),
         // The device's own answer, once a tool has had to ask, is surer than the address lookup.
@@ -238,7 +254,15 @@ export function createRealtimeSession(
         },
       })) {
         const durableToolReceipt = event.t === 'action' && event.pending !== true
-        if (closed || (controller.signal.aborted && !durableToolReceipt)) return
+        if (closed || (controller.signal.aborted && !durableToolReceipt)) { status = 'cancelled'; return }
+        if (event.t === 'done') {
+          audit?.record('released_frame', { type: event.t, turnId: event.id, responseId: event.responseId })
+          await audit?.flush()
+          status = 'completed'
+        } else {
+          audit?.record('released_frame', { type: event.t, frame: event })
+          await audit?.flush()
+        }
         if (event.t === 'start' && event.responseId) {
           delivery.beginResponse(event.id, event.responseId)
         } else if (event.t === 'delta' && event.responseId && event.segmentId
@@ -262,6 +286,8 @@ export function createRealtimeSession(
         if (controller.signal.aborted && durableToolReceipt) return
       }
     } finally {
+      try { await audit?.finish(status) } catch { console.warn('[audit] realtime turn persistence failed') }
+      await memoryContext?.close().catch(() => undefined)
       turns.delete(frame.id)
     }
   }
@@ -301,11 +327,39 @@ export function createRealtimeSession(
 
     const controller = controllerFor(frame.id)
     try {
+      await options.auditFactory?.recordEvent({
+        clientTurnId: typeof frame.turnId === 'string' ? frame.turnId : frame.id,
+        type: 'voice_generation_request',
+        payload: {
+          id: frame.id,
+          text,
+          seq: frame.seq,
+          turnId: frame.turnId ?? null,
+          responseId: frame.responseId ?? null,
+          startChar: frame.startChar ?? null,
+          endChar: frame.endChar ?? null,
+        },
+      })
+    } catch {
+      send({ t: 'error', id: frame.id, code: 'audit_unavailable', message: 'The spoken reply could not be saved.', retryable: true })
+      return
+    }
+    try {
       const result = await fetchVoice(text, controller.signal)
       if (closed || controller.signal.aborted) return
 
       if (!result.ok || !result.body) {
         if (result.code === 'aborted') return
+        try {
+          await options.auditFactory?.recordEvent({
+            clientTurnId: typeof frame.turnId === 'string' ? frame.turnId : frame.id,
+            type: 'voice_generation_failed',
+            payload: { id: frame.id, code: result.code, retryable: result.retryable },
+          })
+        } catch {
+          send({ t: 'error', id: frame.id, code: 'audit_unavailable', message: 'The spoken reply could not be saved.', retryable: true })
+          return
+        }
         send({
           t: 'error',
           id: frame.id,
@@ -314,6 +368,29 @@ export function createRealtimeSession(
           retryable: result.retryable,
         })
         return
+      }
+
+      if (options.auditFactory) {
+        try {
+          await options.auditFactory.recordVoice({
+            clientTurnId: typeof frame.turnId === 'string' ? frame.turnId : frame.id,
+            audio: result.body,
+            mime: result.mime,
+            source: 'assistant',
+            text,
+            metadata: {
+              id: frame.id,
+              seq: frame.seq,
+              turnId: frame.turnId ?? null,
+              responseId: frame.responseId ?? null,
+              startChar: frame.startChar ?? null,
+              endChar: frame.endChar ?? null,
+            },
+          })
+        } catch {
+          send({ t: 'error', id: frame.id, code: 'audit_unavailable', message: 'The spoken reply could not be saved.', retryable: true })
+          return
+        }
       }
 
       let audioProvenance: { responseId: string; segmentId: string; startChar: number; endChar: number } | undefined

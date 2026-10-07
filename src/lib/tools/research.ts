@@ -188,6 +188,8 @@ export interface ResearchDeps {
   effort: ResearchEffort
   timing: ResearchTiming
   now: () => number
+  /** Worker-provided interaction evidence sink; never receives provider credentials. */
+  audit?: (type: string, payload: Record<string, unknown>) => void
 }
 
 export function defaultDeps(env: EnvReader): ResearchDeps {
@@ -251,27 +253,43 @@ async function exaSearch(
   signal: AbortSignal,
 ): Promise<ExaResult[]> {
   const since = sinceDate(recency, deps.now())
-  const response = await deps.fetch(`${EXA_URL}/search`, {
-    method: 'POST',
-    headers: exaHeaders(deps),
-    body: JSON.stringify({
+  deps.audit?.('research_search_request', { query, recency, sincePublishedDate: since ?? null })
+  try {
+    const response = await deps.fetch(`${EXA_URL}/search`, {
+      method: 'POST',
+      headers: exaHeaders(deps),
+      body: JSON.stringify({
+        query,
+        // Measured on 11 September 2026 over fourteen spoken questions: `fast`
+        // answered in 0.34 seconds at the median and 0.84 at p90, against 1.8 at
+        // p90 for `auto`, and graded the most accurate of Exa's and Parallel's
+        // search modes (8.8 of 10, current in 92% of sets, against 8.4 and 85%).
+        type: 'fast',
+        numResults: RESULTS_PER_SEARCH,
+        ...(since ? { startPublishedDate: since } : {}),
+        // Highlights rather than page text: the passages that answer the query,
+        // which is what a model deciding where to look next actually needs.
+        contents: { highlights: { maxCharacters: HIGHLIGHT_CHARS, query } },
+      }),
+      signal: withTimeout(signal, SEARCH_TIMEOUT_MS),
+    })
+    if (!response.ok) throw new Error(`exa search ${response.status}`)
+    const body = (await response.json()) as { results?: ExaResult[] }
+    const results = body.results ?? []
+    deps.audit?.('research_search_result', {
       query,
-      // Measured on 11 September 2026 over fourteen spoken questions: `fast`
-      // answered in 0.34 seconds at the median and 0.84 at p90, against 1.8 at
-      // p90 for `auto`, and graded the most accurate of Exa's and Parallel's
-      // search modes (8.8 of 10, current in 92% of sets, against 8.4 and 85%).
-      type: 'fast',
-      numResults: RESULTS_PER_SEARCH,
-      ...(since ? { startPublishedDate: since } : {}),
-      // Highlights rather than page text: the passages that answer the query,
-      // which is what a model deciding where to look next actually needs.
-      contents: { highlights: { maxCharacters: HIGHLIGHT_CHARS, query } },
-    }),
-    signal: withTimeout(signal, SEARCH_TIMEOUT_MS),
-  })
-  if (!response.ok) throw new Error(`exa search ${response.status}`)
-  const body = (await response.json()) as { results?: ExaResult[] }
-  return body.results ?? []
+      results: results.slice(0, RESULTS_PER_SEARCH).map((item) => ({
+        title: item.title?.slice(0, 500) ?? null,
+        url: item.url?.slice(0, 2_000) ?? null,
+        publishedDate: item.publishedDate ?? null,
+        highlights: (item.highlights ?? []).slice(0, 8).map((highlight) => highlight.slice(0, HIGHLIGHT_CHARS)),
+      })),
+    })
+    return results
+  } catch (error) {
+    deps.audit?.('research_search_failed', { query, recency, message: String((error as Error)?.message ?? 'search_failed').slice(0, 300) })
+    throw error
+  }
 }
 
 /**
@@ -294,18 +312,34 @@ export function readableUrl(raw: string): string {
 }
 
 async function exaRead(deps: ResearchDeps, url: string, signal: AbortSignal): Promise<ExaResult | null> {
-  const response = await deps.fetch(`${EXA_URL}/contents`, {
-    method: 'POST',
-    headers: exaHeaders(deps),
-    body: JSON.stringify({
-      urls: [readableUrl(url)],
-      text: { maxCharacters: PAGE_CHARS, verbosity: 'compact' },
-    }),
-    signal: withTimeout(signal, READ_TIMEOUT_MS),
-  })
-  if (!response.ok) throw new Error(`exa contents ${response.status}`)
-  const body = (await response.json()) as { results?: ExaResult[] }
-  return body.results?.[0] ?? null
+  const requestedUrl = readableUrl(url)
+  deps.audit?.('research_page_read_request', { url: requestedUrl })
+  try {
+    const response = await deps.fetch(`${EXA_URL}/contents`, {
+      method: 'POST',
+      headers: exaHeaders(deps),
+      body: JSON.stringify({
+        urls: [requestedUrl],
+        text: { maxCharacters: PAGE_CHARS, verbosity: 'compact' },
+      }),
+      signal: withTimeout(signal, READ_TIMEOUT_MS),
+    })
+    if (!response.ok) throw new Error(`exa contents ${response.status}`)
+    const body = (await response.json()) as { results?: ExaResult[] }
+    const page = body.results?.[0] ?? null
+    deps.audit?.('research_page_read_result', {
+      requestedUrl,
+      title: page?.title?.slice(0, 500) ?? null,
+      url: page?.url?.slice(0, 2_000) ?? null,
+      publishedDate: page?.publishedDate ?? null,
+      text: page?.text?.slice(0, PAGE_CHARS) ?? null,
+      found: Boolean(page?.text),
+    })
+    return page
+  } catch (error) {
+    deps.audit?.('research_page_read_failed', { url: requestedUrl, message: String((error as Error)?.message ?? 'page_read_failed').slice(0, 300) })
+    throw error
+  }
 }
 
 /**
@@ -318,20 +352,28 @@ async function exaAnswer(
   question: string,
   signal: AbortSignal,
 ): Promise<{ answer: string; sources: ResearchSource[] }> {
-  const response = await deps.fetch(`${EXA_URL}/answer`, {
-    method: 'POST',
-    headers: exaHeaders(deps),
-    body: JSON.stringify({ query: question, model: 'exa-fast', text: false }),
-    signal,
-  })
-  if (!response.ok) throw new Error(`exa answer ${response.status}`)
-  const body = (await response.json()) as {
-    answer?: unknown
-    citations?: Array<{ title?: string; url?: string; publishedDate?: string }>
+  deps.audit?.('research_direct_answer_request', { question, model: 'exa-fast' })
+  try {
+    const response = await deps.fetch(`${EXA_URL}/answer`, {
+      method: 'POST',
+      headers: exaHeaders(deps),
+      body: JSON.stringify({ query: question, model: 'exa-fast', text: false }),
+      signal,
+    })
+    if (!response.ok) throw new Error(`exa answer ${response.status}`)
+    const body = (await response.json()) as {
+      answer?: unknown
+      citations?: Array<{ title?: string; url?: string; publishedDate?: string }>
+    }
+    // Structured output is never requested, so anything but a string is no answer.
+    const answer = typeof body.answer === 'string' ? body.answer : ''
+    const sources = toSources(body.citations ?? [])
+    deps.audit?.('research_direct_answer_result', { answer, sources })
+    return { answer, sources }
+  } catch (error) {
+    deps.audit?.('research_direct_answer_failed', { question, message: String((error as Error)?.message ?? 'direct_answer_failed').slice(0, 300) })
+    throw error
   }
-  // Structured output is never requested, so anything but a string is no answer.
-  const answer = typeof body.answer === 'string' ? body.answer : ''
-  return { answer, sources: toSources(body.citations ?? []) }
 }
 
 function toSources(
@@ -614,34 +656,57 @@ async function runAgent(
   // One round past the cap, for a model that has to be told to write.
   for (let round = 0; round <= maxRounds + 1; round += 1) {
     const last = writing || round >= maxRounds
-    const response = await deps.fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: deps.openrouterHeaders,
-      body: JSON.stringify({
-        model: deps.model,
-        models: [deps.fallbackModel],
-        messages: history,
-        // The final round is for writing, so it is offered nothing to call.
-        ...(last ? {} : { tools: RESEARCH_TOOLS, tool_choice: round === 0 ? 'required' : 'auto' }),
-        provider: { sort: 'latency', allow_fallbacks: true },
-        reasoning: { effort: deps.effort, exclude: true },
-        temperature: 0.2,
-      }),
-      signal,
+    deps.audit?.('research_provider_request', {
+      round,
+      model: deps.model,
+      fallbackModel: deps.fallbackModel,
+      messageCount: history.length,
+      tools: last ? [] : RESEARCH_TOOLS.map((tool) => tool.function.name),
     })
+    let response: Response
+    try {
+      response = await deps.fetch(OPENROUTER_URL, {
+        method: 'POST',
+        headers: deps.openrouterHeaders,
+        body: JSON.stringify({
+          model: deps.model,
+          models: [deps.fallbackModel],
+          messages: history,
+          // The final round is for writing, so it is offered nothing to call.
+          ...(last ? {} : { tools: RESEARCH_TOOLS, tool_choice: round === 0 ? 'required' : 'auto' }),
+          provider: { sort: 'latency', allow_fallbacks: true },
+          reasoning: { effort: deps.effort, exclude: true },
+          temperature: 0.2,
+        }),
+        signal,
+      })
+    } catch (error) {
+      deps.audit?.('research_provider_failed', { round, kind: 'network', message: String((error as Error)?.message ?? 'provider_request_failed').slice(0, 300) })
+      throw error
+    }
     if (!response.ok) {
       void response.body?.cancel()
+      deps.audit?.('research_provider_failed', { round, kind: 'http_error', status: response.status })
       throw new Error(`research model ${response.status}`)
     }
 
     const body = (await response.json()) as {
       model?: string
       choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }>
+      usage?: Record<string, unknown> | null
     }
     if (typeof body.model === 'string' && body.model) modelUsed = body.model
     const message = body.choices?.[0]?.message
     const calls = (message?.tool_calls ?? []).filter((call) => call?.function?.name)
     const content = typeof message?.content === 'string' ? message.content.trim() : ''
+    deps.audit?.('research_provider_response', {
+      round,
+      model: modelUsed,
+      usage: body.usage ?? null,
+      usageReceived: Boolean(body.usage),
+      content,
+      toolCalls: calls,
+    })
 
     if (!calls.length || last) {
       const looked = searches > 0 || seen.size > 0

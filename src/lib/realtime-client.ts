@@ -465,7 +465,7 @@ export class RealtimeLink {
     const response = await fetch(backendUrl('/api/voice'), {
       method: 'POST',
       headers: backendHeaders('application/json'),
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, id: `${turnId}#${seq}`, turnId, responseId, seq, startChar, endChar }),
       signal,
     })
     if (!response.ok) throw new Error(await readErrorMessage(response))

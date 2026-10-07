@@ -65,6 +65,9 @@ export class Transcriber {
         headers: {
           ...backendHeaders('audio/wav'),
           ...(this.options.language ? { 'X-Gideon-Language': this.options.language } : {}),
+          // A caption is a throwaway read of audio that is still being spoken;
+          // the server has no reason to keep it, only the utterance that follows.
+          ...(ordered ? { 'X-Gideon-Purpose': 'caption' } : {}),
         },
         body: wav,
         signal,

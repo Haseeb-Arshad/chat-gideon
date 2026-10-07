@@ -255,6 +255,35 @@ describe('research', () => {
     ])
   })
 
+  it('emits research model usage and exact search evidence to the audit sink', async () => {
+    const { fetch } = scripted({
+      model: [
+        {
+          ...toolCallTurn([{ name: 'search', args: { query: 'audited search phrase', recency: 'month' } }]),
+          usage: { prompt_tokens: 14, completion_tokens: 5, total_tokens: 19 },
+        },
+        {
+          ...textTurn('The source supports the claim. Sources: Result for audited search phrase https://example.org/audited%20search%20phrase'),
+          usage: { prompt_tokens: 27, completion_tokens: 8, total_tokens: 35 },
+        },
+      ],
+      search: searchFixture,
+    })
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = []
+    const researchDeps = deps(fetch)
+    researchDeps.audit = (type, payload) => events.push({ type, payload })
+
+    const result = await research('check the claim', { signal: new AbortController().signal }, researchDeps, null)
+
+    expect(result.ok).toBe(true)
+    expect(events.some(({ type, payload }) => type === 'research_provider_response'
+      && JSON.stringify(payload).includes('"prompt_tokens":27'))).toBe(true)
+    expect(events.some(({ type, payload }) => type === 'research_search_request'
+      && payload.query === 'audited search phrase' && payload.recency === 'month')).toBe(true)
+    expect(events.some(({ type, payload }) => type === 'research_search_result'
+      && JSON.stringify(payload).includes('https://example.org/audited%20search%20phrase'))).toBe(true)
+  })
+
   it('falls back to a direct answer at once when the research model is down', async () => {
     const { fetch } = scripted({
       model: [{ status: 502 }],

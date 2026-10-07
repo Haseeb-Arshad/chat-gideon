@@ -15,6 +15,18 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('transcriber purpose', () => {
+  it('marks captions so the server can leave them unrecorded, and utterances not', async () => {
+    deferredFetch()
+    const transcriber = new Transcriber()
+    void transcriber.run(frames, 16_000)
+    void transcriber.run(frames, 16_000, undefined, false)
+    const calls = vi.mocked(fetch).mock.calls
+    expect((calls[0][1]?.headers as Record<string, string>)['X-Gideon-Purpose']).toBe('caption')
+    expect((calls[1][1]?.headers as Record<string, string>)['X-Gideon-Purpose']).toBeUndefined()
+  })
+})
+
 describe('transcriber ordering', () => {
   it('drops a caption that lands after a newer one', async () => {
     const replies = deferredFetch()
