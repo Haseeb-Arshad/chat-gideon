@@ -38,7 +38,7 @@ export interface ProfileBullet {
   bulletId: string
   assertion: ExactVersionRef
   scopeId: ScopeId
-  kind: 'preference' | 'decision'
+  kind: 'fact' | 'preference' | 'decision'
   text: string
   topicLabel: string | null
   placement: 'stable' | 'active_topic'
@@ -125,6 +125,8 @@ export interface ProjectionInspector {
 }
 
 export interface WarmSnapshot {
+  /** Topic pages contain cited accepted clauses; they never invent summaries. */
+  topicPages?: readonly { topic: string; entries: readonly ProfileBullet[] }[]
   schemaVersion: typeof PROJECTION_SCHEMA_VERSION
   snapshotId: string
   scopeId: ScopeId
@@ -247,7 +249,7 @@ function isProfileBullet(value: unknown, scopeId: string, refs: Set<string>): va
   if (!isRecord(value) || value.schemaVersion !== PROJECTION_SCHEMA_VERSION || !isExactRef(value.assertion)) return false
   if (value.scopeId !== scopeId || !refs.has(`${value.assertion.assertionId}/${value.assertion.revision}`)) return false
   if (typeof value.bulletId !== 'string' || typeof value.text !== 'string' || value.text.length > 4_096) return false
-  if (value.kind !== 'preference' && value.kind !== 'decision') return false
+  if (value.kind !== 'fact' && value.kind !== 'preference' && value.kind !== 'decision') return false
   if (value.placement !== 'stable' && value.placement !== 'active_topic') return false
   if (value.basis !== 'explicit_user_statement' && value.basis !== 'user_correction') return false
   if (value.reason !== (value.basis === 'user_correction' ? 'user_correction' : 'explicit_user_statement')) return false
@@ -313,14 +315,14 @@ function sourceEventIds(version: AssertionVersion): readonly EventId[] {
 }
 
 function conditionsFor(version: AssertionVersion): readonly Condition[] {
+  if (version.payload.kind === 'fact' && version.payload.proposition.type === 'free_form') return version.payload.proposition.conditions
   if (version.payload.kind === 'preference' || version.payload.kind === 'constraint') return version.payload.conditions
   return []
 }
 
 function topicLabelFor(version: AssertionVersion): string | null {
   if (version.payload.kind === 'decision') return normalizeText(version.payload.topic) || null
-  if (version.payload.kind !== 'preference' && version.payload.kind !== 'constraint') return null
-  const topic = version.payload.conditions.find((condition) => {
+  const topic = conditionsFor(version).find((condition) => {
     const key = normalizedKey(condition.key)
     return key === 'topic' || key === 'project' || key === 'workstream'
   })
@@ -334,6 +336,7 @@ function topicMatches(topic: string | null, activeTopic: { id: string; label: st
 }
 
 function profileText(version: AssertionVersion): string | null {
+  if (version.payload.kind === 'fact') return normalizeText(version.payload.proposition.type === 'free_form' ? version.payload.proposition.text : `${version.payload.proposition.slot.slotId}: ${JSON.stringify(version.payload.proposition.value)}`) || null
   if (version.payload.kind === 'preference') return normalizeText(version.payload.text) || null
   if (version.payload.kind === 'decision') {
     const decision = normalizeText(version.payload.decision)
@@ -353,7 +356,7 @@ function conditionKey(conditions: readonly Condition[]): string {
 }
 
 function profileBulletFor(version: AssertionVersion, activeTopic: { id: string; label: string } | null): ProfileBullet | null {
-  if (version.status !== 'accepted' || (version.kind !== 'preference' && version.kind !== 'decision')) return null
+  if (version.status !== 'accepted' || !['fact', 'preference', 'decision'].includes(version.kind)) return null
   if (version.attribution.basis !== 'explicit_user_statement' && version.attribution.basis !== 'user_correction') return null
   if (version.time.relation === 'temporary_exception') return null
   const text = profileText(version)
@@ -366,7 +369,7 @@ function profileBulletFor(version: AssertionVersion, activeTopic: { id: string; 
     bulletId: `profile/${version.id}/${version.revision}`,
     assertion: { assertionId: version.id, revision: version.revision },
     scopeId: version.scopeId,
-    kind: version.kind,
+    kind: version.kind as ProfileBullet['kind'],
     text,
     topicLabel,
     placement,
@@ -471,7 +474,9 @@ function trimSnapshot(snapshot: WarmSnapshot): WarmSnapshot {
   }
   while (byteLength(current) > MAX_SNAPSHOT_BYTES) {
     const before = current
-    if (current.recentAcceptedChanges.length > 0) {
+    if (current.topicPages?.length) {
+      trim('topicPages', value => ({ ...value, topicPages: value.topicPages!.slice(0, -1) }))
+    } else if (current.recentAcceptedChanges.length > 0) {
       trim('recentAcceptedChanges', (value) => ({ ...value, recentAcceptedChanges: value.recentAcceptedChanges.slice(0, -1) }))
     } else if (current.lexical.terms.length > 0) {
       trim('lexical.terms', (value) => ({ ...value, lexical: { ...value.lexical, terms: value.lexical.terms.slice(0, -1) } }))
@@ -545,8 +550,15 @@ export function buildWarmSnapshot(input: WarmSnapshotBuildInput): WarmSnapshot {
   const parts: string[] = []
   const stableProfileKeys = new Set<string>()
   const activeProfileKeys = new Set<string>()
+  const topicPages = new Map<string, ProfileBullet[]>()
 
   for (const version of assertions) {
+    const until = version.time.validTime.until
+    const from = version.time.validTime.from
+    if ((until && Date.parse(until) <= Date.parse(input.generatedAt)) || (from && Date.parse(from) > Date.parse(input.generatedAt))) continue
+    const topic = topicLabelFor(version) ?? (version.subject.kind === 'known' && String(version.subject.subjectId) !== String(input.scopeId) ? `Person ${version.subject.subjectId}` : 'Profile')
+    const pageBullet = profileBulletFor(version, { id: topic, label: topic })
+    if (pageBullet) topicPages.set(topic, [...(topicPages.get(topic) ?? []), pageBullet].slice(0, 12))
     const bullet = profileBulletFor(version, activeTopic)
     if (bullet) {
       const target = bullet.placement === 'active_topic' ? activeProfile : stableProfile
@@ -603,6 +615,7 @@ export function buildWarmSnapshot(input: WarmSnapshotBuildInput): WarmSnapshot {
     freshness: 'fresh',
     activeTopic,
     stableProfile,
+    topicPages: [...topicPages].slice(0, 24).map(([topic, entries]) => ({ topic, entries })),
     activeProfile,
     activeEpisodeHeads,
     constraints,
@@ -678,6 +691,7 @@ export function applyAcceptedCorrectionOverlays(
     next = {
       ...next,
       stableProfile: removeAssertion(next.stableProfile, version.id),
+      topicPages: next.topicPages?.map(page => ({ ...page, entries: removeAssertion(page.entries, version.id) })).filter(page => page.entries.length),
       activeProfile: removeAssertion(next.activeProfile, version.id),
       constraints: removeAssertion(next.constraints, version.id),
       activeEpisodeHeads: removeAssertion(next.activeEpisodeHeads, version.id),
@@ -753,6 +767,7 @@ export function parseWarmSnapshot(input: unknown): { ok: true; value: WarmSnapsh
   const refs = input.coveredAssertionRefs as ExactVersionRef[]
   const refKeys = new Set(refs.map((ref) => `${ref.assertionId}/${ref.revision}`))
   if (refKeys.size !== refs.length) return { ok: false, error: 'Snapshot assertion references contain duplicates.' }
+  if (input.topicPages !== undefined && (!Array.isArray(input.topicPages) || input.topicPages.length > 24 || !input.topicPages.every(page => isRecord(page) && typeof page.topic === 'string' && page.topic.length <= 512 && Array.isArray(page.entries) && page.entries.length <= 12 && page.entries.every(item => isProfileBullet(item, input.scopeId as string, refKeys))))) return { ok: false, error: 'Snapshot topic pages are invalid.' }
   if (!input.stableProfile.every((item) => isProfileBullet(item, input.scopeId as string, refKeys) && item.placement === 'stable') || !input.activeProfile.every((item) => isProfileBullet(item, input.scopeId as string, refKeys) && item.placement === 'active_topic') || !input.constraints.every((item) => isConstraintEntry(item, input.scopeId as string, refKeys)) || !input.activeEpisodeHeads.every((item) => isEpisodeHead(item, input.scopeId as string, refKeys)) || !input.recentAcceptedChanges.every((item) => isProjectionChange(item, input.scopeId as string))) return { ok: false, error: 'Snapshot projection entries are invalid.' }
   if (input.activeTopic !== null && (!isRecord(input.activeTopic) || typeof input.activeTopic.id !== 'string' || typeof input.activeTopic.label !== 'string')) return { ok: false, error: 'Snapshot active topic is invalid.' }
   const coverage = input.coverage as Record<string, unknown>

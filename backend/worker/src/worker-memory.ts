@@ -15,6 +15,7 @@ import { anyMemoryFeatureEnabled, memoryFeatureFlags } from '../../../src/lib/me
 import type { MemoryTurnRuntime } from '../../../src/lib/memory/turn-runtime'
 import { createServerMemorySession } from '../../../src/server/memory-session'
 import { createRuntime, unavailableOutcome } from '../../../src/server/memory-turn-runtime'
+import { memoryRetrievalOptions } from '../../memory/src/providers.ts'
 import type { Memory, MemoryStore } from '../../../src/lib/tools/memory'
 import type { MemorySession } from '../../../src/lib/memory/contracts'
 import type { Env } from './types'
@@ -34,6 +35,7 @@ function flagsFor(env: Env, owner: string) {
   return memoryFeatureFlags({
     NODE_ENV: nodeEnv,
     GIDEON_MEMORY_STAGE15_CUTOVER: env.GIDEON_MEMORY_STAGE15_CUTOVER,
+    GIDEON_MEMORY_CANONICAL_ONLY: env.GIDEON_MEMORY_CANONICAL_ONLY,
     GIDEON_MEMORY_ROLLOUT_PERCENT: env.GIDEON_MEMORY_ROLLOUT_PERCENT,
     GIDEON_MEMORY_CAPTURE_ENABLED: env.GIDEON_MEMORY_CAPTURE_ENABLED,
     GIDEON_MEMORY_COMMAND_WRITES_ENABLED: env.GIDEON_MEMORY_COMMAND_WRITES_ENABLED,
@@ -44,7 +46,9 @@ function flagsFor(env: Env, owner: string) {
 function createStore(connectionString: string): { store: PostgresMemoryStore; close(): Promise<void> } {
   const pool = new Pool({
     connectionString,
-    max: 1,
+    // Four recall branches and capture run concurrently. A smaller pool queues
+    // those bounded reads behind each other even though retrieval uses Promise.all.
+    max: 5,
     connectionTimeoutMillis: 3_000,
     idleTimeoutMillis: 10_000,
     allowExitOnIdle: true,
@@ -131,6 +135,7 @@ function guardedRuntime(runtime: MemoryTurnRuntime, store: PostgresMemoryStore, 
   const active = async () => (await readAuthority(store, scopeId).catch(() => null))?.state === 'active'
   return {
     flags: runtime.flags,
+    async observeTurn(turn) { if (await active()) await runtime.observeTurn?.(turn) },
     async captureUserTurn(context, signal) {
       try { return await guard(() => runtime.captureUserTurn!(context, signal)) }
       catch (error) {
@@ -204,12 +209,13 @@ export async function resolveWorkerMemoryForTurn(input: {
       return {
         memoryStore: fencedSession.store,
         memorySession: fencedSession,
-        memoryRuntime: guardedRuntime(createRuntime(canonicalSession, flags), store, canonicalSession.scope.id),
+        memoryRuntime: guardedRuntime(createRuntime(canonicalSession, flags, memoryRetrievalOptions({ ...input.env })), store, canonicalSession.scope.id),
         controlSession: canonicalSession,
         close,
       }
     }
     if (state === 'fenced') return { memoryStore: fencedSession.store, memorySession: fencedSession, memoryRuntime: pausedRuntime(flags), close }
+    if (env.GIDEON_MEMORY_CANONICAL_ONLY === '1') return { memoryStore:fencedSession.store,memorySession:fencedSession,memoryRuntime:pausedRuntime(flags),close }
     return { memoryStore: fencedSession.store, memorySession: fencedSession, close }
   } catch {
     return { memoryStore: fencedSession.store, memorySession: fencedSession, memoryRuntime: pausedRuntime(flags), close }

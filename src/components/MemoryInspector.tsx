@@ -613,6 +613,40 @@ function Browser({ announce, version, onChanged }: { announce: Announce; version
   )
 }
 
+function LearningPanel({announce,onChanged}:{announce:Announce;onChanged:Changed}) {
+  type Gap = { question_hash: string; question: string; times_asked: number }
+  type Overlay = { overlay_id: string; instructions: string[]; state: string }
+  const [open,setOpen]=useState(false)
+  const [gaps,setGaps]=useState<Gap[]>([])
+  const [overlays,setOverlays]=useState<Overlay[]>([])
+  const [error,setError]=useState('')
+  const [answer,setAnswer]=useState('')
+  const [selected,setSelected]=useState<string|null>(null)
+  const [busy,setBusy]=useState(false)
+  const pending=useRef<string|null>(null)
+  const load=async()=>{
+    setOpen(true);setBusy(true);setError('')
+    const [g,o]=await Promise.all([api<{items:Gap[]}>('/api/memory?view=gaps'),api<{items:Overlay[]}>('/api/memory?view=overlays')])
+    if(g.ok)setGaps(g.value.items);else setError(g.error.message)
+    if(o.ok)setOverlays(o.value.items);else setError(o.error.message)
+    setBusy(false)
+  }
+  const save=async(event:FormEvent)=>{
+    event.preventDefault(); if(!selected||!answer.trim()||busy)return
+    setBusy(true);pending.current??=requestId()
+    const result=await post({op:'resolve_gap',questionHash:selected,text:answer,requestId:pending.current})
+    if(result.ok){pending.current=null;setSelected(null);setAnswer('');announce('Answer saved to memory.');onChanged();await load()}else{setBusy(false);setError(result.error.message)}
+  }
+  return <section className="memory-card" aria-label="Memory learning">
+    <h2>Memory learning</h2><p>Review unanswered questions and the rules learned from earlier replies.</p>
+    <button type="button" onClick={()=>void load()} disabled={busy}>{busy?'Loading…':open?'Refresh learning':'Review learning'}</button>
+    {error?<p role="alert">{error}</p>:null}
+    {open?<><h3>Unanswered questions</h3>{gaps.length?gaps.map(g=><div key={g.question_hash}><p>{g.question} · Asked {g.times_asked} times</p><button type="button" disabled={busy} onClick={()=>{setSelected(g.question_hash);setAnswer('');pending.current=null}}>Add an answer</button></div>):<p>No unanswered memory questions.</p>}
+      {selected?<form onSubmit={save}><label>Your answer<textarea value={answer} maxLength={1000} disabled={busy} onChange={e=>{setAnswer(e.target.value);pending.current=null}} /></label><button type="submit" disabled={busy||!answer.trim()}>Save to memory</button></form>:null}
+      <h3>Learned answer rules</h3>{overlays.length?overlays.map(o=><div key={o.overlay_id}><p>{o.state==='verified'?'Active, independently checked':o.state==='candidate'?'Candidate, awaiting checks':'Retired'}</p><ul>{o.instructions.map(t=><li key={t}>{t}</li>)}</ul>{o.state!=='retired'?<button type="button" disabled={busy} onClick={async()=>{setBusy(true);const r=await post({op:'retire_overlay',id:o.overlay_id});if(r.ok)await load();else{setBusy(false);setError(r.error.message)}}}>Retire this rule</button>:null}</div>):<p>No learned answer rules yet.</p>}</>:null}
+  </section>
+}
+
 export function MemoryInspector() {
   const [state, setState] = useState<PageState>({ phase: 'loading' })
   const [message, setMessage] = useState('')
@@ -727,6 +761,7 @@ export function MemoryInspector() {
             </div>
             <div className="memory-column memory-side">
               <SettingsPanel settings={overview.settings} onSettings={(settings) => setState({ phase: 'ready', overview: { ...overview, settings } })} announce={announce} />
+              <LearningPanel announce={announce} onChanged={changed} />
               {removals.length ? <RemovalsPanel removals={removals} /> : null}
               <TransferPanel announce={announce} onImported={() => changed()} />
               {overview.recentChanges.length ? (

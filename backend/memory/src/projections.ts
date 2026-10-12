@@ -453,7 +453,7 @@ export async function rebuildWarmSnapshot(session: MemorySession, options: Prepa
   return publishPreparedWarmSnapshot(session, prepared.prepared)
 }
 
-export async function readWarmSnapshot(session: MemorySession, options: { now?: string; leaseId?: string; deadlineAt?: string; signal?: AbortSignal } = {}): Promise<WarmSnapshotReadResult> {
+export async function readWarmSnapshot(session: MemorySession, options: { now?: string; leaseId?: string; deadlineAt?: string; signal?: AbortSignal; renew?:boolean } = {}): Promise<WarmSnapshotReadResult> {
   try {
     const durable = postgresSession(session)
     const now = ensureIso(options.now ?? isoNow(), 'now')
@@ -469,7 +469,7 @@ export async function readWarmSnapshot(session: MemorySession, options: { now?: 
       if (options.signal?.aborted) throw new Error('Warm snapshot read cancelled.')
       if (remainingMs !== null) await transaction.query(`SELECT set_config('statement_timeout', $1, true)`, [`${Math.max(1, Math.floor(remainingMs))}ms`])
       await transaction.assertAuthorizedContext(durable, 'recall')
-      const epoch = await currentEpoch(transaction, durable.scope.id)
+      const epoch = await currentEpoch(transaction, durable.scope.id,options.renew===true)
       const rows = await transaction.query<{ payload: unknown; policy_epoch: string | number; deletion_epoch: string | number; expires_at: string | null }>(
         `SELECT payload, policy_epoch, deletion_epoch, expires_at
          FROM ${SQL.cache}
@@ -479,11 +479,18 @@ export async function readWarmSnapshot(session: MemorySession, options: { now?: 
       const row = rows.rows[0]
       if (!row) return { status: 'cold', snapshot: null, inspector: null, reason: 'no_private_snapshot' } satisfies WarmSnapshotReadResult
       if (Number(row.policy_epoch) !== Number(epoch.policy_epoch) || Number(row.deletion_epoch) !== Number(epoch.deletion_epoch)) return { status: 'invalidated', snapshot: null, inspector: null, reason: 'memory_epoch_changed' } satisfies WarmSnapshotReadResult
-      if (row.expires_at && Date.parse(row.expires_at) <= Date.parse(now)) return { status: 'expired', snapshot: null, inspector: null, reason: 'snapshot_lease_expired' } satisfies WarmSnapshotReadResult
+      const expired=Boolean(row.expires_at && Date.parse(row.expires_at)<=Date.parse(now))
+      if (expired && !options.renew) return { status: 'expired', snapshot: null, inspector: null, reason: 'snapshot_lease_expired' } satisfies WarmSnapshotReadResult
       const parsed = parseWarmSnapshot(row.payload)
       if (!parsed.ok) return { status: 'unavailable', snapshot: null, inspector: null, reason: parsed.error, failure: { code: 'unavailable', message: 'The private warm snapshot failed validation.', retryable: false } } satisfies WarmSnapshotReadResult
       if (parsed.value.scopeId !== durable.scope.id || parsed.value.principalId !== durable.principal.id) return { status: 'invalidated', snapshot: null, inspector: null, reason: 'snapshot_binding_mismatch' } satisfies WarmSnapshotReadResult
       if (parsed.value.freshness !== 'fresh') return { status: 'invalidated', snapshot: null, inspector: parsed.value.inspector, reason: 'snapshot_not_fresh' } satisfies WarmSnapshotReadResult
+      if(expired && options.renew){
+        const latest=await coverage(transaction,durable.scope.id)
+        if(latest.changeWatermark!==parsed.value.coverage.changeWatermarkTo || !await currentInputMatches(transaction,durable.scope.id,parsed.value.coveredAssertionRefs))return {status:'invalidated',snapshot:null,inspector:null,reason:'snapshot_inputs_changed'} satisfies WarmSnapshotReadResult
+        parsed.value.expiresAt=new Date(Date.parse(now)+DEFAULT_WARM_SNAPSHOT_TTL_MS).toISOString()
+        await transaction.query(`UPDATE ${SQL.cache} SET payload=$2::jsonb,expires_at=$3::timestamptz WHERE entry_id=$1 AND scope_id=$4 AND principal_id=$5`,[`cache/warm/${durable.scope.id}`,serializeWarmSnapshot(parsed.value),parsed.value.expiresAt,durable.scope.id,durable.principal.id])
+      }
       return { status: 'available', snapshot: parsed.value, inspector: parsed.value.inspector } satisfies WarmSnapshotReadResult
     })
   } catch (error) {

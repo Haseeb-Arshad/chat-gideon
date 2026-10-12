@@ -1,0 +1,516 @@
+{
+  "label": "internal synthetic held-out fixture; repeated question families; not a public benchmark",
+  "implementation": "Initial Plan B cutoff 0.25, before the development multilingual correction to 0.15. This is not evidence for the revised cutoff.",
+  "fixture": {
+    "path": "scripts/fixtures/memory-plan-b-heldout.json",
+    "sha256": "20dffa0db576983b53a457db60cf7827fc1a0cf0e4c8b50c522bc6904a9920d1"
+  },
+  "complete": true,
+  "counts": {
+    "trajectories": 40,
+    "queries": 320
+  },
+  "answers": {
+    "profile_summary": {
+      "diagnosticOnly": false,
+      "queries": 320,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.625,
+        "n": 320
+      },
+      "judgePass": {
+        "rate": 0.549,
+        "n": 319
+      },
+      "falsePersonalClaim": {
+        "rate": 0.451,
+        "n": 319
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0.034,
+        "n": 319
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 0.925,
+        "n": 319
+      },
+      "judgeRepeatAgreement": {
+        "rate": 0.924,
+        "n": 317
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.622,
+          "n": 320
+        },
+        "changedVerdicts": 1
+      },
+      "byCategory": {
+        "constraint_adherence": {
+          "rate": 1,
+          "n": 40
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 40
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 80
+        },
+        "paraphrase": {
+          "rate": 0,
+          "n": 40
+        },
+        "preference_application": {
+          "rate": 1,
+          "n": 40
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 80
+        }
+      },
+      "byLanguage": {
+        "English / Urdu / Roman Urdu": {
+          "rate": 0.625,
+          "n": 320
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1418,
+        "p95": 2364
+      }
+    },
+    "full": {
+      "diagnosticOnly": false,
+      "queries": 320,
+      "errors": 0,
+      "deterministicPass": {
+        "rate": 0.747,
+        "n": 320
+      },
+      "judgePass": {
+        "rate": 0.683,
+        "n": 319
+      },
+      "falsePersonalClaim": {
+        "rate": 0.047,
+        "n": 319
+      },
+      "unnecessaryPersonalization": {
+        "rate": 0.05,
+        "n": 319
+      },
+      "judgeDeterministicAgreement": {
+        "rate": 0.934,
+        "n": 319
+      },
+      "judgeRepeatAgreement": {
+        "rate": 0.978,
+        "n": 317
+      },
+      "repeatRun": {
+        "deterministicPassSeed2": {
+          "rate": 0.747,
+          "n": 320
+        },
+        "changedVerdicts": 0
+      },
+      "byCategory": {
+        "constraint_adherence": {
+          "rate": 1,
+          "n": 40
+        },
+        "deletion": {
+          "rate": 1,
+          "n": 40
+        },
+        "multilingual": {
+          "rate": 0,
+          "n": 80
+        },
+        "paraphrase": {
+          "rate": 0.975,
+          "n": 40
+        },
+        "preference_application": {
+          "rate": 1,
+          "n": 40
+        },
+        "temporal": {
+          "rate": 1,
+          "n": 80
+        }
+      },
+      "byLanguage": {
+        "English / Urdu / Roman Urdu": {
+          "rate": 0.747,
+          "n": 320
+        }
+      },
+      "readerLatencyMs": {
+        "p50": 1558,
+        "p95": 3266
+      }
+    }
+  },
+  "comparisons": {
+    "deterministicPass": [
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0.122,
+        "ci95": [
+          0.116,
+          0.125
+        ],
+        "trajectories": 40,
+        "queries": 320
+      }
+    ],
+    "judgePass": [
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0.132,
+        "ci95": [
+          0.097,
+          0.167
+        ],
+        "trajectories": 40,
+        "queries": 318
+      }
+    ],
+    "falsePersonalClaim": [
+      {
+        "comparison": "full − profile_summary",
+        "difference": -0.403,
+        "ci95": [
+          -0.431,
+          -0.375
+        ],
+        "trajectories": 40,
+        "queries": 318
+      }
+    ],
+    "unnecessaryPersonalization": [
+      {
+        "comparison": "full − profile_summary",
+        "difference": 0.016,
+        "ci95": [
+          -0.009,
+          0.041
+        ],
+        "trajectories": 40,
+        "queries": 318
+      }
+    ]
+  },
+  "context": {
+    "none": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 40
+      },
+      "meanItems": 0,
+      "failures": [],
+      "selectionMs": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "estimatedTokens": {
+        "mean": 0,
+        "max": 0
+      }
+    },
+    "legacy": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.571,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 40
+      },
+      "meanItems": 0.81,
+      "failures": [],
+      "selectionMs": {
+        "p50": 0.1,
+        "p95": 0.2,
+        "p99": 0.3
+      },
+      "estimatedTokens": {
+        "mean": 25,
+        "max": 72
+      }
+    },
+    "profile_summary": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.571,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 40
+      },
+      "meanItems": 0.84,
+      "failures": [],
+      "selectionMs": {
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.2
+      },
+      "estimatedTokens": {
+        "mean": 30,
+        "max": 65
+      }
+    },
+    "full": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.711,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.64,
+      "failures": [],
+      "selectionMs": {
+        "p50": 1352.5,
+        "p95": 1955.2,
+        "p99": 2537
+      },
+      "estimatedTokens": {
+        "mean": 460,
+        "max": 572
+      }
+    },
+    "oracle": {
+      "diagnosticOnly": true,
+      "evidenceCoverage": {
+        "rate": 1,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 0,
+        "n": 40
+      },
+      "meanItems": 0.88,
+      "failures": [],
+      "selectionMs": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "estimatedTokens": {
+        "mean": 20,
+        "max": 28
+      }
+    },
+    "full_no_source_evidence": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.714,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.3,
+      "failures": [],
+      "selectionMs": {
+        "p50": 25.1,
+        "p95": 53.2,
+        "p99": 1779.5
+      },
+      "estimatedTokens": {
+        "mean": 444,
+        "max": 509
+      }
+    },
+    "full_no_applicability": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.714,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.65,
+      "failures": [],
+      "selectionMs": {
+        "p50": 24.4,
+        "p95": 66.2,
+        "p99": 174.8
+      },
+      "estimatedTokens": {
+        "mean": 427,
+        "max": 533
+      }
+    },
+    "full_no_relationships": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.714,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.65,
+      "failures": [],
+      "selectionMs": {
+        "p50": 22.4,
+        "p95": 59.1,
+        "p99": 80.1
+      },
+      "estimatedTokens": {
+        "mean": 460,
+        "max": 569
+      }
+    },
+    "full_no_semantic": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.429,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.09,
+      "failures": [],
+      "selectionMs": {
+        "p50": 22.4,
+        "p95": 55.9,
+        "p99": 73.7
+      },
+      "estimatedTokens": {
+        "mean": 449,
+        "max": 578
+      }
+    },
+    "full_no_compact": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.714,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.65,
+      "failures": [],
+      "selectionMs": {
+        "p50": 24.3,
+        "p95": 60.1,
+        "p99": 79.6
+      },
+      "estimatedTokens": {
+        "mean": 509,
+        "max": 687
+      }
+    },
+    "full_no_consolidation": {
+      "diagnosticOnly": false,
+      "evidenceCoverage": {
+        "rate": 0.714,
+        "n": 280
+      },
+      "forbiddenLeak": {
+        "rate": 0.125,
+        "n": 320
+      },
+      "personalContentWhenNoneNeeded": {
+        "rate": 1,
+        "n": 40
+      },
+      "meanItems": 2.65,
+      "failures": [],
+      "selectionMs": {
+        "p50": 23.4,
+        "p95": 57.5,
+        "p99": 73.1
+      },
+      "estimatedTokens": {
+        "mean": 462,
+        "max": 570
+      }
+    }
+  },
+  "construction": {
+    "explicitFailures": [],
+    "fullIngestMs": 196.3,
+    "fullMaintenanceMsTotal": 159942,
+    "legacyIngestMs": 0.6
+  },
+  "spend": {
+    "usd": 0.0237,
+    "liveCalls": 356,
+    "cacheHits": 2204,
+    "errors": 0,
+    "capUsd": 0.1
+  },
+  "limits": [
+    "Internal synthetic repeated question families",
+    "Two reader seeds and two judge seeds; incomplete verdicts counted",
+    "Fresh holdout required after similarity calibration",
+    "Production SLOs and public-source scoring not measured"
+  ]
+}

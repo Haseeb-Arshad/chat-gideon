@@ -1,4 +1,4 @@
-import type { ScopeId } from '../../../src/lib/memory/contracts.ts'
+import type { ScopeId, MemorySession } from '../../../src/lib/memory/contracts.ts'
 import type { MemoryExtractor, PromotionPolicy } from '../../../src/lib/memory/learning.ts'
 import { createServerMemorySession } from '../../../src/server/memory-session.ts'
 import { MEMORY_SCHEMA } from './config.ts'
@@ -56,6 +56,9 @@ export interface MaintenanceOptions {
   budget?: LearningBudget
   policy?: PromotionPolicy
   signal?: AbortSignal
+  afterScope?: (session:MemorySession<PostgresMemoryStore>)=>Promise<void>
+  /** Bounded derivative backfill discovery; retries even after source jobs completed. */
+  additionalScopes?: () => Promise<readonly {scopeId:ScopeId;policyEpoch:number}[]>
 }
 
 export interface MaintenanceReport {
@@ -148,6 +151,7 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
   const projectionJobs = await claimJobs(store, { workerId: `${options.workerId}/projections`, kinds: ['rebuild_projection'], limit: limits.projectionJobs, scopeId: options.scopeId, now })
   report.projections.jobs = projectionJobs.length
   await rebuildProjections(store, projectionJobs, now, report)
+  const touched=new Map(projectionJobs.map(job=>[job.scopeId,job.policyEpoch]))
   if (options.signal?.aborted) return report
 
   // 3. Learning from committed turns, fair across users.
@@ -165,6 +169,7 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
     // The owner's own setting (learning off, or a temporary conversation) wins over the rollout.
     const ownerOff = await scopesWithoutLearning(store, learningJobs.map((job) => job.scopeId), now)
     for (const job of learningJobs) {
+      touched.set(job.scopeId,job.policyEpoch)
       if (options.signal?.aborted) {
         await store.forContext({ principalId: job.principalId, scopeId: job.scopeId, policyEpoch: job.policyEpoch }).runTransaction(async (tx) => {
           if ((await checkRunningJob(tx, job, now)).status !== 'lease_lost') await requeueCheckedJob(tx, job, { availableAt: now, reason: 'shutdown' })
@@ -207,6 +212,12 @@ export async function runMemoryMaintenance(store: PostgresMemoryStore, options: 
     }
   }
 
+  if (options.afterScope && options.additionalScopes && !options.signal?.aborted) {
+    for (const scope of await options.additionalScopes()) touched.set(scope.scopeId, scope.policyEpoch)
+  }
+  if(options.afterScope && !options.signal?.aborted)for(const [scopeId,policyEpoch]of touched){
+    await options.afterScope(createServerMemorySession({owner:scopeId,store,channel:'worker_http',authority:'worker_internal_owner',policyEpoch}))
+  }
   report.queue = await queueStats(store, now)
   return report
 }

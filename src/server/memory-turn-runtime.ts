@@ -5,6 +5,9 @@ import { executeForgetCommand } from '../../backend/memory/src/deletion.ts'
 import { readMemoryMode } from '../../backend/memory/src/controls.ts'
 import type { PostgresMemoryStore } from '../../backend/memory/src/postgres.ts'
 import { retrieveMemory } from '../../backend/memory/src/retrieval.ts'
+import type { RetrieveMemoryOptions } from '../../backend/memory/src/retrieval.ts'
+import { attachVerifiedOverlays, recordMemoryTurn } from '../../backend/memory/src/turn-traces.ts'
+import type { ContextPack } from '../lib/memory/retrieval.ts'
 import type { ConversationState } from '../lib/conversation-state'
 import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
 import { MEMORY_CONTRACT_VERSION, parsePublicMemoryCommand, type AssertionVersion, type ConsentId, type EventEnvelope, type MemorySession, type SourceSpan } from '../lib/memory/contracts'
@@ -130,7 +133,8 @@ export function createRecallInput(query: string, timezone: string, conversationS
 }
 
 /** The per-request memory runtime for an already bound session (exported for tests). */
-export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: ReturnType<typeof memoryFeatureFlags>): MemoryTurnRuntime {
+export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: ReturnType<typeof memoryFeatureFlags>, retrievalOptions: RetrieveMemoryOptions = {}): MemoryTurnRuntime {
+  const turnPacks = new Map<string, ContextPack>()
   // The owner's temporary-conversation setting, read once per request. An
   // unreadable setting is not treated as "temporary off": capture and recall
   // then fail the same way the authority itself would.
@@ -146,7 +150,7 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
     if (context.principalId !== session.principal.id || context.scopeId !== session.scope.id || context.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
-    const result = await retrieveMemory(session, createRecallInput(query, context.timezone, context.conversationState, context.latestUserText, context.depth), { signal })
+    const result = await retrieveMemory(session, createRecallInput(query, context.timezone, context.conversationState, context.latestUserText, context.depth), { ...retrievalOptions, signal })
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
     if (!result.ok) {
       return { status: 'unavailable' as const, reason: result.failure.code === 'unauthorized' ? 'unauthorized' as const : 'failure' as const }
@@ -159,11 +163,21 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
       || result.pack.authenticatedContext.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
-    return { status: 'ready' as const, binding: context, pack: result.pack }
+    const pack = retrievalOptions.recordTraces ? await attachVerifiedOverlays(session, result.pack).catch(() => result.pack) : result.pack
+    if (!context.speculative) {
+      if (turnPacks.size >= 4) turnPacks.delete(turnPacks.keys().next().value!)
+      turnPacks.set(context.turnId, pack)
+    }
+    return { status: 'ready' as const, binding: context, pack }
   }
 
   return {
     flags,
+    async observeTurn(turn) {
+      const pack = turnPacks.get(turn.turnId) ?? null
+      turnPacks.delete(turn.turnId)
+      if (retrievalOptions.recordTraces && !await temporary()) await recordMemoryTurn(session, { ...turn, pack })
+    },
     async captureUserTurn(context, signal) {
       if (!flags.capture || session.trust !== 'authenticated') return { status: 'unavailable', reason: 'unauthorized' }
       if (signal.aborted) return { status: 'unavailable', reason: 'stale' }

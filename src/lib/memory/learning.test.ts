@@ -140,6 +140,26 @@ describe('Stage 10 reconciliation', () => {
     expect(decision).toMatchObject({ action: 'corroborate', target: { assertionId: 'assertion/existing' } })
   })
 
+  it('does not treat an unrelated model target hint as support for an existing preference',()=>{
+    const candidate:ExtractionCandidate={kind:'preference',text:'User said: I like coffee',speechAct:'self_statement',polarity:'positive',scope:'general',conditions:[],relation:'ordinary',validTime:{from:null,until:null,precision:'unknown',sourceTimeZone:null},evidence:{start:0,end:13,quote:'I like coffee'},operation:'corroborate',targetAssertionId:'assertion/existing'}
+    expect(decideCandidate(candidate,[memory({})],{activeTopicKnown:false,sourceText:'I like coffee'})).toMatchObject({action:'add',status:'accepted',candidate:{operation:'add',targetAssertionId:null}})
+  })
+
+  it('keeps a server-checked matching model target as corroboration',()=>{
+    const candidate:ExtractionCandidate={kind:'preference',text:'User said: I like tea',speechAct:'self_statement',polarity:'positive',scope:'general',conditions:[],relation:'ordinary',validTime:{from:null,until:null,precision:'unknown',sourceTimeZone:null},evidence:{start:0,end:10,quote:'I like tea'},operation:'corroborate',targetAssertionId:'assertion/existing'}
+    expect(decideCandidate(candidate,[memory({})],{activeTopicKnown:false,sourceText:'I like tea'})).toMatchObject({action:'corroborate',target:{assertionId:'assertion/existing'}})
+  })
+
+  it('does not dispute tea when a wrongly targeted new claim only dislikes coffee',()=>{
+    const candidate:ExtractionCandidate={kind:'preference',text:'User said: I dislike coffee',speechAct:'self_statement',polarity:'negative',scope:'general',conditions:[],relation:'ordinary',validTime:{from:null,until:null,precision:'unknown',sourceTimeZone:null},evidence:{start:0,end:16,quote:'I dislike coffee'},operation:'corroborate',targetAssertionId:'assertion/existing'}
+    expect(decideCandidate(candidate,[memory({})],{activeTopicKnown:false,sourceText:'I dislike coffee'})).toMatchObject({action:'add',status:'accepted',candidate:{operation:'add',targetAssertionId:null,polarity:'negative'}})
+  })
+
+  it('still disputes matching claims with opposite polarity even if the model calls them corroboration',()=>{
+    const candidate:ExtractionCandidate={kind:'preference',text:'User said: I dislike tea',speechAct:'self_statement',polarity:'negative',scope:'general',conditions:[],relation:'ordinary',validTime:{from:null,until:null,precision:'unknown',sourceTimeZone:null},evidence:{start:0,end:13,quote:'I dislike tea'},operation:'corroborate',targetAssertionId:'assertion/existing'}
+    expect(decideCandidate(candidate,[memory({})],{activeTopicKnown:false,sourceText:'I dislike tea'})).toMatchObject({action:'dispute',target:{assertionId:'assertion/existing'}})
+  })
+
   it('opposite polarity becomes a dispute, never an overwrite', () => {
     const [decision] = decide("I don't like tea anymore really.", [memory({ text: 'The user likes tea.' })])
     expect(decision).toMatchObject({ action: 'add', reason: 'change_requires_review' })

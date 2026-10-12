@@ -48,7 +48,7 @@ export interface ExtractionWindow {
    * as possibly related (Stage 11 relation stage). Opaque handles only; a
    * classifier can describe a relation but never picks a write target.
    */
-  knownMemories?: readonly { handle: string; text: string }[]
+  knownMemories?: readonly { handle: string; text: string; assertionId?: string }[]
 }
 
 export interface CandidateEvidence {
@@ -412,6 +412,19 @@ export function decideCandidate(
     if (!target) return { action: 'reject', reason: 'target_not_found', candidate }
     // Learning may flag disagreement but never rewrites user-authored memory.
     return { action: 'dispute', target, reason: USER_AUTHORED.has(target.basis) ? 'user_authored_target_protected' : 'contradicts_existing', candidate }
+  }
+
+  if (candidate.targetAssertionId && candidate.operation === 'corroborate' && candidate.review !== 'abstain') {
+    const target = existing.find(memory => memory.assertionId === candidate.targetAssertionId)
+    if (!target || target.kind !== candidate.kind || !sameConditions(target.conditions, candidate.conditions)) return { action: 'reject', reason: 'target_not_found', candidate }
+    // A known handle verifies ownership, not matching meaning. An unrelated
+    // hint cannot support or dispute this memory, or count toward promotion.
+    if (jaccard(key, contentKey(target.text)) < NEAR_DUPLICATE_THRESHOLD) {
+      return decideCandidate({...candidate,operation:'add',targetAssertionId:null},existing,options)
+    }
+    const targetPolarity=effectivePolarity(target.text,target.polarity)
+    if (targetPolarity !== polarity && targetPolarity !== 'unknown' && polarity !== 'unknown') return { action: 'dispute', target, reason: 'contradicts_existing', candidate }
+    return { action: 'corroborate', target, reason: 'duplicate_of_existing', candidate }
   }
 
   if (candidate.review === 'abstain' && candidate.speechAct !== 'temporary_instruction') {

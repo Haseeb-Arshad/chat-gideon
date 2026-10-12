@@ -74,6 +74,9 @@ export type RemoteEmbeddingAuthorizer = (
 ) => boolean | Promise<boolean>
 
 export interface RetrieveMemoryOptions {
+  compact?: boolean
+  minimumSimilarity?: number
+  recordTraces?: boolean
   now?: string
   tokenizer?: TokenCounter
   embeddingProvider?: RetrievalEmbeddingProvider
@@ -87,6 +90,7 @@ export interface RetrieveMemoryOptions {
    * none can widen what is retrieved.
    */
   ablate?: {
+    consolidation?: boolean
     /** No permitted source-evidence fallback. */
     sourceEvidence?: boolean
     /** No constraint applicability index; constraints compete lexically like any fact. */
@@ -141,9 +145,15 @@ interface EventRow {
   envelope: unknown
 }
 
+// Warm data only: no connection, request, promise, or provider is retained.
+// Each owner/model/epoch key has a five-second lease and every hit is hydrated
+// against current authority before dispatch. Deletion epochs invalidate it.
+const semanticRows = new WeakMap<PostgresMemoryStore, Map<string, { expires: number; rows: EmbeddingRow[] }>>()
+
 interface EpochRow {
   policy_epoch: string | number
   deletion_epoch: string | number
+  change_watermark?: string | number
 }
 
 interface BranchResult {
@@ -217,7 +227,7 @@ async function beginAuthorizedRead<T>(
 
 async function readEpoch(transaction: PostgresMemoryTransaction, session: MemorySession): Promise<EpochRow> {
   const result = await transaction.query<EpochRow>(
-    `SELECT policy_epoch, deletion_epoch FROM ${SQL.epochs} WHERE scope_id = $1`,
+    `SELECT policy_epoch, deletion_epoch, (SELECT next_watermark FROM gideon_memory.change_counters c WHERE c.scope_id=$1) AS change_watermark FROM ${SQL.epochs} WHERE scope_id = $1`,
     [session.scope.id],
   )
   const row = result.rows[0]
@@ -455,7 +465,7 @@ function warmSnapshotDocuments(snapshot: WarmSnapshot): RetrievalDocument[] {
       requiresCurrentVerification: false,
     })
   }
-  for (const bullet of [...snapshot.stableProfile, ...snapshot.activeProfile]) {
+  for (const bullet of [...snapshot.stableProfile, ...snapshot.activeProfile, ...(snapshot.topicPages ?? []).flatMap(page => page.entries)]) {
     add(bullet.assertion, bullet.kind, bullet.text, bullet.conditions, null, bullet.validUntil, bullet.basis, bullet.sourceEventIds.map((eventId) => ({ eventId, relation: 'supports' as const, sourceRef: null })), bullet.topicLabel)
   }
   for (const constraint of snapshot.constraints) {
@@ -473,10 +483,10 @@ function warmSnapshotDocuments(snapshot: WarmSnapshot): RetrievalDocument[] {
   return docs
 }
 
-async function searchWarmSnapshot(session: MemorySession<PostgresMemoryStore>, request: RetrievalRequest, signal: AbortSignal): Promise<WarmResult> {
+async function searchWarmSnapshot(session: MemorySession<PostgresMemoryStore>, request: RetrievalRequest, signal: AbortSignal, renew=false): Promise<WarmResult> {
   if (request.consistency !== 'warm_preferred') return { status: 'not_configured', snapshot: null, documents: [], reason: 'warm_snapshot_not_requested', candidates: 0 }
   checkSignal(signal)
-  const result = await readWarmSnapshot(session, { now: request.createdAt, deadlineAt: request.deadlineAt, signal })
+  const result = await readWarmSnapshot(session, { now: request.createdAt, deadlineAt: request.deadlineAt, signal,renew })
   if (result.status !== 'available') return { status: result.status === 'cold' || result.status === 'expired' || result.status === 'invalidated' ? 'partial' : 'unavailable', snapshot: null, documents: [], reason: result.reason, candidates: 0 }
   const snapshot = result.snapshot
   if (snapshot.scopeId !== session.scope.id || snapshot.principalId !== session.principal.id || snapshot.policyEpoch !== session.policyEpoch || snapshot.freshness !== 'fresh' || (snapshot.expiresAt && Date.parse(snapshot.expiresAt) <= Date.now())) {
@@ -753,6 +763,7 @@ async function searchSemantic(
   signal: AbortSignal,
   provider: RetrievalEmbeddingProvider | undefined,
   authorizeRemote: RemoteEmbeddingAuthorizer | undefined,
+  minimumSimilarity = 0.3,
 ): Promise<{ documents: RetrievalDocument[]; epoch: EpochRow; truncated: boolean; filtered: number; reason: string | null }> {
   if (!provider) throw opFailure('unavailable', 'No semantic embedding provider is configured for this retrieval turn.')
   if (!validateProvider(provider)) throw opFailure('validation', 'The semantic embedding provider metadata is invalid.')
@@ -770,7 +781,11 @@ async function searchSemantic(
   const vectorQuery: EmbeddingQuery = { modelId: provider.modelId, modelVersion: provider.modelVersion, dimension: provider.dimensions, vector: queryVector }
   return beginAuthorizedRead(session, request, signal, async (transaction) => {
     const epoch = await readEpoch(transaction, session)
-    const rows = await transaction.query<EmbeddingRow>(
+    const cacheKey = `${session.principal.id}/${session.scope.id}/${epoch.policy_epoch}/${epoch.deletion_epoch}/${epoch.change_watermark}/${provider.modelId}/${provider.modelVersion}`
+    let cache = semanticRows.get(session.store)
+    if (!cache) { cache = new Map(); semanticRows.set(session.store, cache) }
+    const cached = cache.get(cacheKey)
+    const rows = cached && cached.expires > Date.now() ? { rows: cached.rows } : await transaction.query<EmbeddingRow>(
       `SELECT e.assertion_id, e.assertion_revision, e.source_kind, e.source_ref, e.source_event_id,
               e.model_id, e.model_version, e.dimensions, e.content_hash, e.embedding,
               v.version, a.current_status, a.current_revision, a.slot_id, a.subject_key
@@ -788,6 +803,10 @@ async function searchSemantic(
        LIMIT $5`,
       [session.scope.id, provider.modelId, provider.modelVersion, provider.dimensions, MAX_RETRIEVAL_VECTOR_SCAN + 1],
     )
+    if (!cached || cached.expires <= Date.now()) {
+      if (cache.size >= 8) cache.delete(cache.keys().next().value!)
+      cache.set(cacheKey, { expires: Date.now() + 5000, rows: rows.rows })
+    }
     const truncated = rows.rows.length > MAX_RETRIEVAL_VECTOR_SCAN
     const selectedRows = rows.rows.slice(0, MAX_RETRIEVAL_VECTOR_SCAN)
     const documents = makeAssertionDocumentRows(selectedRows.map((row) => ({
@@ -867,12 +886,12 @@ async function searchSemantic(
         vector,
       })
     }
-    const ranked = exactVectorSearch(request, vectorQuery, vectors, documents, MAX_RETRIEVAL_BRANCH_CANDIDATES)
+    const ranked = exactVectorSearch(request, vectorQuery, vectors, documents, MAX_RETRIEVAL_BRANCH_CANDIDATES, minimumSimilarity)
     return { documents: ranked.documents, epoch, truncated, filtered: filtered + ranked.filteredCandidateCount, reason: null }
   })
 }
 
-function embeddableAssertionText(version: AssertionVersion): { sourceKind: 'assertion' | 'episode'; sourceRef: string; text: string } {
+export function embeddableAssertionText(version: AssertionVersion): { sourceKind: 'assertion' | 'episode'; sourceRef: string; text: string } {
   const sourceKind = version.kind === 'episode_checkpoint' ? 'episode' : 'assertion'
   return {
     sourceKind,
@@ -1050,6 +1069,7 @@ export async function indexAuthorizedEmbeddings(
         }
         return count
       })
+      semanticRows.delete(session.store)
       return { status: 'indexed', indexed, skippedSensitive: prepared.skippedSensitive, skippedStale: Math.max(0, prepared.documents.length - indexed), modelId: provider.modelId, modelVersion: provider.modelVersion, dimension: provider.dimensions }
     } finally {
       options.signal?.removeEventListener('abort', onAbort)
@@ -1057,7 +1077,7 @@ export async function indexAuthorizedEmbeddings(
   } catch (error) {
     if (error instanceof RetrievalAbortError || (error instanceof Error && error.name === 'AbortError')) return { status: 'cancelled', indexed: 0, reason: 'embedding_index_cancelled' }
     if (error instanceof PostgresMemoryOperationError && error.failure.code === 'unauthorized') return { status: 'unauthorized', indexed: 0, reason: error.failure.message }
-    return { status: 'unavailable', indexed: 0, reason: error instanceof Error ? error.message : 'embedding_index_unavailable' }
+    return { status: 'unavailable', indexed: 0, reason: error instanceof Error ? error.message || error.name : 'embedding_index_unavailable' }
   }
 }
 
@@ -1264,7 +1284,7 @@ export async function retrieveMemory(
         }, signal),
         options.embeddingProvider
           ? captureBranch(async () => {
-              const result = await searchSemantic(session, request!, signal, options.embeddingProvider, options.authorizeRemoteEmbedding)
+              const result = await searchSemantic(session, request!, signal, options.embeddingProvider, options.authorizeRemoteEmbedding, options.minimumSimilarity)
               return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.reason, candidates: result.documents.length, filtered: result.filtered }
             }, signal)
           : Promise.resolve(emptyBranch('not_configured', 'semantic_provider_not_configured')),
@@ -1273,8 +1293,9 @@ export async function retrieveMemory(
           return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
         }, signal),
         (async (): Promise<WarmResult> => {
+          if (options.ablate?.consolidation) return {status:'not_configured',snapshot:null,documents:[],reason:'ablated_consolidation',candidates:0}
           try {
-            return await searchWarmSnapshot(session, request!, signal)
+            return await searchWarmSnapshot(session, request!, signal,options.compact===true)
           } catch (error) {
             const branch = await captureBranch(async () => { throw error }, signal)
             return { ...branch, snapshot: null }
@@ -1376,7 +1397,7 @@ export async function retrieveMemory(
       const unavailableReason = allUnavailable
         ? 'All authoritative retrieval branches were unavailable; no search result can establish absence.'
         : [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].map((branch) => branch.reason).filter(Boolean).join('; ') || null
-      const pack = composeContextPack({ request: request!, coverage, candidates, constraints, unavailableReason }, options.tokenizer)
+      const pack = composeContextPack({ request: request!, coverage, candidates, constraints, unavailableReason, compact: options.compact }, options.tokenizer)
       return {
         pack,
         diagnostics: {

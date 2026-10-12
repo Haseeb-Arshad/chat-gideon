@@ -17,6 +17,35 @@ async function collect(options: TurnOptions = {}, id = 'turn') {
 beforeEach(() => vi.stubEnv('OPENROUTER_API_KEY', 'fixture'))
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
+it('streams the first reply while capture is pending, then joins capture on cancellation', async () => {
+  const session = createServerMemorySession({ owner: 'user/latency', store: new EphemeralMemoryStore(), channel: 'http', authority: 'node_signed_cookie' })
+  let releaseCapture!: () => void
+  const pending = new Promise<void>((resolve) => { releaseCapture = resolve })
+  const runtime = {
+    flags: { capture: true, commandWrites: true, recall: false },
+    captureUserTurn: vi.fn(async () => { await pending; return { status: 'captured', receiptState: 'captured' } }),
+    retrieve: vi.fn(), execute: vi.fn(),
+  } as unknown as MemoryTurnRuntime
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(text + 'data: [DONE]\n\n')))
+  const generator = streamTurn('fast', [{ role: 'user', content: 'hello' }], new AbortController().signal, { memorySession: session, memoryRuntime: runtime })
+  try {
+    let frame = await generator.next()
+    while (!frame.done && frame.value.t !== 'delta') frame = await generator.next()
+    expect(frame.value).toMatchObject({ t: 'delta', text: 'A partial reply.' })
+    expect(runtime.captureUserTurn).toHaveBeenCalledOnce()
+    let closed = false
+    const closing = generator.return(undefined).then(() => { closed = true })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    releaseCapture()
+    await closing
+    expect(closed).toBe(true)
+  } finally {
+    releaseCapture()
+    await generator.return(undefined)
+  }
+})
+
 describe('upstream terminal completion', () => {
   it.each(['', event({ error: { message: 'failed' } }), event({ choices: [{ finish_reason: 'length' }] }), event({ choices: [{ finish_reason: 'error' }] })])('keeps partial deltas and errors without success', async (ending) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(text + ending)))

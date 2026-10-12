@@ -12,6 +12,8 @@ const bundle = join(root, 'dist', 'server')
 const forbidden = [
   ['Node migration directory', 'DEFAULT_MIGRATION_DIRECTORY'],
   ['Node memory maintenance runner', 'startMemoryBackground'],
+  // Rollup can remove the exported directory name but retain its initializer.
+  ['Node migration path initializer', 'fileURLToPath(import.meta.url)'],
 ]
 
 function files(directory) {

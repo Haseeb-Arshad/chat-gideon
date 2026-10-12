@@ -1,0 +1,40 @@
+{
+  "label": "Final local implementation; development diagnostics are not fresh held-out or production proof",
+  "proof": {
+    "heldoutQuestions": 0,
+    "completeAnswers": 0,
+    "pairedGain": 0,
+    "pairedLowerBound": 0,
+    "multilingualRecallGain": 0,
+    "falseMemoryRate": null,
+    "rulesFalseMemoryRate": null,
+    "compactCapacityRatio": 2,
+    "seedCasesPassed": 36,
+    "purgeP95Seconds": null,
+    "staleCleanupOverDay": null,
+    "overlayRegressions": 0,
+    "productionP95Ms": null,
+    "publicBenchmarks": []
+  },
+  "gates": {
+    "heldout": false,
+    "baseline": false,
+    "multilingual": false,
+    "learning": false,
+    "compact": true,
+    "safety": true,
+    "operations": false,
+    "refinement": true,
+    "latency": false,
+    "publicBenchmarks": false
+  },
+  "claimable95": false,
+  "overlayEvidence": "Only the executed synthetic lifecycle fixture, not production performance",
+  "missing": [
+    "Fresh holdout after multilingual calibration",
+    "Held-out extraction comparison",
+    "Scored public subsets",
+    "Production migration and queue activation",
+    "Production purge and latency measurements"
+  ]
+}

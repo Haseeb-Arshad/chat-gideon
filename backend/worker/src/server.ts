@@ -5,6 +5,7 @@ import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { ownerOf, withOwner } from './accounts'
 import { handleApi, isApiPath } from './api'
 import type { Env, WorkerContext } from './types'
+import { dispatchMemoryMaintenance, maintainMemoryScope, type MemoryMaintenanceMessage } from './memory-maintenance.ts'
 
 export { GideonSession } from './realtime'
 
@@ -16,6 +17,15 @@ export { GideonSession } from './realtime'
  * frontend and SSR shell from the same origin.
  */
 export default {
+  async scheduled(_controller: ScheduledController, env: Env, ctx: WorkerContext) {
+    ctx.waitUntil(dispatchMemoryMaintenance(env))
+  },
+  async queue(batch: MessageBatch<MemoryMaintenanceMessage>, env: Env) {
+    for (const message of batch.messages) {
+      try { await maintainMemoryScope(env, message.body); message.ack() }
+      catch { message.retry({ delaySeconds: 60 }); console.warn(JSON.stringify({ event: 'memory_maintenance_retry', attempt: message.attempts })) }
+    }
+  },
   async fetch(request: Request, env: Env, ctx: WorkerContext) {
     setRuntimeEnv(env)
     const url = new URL(request.url)

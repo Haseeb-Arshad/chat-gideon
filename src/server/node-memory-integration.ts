@@ -29,6 +29,8 @@ import type { MemoryTurnRuntime } from '../lib/memory/turn-runtime'
 import type { ToolOutcome } from '../lib/tools/registry'
 import { legacyMemoryFile, nodeOwner, uncachedLegacyStore } from './identity'
 import { createServerMemorySession } from './memory-session'
+import { embeddingProviderFromEnv, memoryRetrievalOptions } from '../../backend/memory/src/providers.ts'
+import { indexPendingMemories } from '../../backend/memory/src/index-pending.ts'
 
 const PG_RUNTIME = Symbol.for('gideon.node.memory-postgres-runtime.v1')
 const BACKGROUND = Symbol.for('gideon.node.memory-background.v1')
@@ -70,7 +72,7 @@ export function learningExtractorsFromEnv(env: NodeJS.ProcessEnv): { extractor: 
   } else if (plan?.provider === 'substitute' && env.OPENROUTER_API_KEY?.trim()) {
     classifier = createSubstituteClassifier({ apiKey: env.OPENROUTER_API_KEY.trim(), model: env.GIDEON_MEMORY_CLASSIFIER_MODEL, siteUrl: env.OPENROUTER_SITE_URL })
   }
-  if (!plan || !classifier) return { extractor: base, includeKnownMemories: false }
+  if (!plan || !classifier) return { extractor: base, includeKnownMemories: env.GIDEON_MEMORY_EXTRACTOR === 'model' }
   const classified = createClassifiedExtractor({ base, classifier, mode: plan.workflow })
   return plan.mode === 'enforce'
     ? { extractor: classified, includeKnownMemories: plan.workflow === 'verify' }
@@ -82,11 +84,27 @@ function ensureBackground(store: PostgresMemoryStore): void {
   const globals = globalThis as PgGlobal
   if (globals[BACKGROUND] || !memoryBackgroundEnabled(process.env)) return
   const env = process.env
+  const embedding=embeddingProviderFromEnv(env)
   globals[BACKGROUND] = startMemoryBackground(store, {
     workerId: `node/${process.pid}`,
     ...learningExtractorsFromEnv(env),
     learning: env.GIDEON_MEMORY_LEARNING_ENABLED === '1',
     learningEnabledFor: (scopeId) => memoryLearningEnabled(process.env, scopeId),
+    afterScope: embedding ? async session=>{
+      try { await indexPendingMemories(session,embedding) }
+      finally { await store.runTransaction(tx => tx.query(`INSERT INTO gideon_memory.maintenance_dispatch(scope_id,dispatched_at) VALUES($1,now()) ON CONFLICT(scope_id) DO UPDATE SET dispatched_at=now()`,[session.scope.id])) }
+    } : undefined,
+    additionalScopes: embedding ? async () => {
+      const rows = await store.runTransaction(tx => tx.query<{scope_id:string;policy_epoch:string}>(`SELECT s.scope_id,p.policy_epoch FROM gideon_memory.scopes s
+        JOIN gideon_memory.policy_epochs p ON p.scope_id=s.scope_id
+        JOIN gideon_memory.authority_cutovers c ON c.scope_id=s.scope_id AND c.state='active'
+        LEFT JOIN gideon_memory.maintenance_dispatch d ON d.scope_id=s.scope_id
+        WHERE EXISTS(SELECT 1 FROM gideon_memory.assertions a WHERE a.scope_id=s.scope_id AND a.current_status='accepted'
+          AND NOT EXISTS(SELECT 1 FROM gideon_memory.retrieval_embeddings e WHERE e.scope_id=a.scope_id AND e.assertion_id=a.assertion_id AND e.assertion_revision=a.current_revision AND e.model_id=$1 AND e.model_version=$2)
+          AND NOT EXISTS(SELECT 1 FROM gideon_memory.embedding_exclusions e WHERE e.scope_id=a.scope_id AND e.assertion_id=a.assertion_id AND e.assertion_revision=a.current_revision AND e.model_id=$1 AND e.model_version=$2))
+        ORDER BY COALESCE(d.dispatched_at,'epoch'),s.scope_id LIMIT 2`, [embedding.modelId, embedding.modelVersion]))
+      return rows.rows.map(row => ({scopeId:row.scope_id as MemorySession['scope']['id'],policyEpoch:Number(row.policy_epoch)}))
+    } : undefined,
     intervalMs: Number(env.GIDEON_MEMORY_BACKGROUND_INTERVAL_MS) || undefined,
     // Counts only: no content, identifiers or connection details reach the log.
     onError: (count) => { if (count === 1 || count % 50 === 0) console.warn(`[memory] background maintenance failed ${count} time(s)`) },
@@ -121,7 +139,7 @@ export function resolveNodeMemoryIntegration(
     }
   }
   const session = createServerMemorySession({ owner, store, channel, authority: 'node_signed_cookie' })
-  return createRuntime(session, flags)
+  return createRuntime(session, flags, memoryRetrievalOptions(process.env))
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +228,7 @@ function guardedRuntime(runtime: MemoryTurnRuntime, store: PostgresMemoryStore, 
   const active = async () => (await readAuthority(store, scopeId).catch(() => null))?.state === 'active'
   return {
     flags: runtime.flags,
+    async observeTurn(turn) { if (await active()) await runtime.observeTurn?.(turn) },
     async captureUserTurn(context, signal) {
       try {
         return await guard(() => runtime.captureUserTurn!(context, signal))
@@ -270,8 +289,9 @@ export async function resolveNodeMemoryForTurn(
         if (report.outcome === 'activated' || report.outcome === 'already_active') state = 'active'
       }
     }
-    if (state === 'active') return { memorySession: fencedSession, memoryRuntime: guardedRuntime(createRuntime(session, flags), store, session.scope.id) }
+    if (state === 'active') return { memorySession: fencedSession, memoryRuntime: guardedRuntime(createRuntime(session, flags, memoryRetrievalOptions(process.env)), store, session.scope.id) }
     if (state === 'fenced') return { memorySession: fencedSession, memoryRuntime: pausedRuntime(flags) }
+    if (process.env.GIDEON_MEMORY_CANONICAL_ONLY === '1') return {memorySession:fencedSession,memoryRuntime:pausedRuntime(flags)}
     return { memorySession: fencedSession, memoryRuntime: undefined }
   } catch {
     // The writer cannot be read: nothing may be written anywhere.

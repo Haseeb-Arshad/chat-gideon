@@ -12,11 +12,12 @@ import {
   readMemorySettings,
   updateMemorySettings,
   type ControlsResult,
-} from '../../backend/memory/src/index.ts'
+} from '../../backend/memory/src/controls.ts'
 import { gate, originAllowed } from '../lib/guard'
 import { MAX_IMPORT_BYTES, renderMemoryMarkdown, type InspectorFilter } from '../lib/memory/controls'
 import type { MemoryFailure, MemorySession } from '../lib/memory/contracts'
 import type { PostgresMemoryStore } from '../../backend/memory/src/postgres.ts'
+import { executeExplicitCommand } from '../../backend/memory/src/commands.ts'
 
 const HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }
 const FILTERS: readonly InspectorFilter[] = ['all', 'preferences', 'facts', 'decisions', 'proposed', 'topics']
@@ -95,6 +96,17 @@ export async function handleMemoryControlsForSession(
       if (!status.enabled) return json({ ok: true, enabled: false })
       return reply(await readMemorySettings(session), (settings) => ({ enabled: true, settings }))
     }
+    if (view === 'gaps' || view === 'overlays') {
+      try {
+        const rows=await session.store.forSession(session).runTransaction(async tx=>{
+          await tx.assertAuthorizedContext(session,'inspect')
+          return view==='gaps'
+            ? tx.query(`SELECT question_hash,question,times_asked,last_asked_at FROM gideon_memory.knowledge_gaps WHERE scope_id=$1 ORDER BY last_asked_at DESC LIMIT 50`,[session.scope.id])
+            : tx.query(`SELECT overlay_id,topic,instructions,state,evidence,verification FROM gideon_memory.skill_overlays WHERE scope_id=$1 ORDER BY created_at DESC LIMIT 50`,[session.scope.id])
+        })
+        return json({ok:true,items:rows.rows})
+      }catch{return problem(503,'unavailable','Memory learning details are unavailable.',true)}
+    }
     if (view === 'overview') return reply(await memoryOverview(session), (overview) => ({ overview }))
     if (view === 'items') {
       const filter = (url.searchParams.get('filter') ?? 'all') as InspectorFilter
@@ -122,6 +134,25 @@ export async function handleMemoryControlsForSession(
   if (parsed instanceof Response) return parsed
   const { body, bytes } = parsed
   const op = body.op
+  if (op === 'resolve_gap') {
+    if(typeof body.questionHash!=='string' || !/^[a-f0-9]{64}$/u.test(body.questionHash) || typeof body.text!=='string' || !body.text.trim() || body.text.length>1000 || typeof body.requestId!=='string' || !/^[a-zA-Z0-9-]{1,80}$/u.test(body.requestId)) return problem(400,'validation','Supply an answer and a request id.')
+    const result=await executeExplicitCommand(session,{schemaVersion:1,commandId:`gap-answer/${body.requestId}`,kind:'remember',text:body.text.trim(),assertionKind:'fact',conditions:[]})
+    if(!result.ok)return problem(STATUS[result.failure.code]??503,result.failure.code,result.failure.message,result.failure.retryable)
+    try {
+      await session.store.forSession(session).runTransaction(async tx=>{await tx.assertAuthorizedContext(session,'remember');await tx.query('DELETE FROM gideon_memory.knowledge_gaps WHERE scope_id=$1 AND question_hash=$2',[session.scope.id,body.questionHash])})
+    }catch{return problem(503,'unavailable','The gap update is incomplete. Retry with the same answer.',true)}
+    return json({ok:true,receipt:result.receipt})
+  }
+  if (op === 'retire_overlay') {
+    if(typeof body.id!=='string' || body.id.length>160)return problem(400,'validation','Choose a learned rule to retire.')
+    try {
+      const result=await session.store.forSession(session).runTransaction(async tx=>{
+        await tx.assertAuthorizedContext(session,'remember')
+        return tx.query(`UPDATE gideon_memory.skill_overlays SET state='retired' WHERE scope_id=$1 AND overlay_id=$2 RETURNING overlay_id`,[session.scope.id,body.id])
+      })
+      return json({ok:true,retired:result.rows.length===1})
+    }catch{return problem(503,'unavailable','That learned rule could not be retired.',true)}
+  }
   if (op === 'enable') return reply(await enableMemory(session), (settings) => ({ settings }))
   if (op === 'settings') {
     const temporary = body.temporary === true ? { on: true as const, hours: typeof body.temporaryHours === 'number' ? body.temporaryHours : undefined } : body.temporary === false ? { on: false as const } : undefined
