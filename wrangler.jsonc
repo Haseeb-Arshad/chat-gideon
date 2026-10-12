@@ -6,7 +6,17 @@
   "main": "backend/worker/src/server.ts",
   "vars": {
     "GIDEON_ALLOWED_ORIGINS": "https://chatgideon.com,https://www.chatgideon.com",
-    "OPENROUTER_SITE_URL": "https://chatgideon.com"
+    "OPENROUTER_SITE_URL": "https://chatgideon.com",
+    "GIDEON_AUDIT_ENABLED": "1",
+    "GIDEON_AUDIT_REQUIRED": "1",
+    "ENVIRONMENT": "production",
+    "GIDEON_MEMORY_STAGE15_CUTOVER": "1",
+    "GIDEON_MEMORY_CUTOVER_ENABLED": "1",
+    "GIDEON_MEMORY_ROLLOUT_PERCENT": "100",
+    "GIDEON_MEMORY_CAPTURE_ENABLED": "1",
+    "GIDEON_MEMORY_COMMAND_WRITES_ENABLED": "1",
+    "GIDEON_MEMORY_RECALL_ENABLED": "1",
+    "GIDEON_MEMORY_CONTROLS_ENABLED": "1"
   },
   // Accounts and account memory live in Supabase PostgreSQL, reached through
   // Hyperdrive. Create the config once, with the direct connection string, and
@@ -28,6 +38,18 @@
     }
   ],
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
   }
 }

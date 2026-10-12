@@ -9,6 +9,8 @@ dist-ssr
 .tanstack
 .wrangler
 .output
+output/memory-plan-b-eval/
+output/memory-plan-b-datasets/
 .playwright-cli
 output/playwright
 .vinxi

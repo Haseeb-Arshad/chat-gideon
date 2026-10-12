@@ -205,6 +205,8 @@ export interface RetrievalTokenUsage {
 }
 
 export interface ContextPack {
+  /** Server-reviewed procedural advice, never source facts or permissions. */
+  guidance?: string
   schemaVersion: typeof RETRIEVAL_SCHEMA_VERSION
   status: 'ready' | 'partial' | 'unavailable' | 'budget_exhausted'
   authenticatedContext: RetrievalRequest['authenticatedContext']
@@ -732,6 +734,7 @@ export function exactVectorSearch(
   embeddings: readonly VersionedEmbedding[],
   documents: readonly RetrievalDocument[],
   limit = 24,
+  minimumSimilarity = 0,
 ): { documents: RetrievalDocument[]; filteredCandidateCount: number; truncated: boolean } {
   const currentByAssertion = new Map<string, RetrievalDocument>()
   for (const document of documents) {
@@ -764,7 +767,7 @@ export function exactVectorSearch(
     const score = cosineSimilarity(query.vector, embedding.vector)
     // Orthogonal and opposite vectors carry no positive semantic support. Do
     // not let a bounded scan turn their deterministic tie order into recall.
-    if (score !== null && score > 0) candidates.push({ document, score })
+    if (score !== null && score > Math.max(0, minimumSimilarity)) candidates.push({ document, score })
     else filteredCandidateCount += 1
   }
   return {
@@ -806,8 +809,14 @@ function safeTokenCount(counter: TokenCounter, text: string): number {
   return tokens
 }
 
-function itemLine(candidate: RankedRetrievalCandidate, label: string): string {
+function itemLine(candidate: RankedRetrievalCandidate, label: string, compact = false): string {
   const doc = candidate.document
+  if (compact) {
+    const topic = doc.topicLabel ? `${escapeUntrusted(doc.topicLabel)}: ` : ''
+    const when = doc.validFrom || doc.validUntil ? `; ${doc.validFrom?.slice(0, 10) ?? '?'} to ${doc.validUntil?.slice(0, 10) ?? 'present'}` : ''
+    const conditions = doc.conditions.length ? `; when ${escapeUntrusted(JSON.stringify(doc.conditions))}` : ''
+    return `- [${label}; ${doc.basis ?? 'unknown basis'}${doc.historical ? '; historical' : ''}${when}${conditions}] ${topic}<untrusted-memory>${escapeUntrusted(doc.text)}</untrusted-memory>`
+  }
   const ref = refKey(doc)
   const when = doc.validFrom || doc.validUntil ? ` valid ${doc.validFrom ?? 'unknown'} to ${doc.validUntil ?? 'open-ended'}` : ''
   const evidence = doc.evidence.map((item) => `${item.relation}:${item.eventId}`).join(', ')
@@ -816,15 +825,17 @@ function itemLine(candidate: RankedRetrievalCandidate, label: string): string {
   return `- [${label}${doc.historical ? '; historical version' : ''}; ${ref}${basis}${when}${evidenceSuffix}] <untrusted-memory>${escapeUntrusted(doc.text)}</untrusted-memory>`
 }
 
-function constraintLine(item: SelectedConstraint): string {
+function constraintLine(item: SelectedConstraint, compact = false): string {
   const doc = item.document
   const ref = refKey(doc)
   const status = item.applicability === 'conditional' ? 'conditional; resolve before treating as applicable' : item.applicability
   const validity = doc.validFrom || doc.validUntil ? ` valid ${doc.validFrom ?? 'unknown'} to ${doc.validUntil ?? 'open-ended'}` : ''
-  return `- [${status}; ${ref}; ${item.reason}${validity}] <untrusted-memory>${escapeUntrusted(doc.text)}</untrusted-memory>`
+  const conditions = compact ? `; when ${escapeUntrusted(JSON.stringify(doc.conditions))}; exceptions ${escapeUntrusted(JSON.stringify(doc.exceptions))}` : ''
+  return `- [${status}; ${compact ? '' : `${ref}; `}${item.reason}${validity}${conditions}] <untrusted-memory>${escapeUntrusted(doc.text)}</untrusted-memory>`
 }
 
 function renderPackText(input: {
+  compact?: boolean
   coverage: RetrievalCoverage
   conversationState: string | null
   constraints: readonly SelectedConstraint[]
@@ -850,37 +861,38 @@ function renderPackText(input: {
   if (input.conversationState) lines.push(`Conversation state (bounded continuity):\n${escapeUntrusted(input.conversationState)}`)
   if (input.overrides.length) {
     lines.push('Current explicit task instructions (apply only to this task; they do not change durable defaults or action permissions):')
-    for (const override of input.overrides) lines.push(`- [current_user_explicit; ${override.kind}; ${override.id}] <untrusted-memory>${escapeUntrusted(override.text)}</untrusted-memory>`)
+    for (const override of input.overrides) lines.push(`- [current_user_explicit; ${override.kind}${input.compact ? '' : `; ${override.id}`}] <untrusted-memory>${escapeUntrusted(override.text)}</untrusted-memory>`)
   }
   if (input.overriddenDefaults.length) {
     lines.push('Prior general preferences retained outside this task, but explicitly overridden by the current user instruction here:')
-    lines.push(...input.overriddenDefaults.map((item) => `- [not applicable to current task; ${referenceLabel(item.document)}] <untrusted-memory>${escapeUntrusted(item.document.text)}</untrusted-memory>`))
+    lines.push(...input.overriddenDefaults.map((item) => `- [not applicable to current task${input.compact ? '' : `; ${referenceLabel(item.document)}`}] <untrusted-memory>${escapeUntrusted(item.document.text)}</untrusted-memory>`))
   }
   if (input.constraints.length) {
     lines.push('Applicable or unresolved conditional constraints; these are prioritized independently of lexical rank:')
-    lines.push(...input.constraints.map(constraintLine))
+    lines.push(...input.constraints.map(item => constraintLine(item, input.compact)))
   }
   if (input.facts.length) {
     lines.push('Relevant accepted facts, preferences, decisions, and episode checkpoints:')
     lines.push(...input.facts.map((item) => item.document.requiresCurrentVerification
-      ? itemLine(item, `historical; verify with a current authorized source before calling it current`)
-      : itemLine(item, item.document.status)))
+      ? itemLine(item, `historical; verify with a current authorized source before calling it current`, input.compact)
+      : itemLine(item, item.document.status, input.compact)))
   }
   if (input.conflicts.length) {
     lines.push('Disputed or conflicting evidence bundles; preserve every side and do not silently choose:')
-    for (const bundle of input.conflicts) lines.push(...bundle.map((item) => itemLine(item, 'conflict bundle')))
+    for (const bundle of input.conflicts) lines.push(...bundle.map((item) => itemLine(item, 'conflict bundle', input.compact)))
   }
   if (input.evidence.length) {
     lines.push('Source evidence not represented by an accepted extracted assertion; attribute it and do not upgrade it into durable memory:')
-    lines.push(...input.evidence.map((item) => itemLine(item, 'source evidence only')))
+    lines.push(...input.evidence.map((item) => itemLine(item, 'source evidence only', input.compact)))
   }
-  if (input.omittedConstraintRefs.length) lines.push(`Budget exhausted: ${input.omittedConstraintRefs.length} applicable/conditional constraint item(s) could not fit; handles=${input.omittedConstraintRefs.join(', ')}. Do not assume these constraints are absent; clarify or request deeper recall.`)
+  if (input.omittedConstraintRefs.length) lines.push(`Budget exhausted: ${input.omittedConstraintRefs.length} applicable/conditional constraint item(s) could not fit${input.compact ? '' : `; handles=${input.omittedConstraintRefs.join(', ')}`}. Do not assume these constraints are absent; clarify or request deeper recall.`)
   if (!input.facts.length && !input.evidence.length && !input.constraints.length) lines.push('No matching item was found in this bounded search. This is not proof that the user never said it.')
   lines.push('</gideon-memory-context>')
   return lines.join('\n')
 }
 
 export interface ContextPackInput {
+  compact?: boolean
   request: RetrievalRequest
   coverage: RetrievalCoverage
   candidates: readonly RankedRetrievalCandidate[]
@@ -940,6 +952,7 @@ export function composeContextPack(input: ContextPackInput, tokenizer?: TokenCou
     return conversation !== null && conversationText === null ? `${text}\n${conversationDroppedNote}` : text
   }
   const renderPackBody = () => renderPackText({
+    compact: input.compact,
     coverage,
     conversationState: conversationText,
     constraints: selectedConstraints,

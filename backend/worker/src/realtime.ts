@@ -20,6 +20,8 @@ import {
   type MemorySnapshot,
 } from './memory'
 import type { Env } from './types'
+import { createWorkerInteractionAudit } from './audit'
+import { resolveWorkerMemoryForTurn } from './worker-memory'
 
 interface SessionAttachment {
   /** Whose memory this is: `user/<id>` for an account, otherwise the browser's id. */
@@ -28,6 +30,8 @@ interface SessionAttachment {
   host: string | null
   /** Roughly where the socket was opened from, as the Worker found it. */
   location: CoarseLocation | null
+  /** Untrusted, used only after hashing to group audit entries from this browser. */
+  auditSessionKey: string | null
 }
 
 function attachmentOf(socket: WebSocket): SessionAttachment | null {
@@ -45,6 +49,7 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
     caller: candidate.caller,
     host: typeof candidate.host === 'string' ? candidate.host : null,
     location: readLocation(candidate.location),
+    auditSessionKey: typeof candidate.auditSessionKey === 'string' ? candidate.auditSessionKey.slice(0, 256) : null,
   }
 }
 
@@ -122,6 +127,18 @@ export class GideonSession extends DurableObject<Env> {
         memoryStore,
         memorySession,
         location: attachment.location,
+        auditFactory: createWorkerInteractionAudit({
+          env: this.env,
+          owner: attachment.owner,
+          sessionKey: attachment.auditSessionKey,
+          channel: 'websocket',
+        }),
+        resolveMemory: () => resolveWorkerMemoryForTurn({
+          env: this.env,
+          owner: attachment.owner,
+          channel: 'worker_websocket',
+          legacyStore: memoryStore,
+        }),
       },
     )
   }
@@ -136,6 +153,11 @@ export class GideonSession extends DurableObject<Env> {
     const origin = request.headers.get('origin')
     if (!originAllowed(origin, request.url, true)) {
       return new Response('That WebSocket origin is not allowed.', { status: 403 })
+    }
+
+    if (this.env.GIDEON_AUDIT_REQUIRED === '1' &&
+      (this.env.GIDEON_AUDIT_ENABLED !== '1' || !this.env.HYPERDRIVE?.connectionString)) {
+      return new Response('Conversation audit storage is not configured.', { status: 503 })
     }
 
     const pair = new WebSocketPair()
@@ -160,6 +182,7 @@ export class GideonSession extends DurableObject<Env> {
       host: null,
       // Set by the Worker in front of this object, which removes any a client sent.
       location: decodeLocation(request.headers.get(LOCATION_HEADER)),
+      auditSessionKey: new URL(request.url).searchParams.get('session')?.slice(0, 256) ?? null,
     }
     server.serializeAttachment(attachment)
     this.sessions.set(server, this.createSession(server, attachment))
@@ -209,4 +232,3 @@ export class GideonSession extends DurableObject<Env> {
     this.sessions.delete(socket)
   }
 }
-

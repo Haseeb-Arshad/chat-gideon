@@ -16,6 +16,8 @@ import { EphemeralMemoryStore } from '../src/lib/tools/memory'
 import { contextMemories, runServerTool } from '../src/lib/tools/registry'
 import { createServerMemorySession } from '../src/server/memory-session'
 import { createRecallInput, createRuntime } from '../src/server/node-memory-integration'
+import { memoryRetrievalOptions } from '../backend/memory/src/providers.ts'
+import { indexPendingMemories } from '../backend/memory/src/index-pending.ts'
 import {
   CONTROLLED_READER_SYSTEM,
   JUDGE_PROMPT_VERSION,
@@ -53,14 +55,17 @@ const enabled = process.env.GIDEON_MEMORY_POSTGRES_TEST === '1' && Boolean(proce
 const split = process.env.MEMORY_CONVERSATION_EVAL_SPLIT === 'heldout' ? 'heldout' : 'dev'
 const live = process.env.MEMORY_CONVERSATION_EVAL_LIVE === '1'
 const AUTHORIZED_MODEL = 'openai/gpt-6-luna'
-const SPEND_CAP_USD = 0.2
+const SPEND_CAP_USD = Math.min(0.3,Math.max(0.01,Number(process.env.MEMORY_CONVERSATION_SPEND_CAP_USD)||0.2))
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
-const CACHE_PATH = resolve(root, 'output/memory-conversation-eval/cache.json')
-const FIXTURE = `scripts/fixtures/memory-conversation-${split}.json`
+const planB = process.env.MEMORY_PLAN_B_EVAL === '1'
+const PLAN_B_OUTPUT = process.env.MEMORY_PLAN_B_OUTPUT_DIR || 'output/memory-plan-b-eval'
+const CACHE_PATH = resolve(root, planB ? `${PLAN_B_OUTPUT}/cache.json` : 'output/memory-conversation-eval/cache.json')
+const FIXTURE = process.env.MEMORY_CONVERSATION_EVAL_FIXTURE || (planB ? 'scripts/fixtures/memory-plan-b-heldout.json' : `scripts/fixtures/memory-conversation-${split}.json`)
 const READER_SEEDS = [1, 2]
 const JUDGE_SEEDS = [7, 8]
-const ANSWER_ARMS = ['none', 'legacy', 'profile_summary', 'full', 'oracle'] as const
-const CONTEXT_ARMS = [...ANSWER_ARMS, 'full_no_source_evidence', 'full_no_applicability', 'full_no_relationships'] as const
+const ANSWER_ARMS = planB ? ['profile_summary','full'] as const : ['none', 'legacy', 'profile_summary', 'full', 'oracle'] as const
+const BASELINE_ARMS = planB ? ['profile_summary'] as const : ['none','legacy','profile_summary'] as const
+const CONTEXT_ARMS = ['none','legacy','profile_summary','full','oracle', 'full_no_source_evidence', 'full_no_applicability', 'full_no_relationships', ...(planB ? ['full_no_semantic','full_no_compact','full_no_consolidation'] as const : [])] as const
 type AnswerArm = typeof ANSWER_ARMS[number]
 type ContextArm = typeof CONTEXT_ARMS[number]
 const ABLATIONS: Partial<Record<ContextArm, RetrieveMemoryOptions['ablate']>> = {
@@ -195,6 +200,7 @@ interface Systems {
   trajectory: Trajectory
   full: ReturnType<typeof createServerMemorySession> & { store: PostgresMemoryStore }
   runtime: ReturnType<typeof createRuntime>
+  retrievalOptions:RetrieveMemoryOptions
   legacy: EphemeralMemoryStore
   profile: string[]
   digests: { id: string; summary: string }[]
@@ -241,6 +247,8 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       })
       if (report.queue.pendingInterpret === 0 && report.queue.pendingProjection === 0) break
     }
+    const provider=planB&&live?systems.retrievalOptions.embeddingProvider:undefined
+    if(provider)await indexPendingMemories(systems.full,provider)
     systems.maintenanceMs += performance.now() - started
   }
 
@@ -315,10 +323,11 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
     out.profile_summary = { content: records.map((record) => record.text).join('\n'), framed: records.length ? `${NEUTRAL_HEADER}\n${records.map((record) => `- ${record.text}`).join('\n')}` : '', selectionMs: performance.now() - started, items: records.length, failure: null }
 
     const state = topicState(`conversation/${run}/${systems.trajectory.id}/query-${query.id}`, query.text, query.topic ?? null, now.toISOString())
-    for (const arm of ['full', 'full_no_source_evidence', 'full_no_applicability', 'full_no_relationships'] as const) {
+    for (const arm of CONTEXT_ARMS.filter((a):a is Exclude<ContextArm,AnswerArm>|'full'=>a.startsWith('full'))) {
       started = performance.now()
       const input = createRecallInput(query.text, 'UTC', state, query.text)
-      const result = await retrieveMemory(systems.full, { ...input, deadlineAt: new Date(now.getTime() + 15_000).toISOString() }, { now: now.toISOString(), ablate: ABLATIONS[arm] })
+      const configured=systems.retrievalOptions
+      const result = await retrieveMemory(systems.full, { ...input, deadlineAt: new Date(now.getTime() + 15_000).toISOString() }, { ...configured,now: now.toISOString(),ablate:arm==='full_no_consolidation'?{consolidation:true}:ABLATIONS[arm],...(arm==='full_no_semantic'?{embeddingProvider:undefined}:{}),...(arm==='full_no_compact'?{compact:false}:{}),recordTraces:false })
       const selectionMs = performance.now() - started
       if (!result.ok || !result.pack || result.pack.status === 'unavailable') {
         out[arm] = { content: '', framed: '', selectionMs, items: 0, failure: result.ok ? `pack_${result.pack?.status ?? 'missing'}` : result.failure.code }
@@ -345,7 +354,8 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       const memorySession = createServerMemorySession({ owner: `user/${run}-${trajectory.id}`, store: new EphemeralMemoryStore(), channel: 'test', authority: 'worker_auth_session' })
       await store.provisionTrustedContext(memorySession)
       const full = { ...memorySession, store } as Systems['full']
-      const systems: Systems = { trajectory, full, runtime: createRuntime(full, flags), legacy: new EphemeralMemoryStore(), profile: [], digests: [], ingestion: [], maintenanceMs: 0, ingestMs: { full: 0, legacy: 0 } }
+      const retrievalOptions=planB?{...memoryRetrievalOptions(process.env),recordTraces:false}:{}
+      const systems: Systems = { trajectory, full, retrievalOptions,runtime: createRuntime(full, flags,retrievalOptions), legacy: new EphemeralMemoryStore(), profile: [], digests: [], ingestion: [], maintenanceMs: 0, ingestMs: { full: 0, legacy: 0 } }
 
       for (const item of timeline(trajectory)) {
         if (item.type === 'session') { await ingest(systems, item.session, item.index); continue }
@@ -383,12 +393,17 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
         })))
       }
       systemsLog.push({ ingestion: systems.ingestion, maintenanceMs: systems.maintenanceMs, ingestMs: systems.ingestMs })
+      if (planB) {
+        saveCache()
+        writeReport()
+        console.log(JSON.stringify({event:'plan_b_eval_progress',completedTrajectories:systemsLog.length,totalTrajectories:trajectories.length,liveCalls:spend.calls,usd:spend.usd}))
+      }
     }
     vi.useRealTimers()
     writeReport()
     // The run itself must complete; quality is reported, not asserted.
     expect(contextRows.length).toBe(trajectories.reduce((sum, trajectory) => sum + trajectory.queries.length, 0) * CONTEXT_ARMS.length)
-  }, 1_800_000)
+  }, planB ? 3_600_000 : 1_800_000)
 
   // -------------------------------------------------------------------------
   // Report
@@ -462,10 +477,10 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       }]
     }))
     const comparisons = answered ? {
-      deterministicPass: (['none', 'legacy', 'profile_summary'] as const).map((arm) => paired((row) => (row.deterministic ? 1 : 0), arm, 'full')),
-      judgePass: (['none', 'legacy', 'profile_summary'] as const).map((arm) => paired((row) => (row.judgePass === null ? null : row.judgePass ? 1 : 0), arm, 'full')),
-      falsePersonalClaim: (['legacy', 'profile_summary'] as const).map((arm) => paired((row) => (row.judge ? (row.judge.false_personal_claim ? 1 : 0) : null), arm, 'full')),
-      unnecessaryPersonalization: (['legacy', 'profile_summary'] as const).map((arm) => paired((row) => (row.judge ? (row.judge.unnecessary_personalization ? 1 : 0) : null), arm, 'full')),
+      deterministicPass: BASELINE_ARMS.map((arm) => paired((row) => (row.deterministic ? 1 : 0), arm, 'full')),
+      judgePass: BASELINE_ARMS.map((arm) => paired((row) => (row.judgePass === null ? null : row.judgePass ? 1 : 0), arm, 'full')),
+      falsePersonalClaim: BASELINE_ARMS.filter(a=>a!=='none').map((arm) => paired((row) => (row.judge ? (row.judge.false_personal_claim ? 1 : 0) : null), arm, 'full')),
+      unnecessaryPersonalization: BASELINE_ARMS.filter(a=>a!=='none').map((arm) => paired((row) => (row.judge ? (row.judge.unnecessary_personalization ? 1 : 0) : null), arm, 'full')),
     } : null
     const context = (arm: ContextArm) => (row: ContextRow) => row.arm === arm
     const ingestion = systemsLog.flatMap((item) => item.ingestion)
@@ -475,18 +490,20 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
     const report = {
       stage: 13,
       split,
-      label: split === 'heldout' ? 'held-out pilot (diagnostic; not a competitive claim)' : 'development split (harness debugging only)',
+      label: planB ? 'internal synthetic held-out fixture; repeated question families; not a public benchmark' : split === 'heldout' ? 'held-out pilot (diagnostic; not a competitive claim)' : 'development split (harness debugging only)',
+      complete: systemsLog.length === trajectories.length,
+      completedTrajectories: systemsLog.length,
       liveCallsAllowed: live,
       answersAvailable: answered,
       manifest: {
         commit,
         fixture: { path: FIXTURE, sha256: fileHash(FIXTURE) },
         scoringLibrarySha256: fileHash('scripts/lib/memory-eval.ts'),
-        preregistration: 'docs/memory/reports/stage-13-preregistration.md',
+        preregistration: planB ? 'docs/memory/reports/plan-b-preregistration.md' : 'docs/memory/reports/stage-13-preregistration.md',
         reader: { model: AUTHORIZED_MODEL, promptVersion: READER_PROMPT_VERSION, temperature: 0, seeds: READER_SEEDS, reasoningEffort: 'minimal', maxTokens: 300 },
         judge: { model: AUTHORIZED_MODEL, promptVersion: JUDGE_PROMPT_VERSION, temperature: 0, seeds: JUDGE_SEEDS, verdictFromSeed: JUDGE_SEEDS[0], blindedToArm: true },
-        extractor: `${RULE_EXTRACTOR.id}@${RULE_EXTRACTOR.version} (production default)`,
-        retrieval: 'lexical (PostgreSQL simple tsvector + prefix stem); standard budget via createRecallInput',
+        extractor: `${RULE_EXTRACTOR.id}@${RULE_EXTRACTOR.version} (fixture uses explicit commands; production model extractor is separately tested)`,
+        retrieval: planB ? 'Plan B: compact o200k pack, BM25, warm consolidation and configured semantic provider; each ablation is reported separately' : 'lexical (PostgreSQL simple tsvector + prefix stem); standard budget via createRecallInput',
         bootstrap: { resamples: 10_000, seed: 13, unit: 'trajectory' },
         node: process.version,
       },
@@ -503,9 +520,9 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       spend: { usd: Math.round(spend.usd * 10_000) / 10_000, liveCalls: spend.calls, cacheHits: spend.cacheHits, errors: spend.errors, capUsd: SPEND_CAP_USD },
       blocked: {
         jev: 'no TypeSafe API key available',
-        hybridRetrieval: 'not implemented in the runtime',
+        hybridRetrieval: planB ? 'Provider quality requires a remote-authorized embedding run; offline context checks alone are not quality proof' : 'legacy evaluation configuration',
         externalProviders: 'no provider account authorized',
-        publicBenchmarks: 'LongMemEval / PersonaMem / LoCoMo-Plus need a dataset download that has not been authorized',
+        publicBenchmarks: planB ? '300 source cases imported; public model scores and original full-history tracks still require a measured provider run' : 'Legacy pilot did not include public benchmarks',
         humanReview: 'needs a reviewer',
       },
     }
@@ -515,9 +532,10 @@ describe.skipIf(!enabled)(`Stage 13 conversational evaluation (${split})`, () =>
       answers: answers.map((row) => ({ ...row, readerMs: undefined })),
       fullContextByQuery: Object.fromEntries(contextRows.filter(context('full')).map((row) => [`${row.trajectory}/${row.query}`, row.content])),
     }
-    const out = resolve(root, `docs/memory/reports/stage-13-${split}.json`)
+    const out = resolve(root, planB ? `${PLAN_B_OUTPUT}/${split}.json` : `docs/memory/reports/stage-13-${split}.json`)
+    mkdirSync(dirname(out),{recursive:true})
     writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
-    writeFileSync(resolve(root, `docs/memory/reports/stage-13-${split}-details.json`), `${JSON.stringify(details, null, 2)}\n`)
+    writeFileSync(resolve(root, planB ? `${PLAN_B_OUTPUT}/${split}-details.json` : `docs/memory/reports/stage-13-${split}-details.json`), `${JSON.stringify(details, null, 2)}\n`)
     console.log(JSON.stringify({ split, answers: Object.fromEntries(Object.entries(byArm).map(([arm, value]) => [arm, value.deterministicPass])), comparisons: comparisons?.deterministicPass, spend: report.spend }, null, 2))
   }
 })

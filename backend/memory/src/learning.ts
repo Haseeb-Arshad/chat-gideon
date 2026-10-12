@@ -12,6 +12,7 @@ import {
 } from '../../../src/lib/memory/contracts.ts'
 import {
   DEFAULT_PROMOTION_POLICY,
+  contentKey,
   LEARNING_SCHEMA_VERSION,
   MAX_PRIOR_TURNS,
   MAX_WINDOW_TEXT_CHARS,
@@ -456,7 +457,9 @@ export async function processLearningJob(
     // Scope is bound by the job's context before anything is read; the
     // classifier sees opaque handles, never assertion ids.
     const known = await scoped(store, job).runTransaction((tx) => currentMemories(tx, job.scopeId))
-    window = { ...loaded, knownMemories: known.filter((memory) => memory.status === 'accepted').slice(0, MAX_KNOWN_IN_WINDOW).map((memory, index) => ({ handle: `k${index}`, text: memory.text })) }
+    const queryWords=contentKey(loaded.text)
+    const score=(text:string)=>{const words=contentKey(text);let shared=0;for(const word of queryWords)if(words.has(word))shared++;return shared/Math.max(1,queryWords.size+words.size-shared)}
+    window = { ...loaded, knownMemories: known.filter(memory => memory.status === 'accepted').sort((a,b)=>score(b.text)-score(a.text)).slice(0, MAX_KNOWN_IN_WINDOW).map((memory, index) => ({ handle: `k${index}`, text: memory.text, assertionId: memory.assertionId })) }
   }
   const screen = screenWindow(window)
   if (!screen.ok) return closeWithoutExtraction(screen.reason)

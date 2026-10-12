@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { fetchVoice } from './agent-core'
 import type { ClientToolBridge } from './agent-core'
 import type { ServerFrame } from './protocol'
+import type { InteractionAuditFactory } from './interaction-audit'
 
 const captured = vi.hoisted(() => ({ signals: [] as AbortSignal[], outcomes: [] as string[] }))
 vi.mock('./agent-core', () => ({
@@ -53,5 +55,23 @@ it.each(['timeout', 'close'] as const)('cleans the tool abort listener on %s', a
   await pending
   expect(cleanup).toHaveBeenCalledWith('abort', expect.any(Function))
   expect(vi.getTimerCount()).toBe(0)
+  session.close()
+})
+
+it('stores realtime voice requests and provider failures in the audit trail', async () => {
+  vi.mocked(fetchVoice).mockResolvedValueOnce({
+    ok: false, mime: 'audio/mpeg', body: null, code: 'voice_unavailable', message: 'Unavailable.', retryable: true,
+  })
+  const events: string[] = []
+  const auditFactory = {
+    recordEvent: async ({ type }: { type: string }) => { events.push(type) },
+  } as unknown as InteractionAuditFactory
+  const frames: ServerFrame[] = []
+  const session = createRealtimeSession({ sendText: (data) => frames.push(JSON.parse(data)), sendBinary: vi.fn() }, { auditFactory })
+
+  await session.handleMessage(JSON.stringify({ t: 'speak', id: 'voice-turn#0', seq: 0, text: 'Hello there.' }))
+
+  expect(events).toEqual(['voice_generation_request', 'voice_generation_failed'])
+  expect(frames).toEqual([expect.objectContaining({ t: 'error', code: 'voice_unavailable' })])
   session.close()
 })

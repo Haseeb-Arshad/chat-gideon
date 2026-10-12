@@ -130,3 +130,24 @@ it('forget asks first, then reports the logical block and cleanup separately', a
   expect(view.getAllByText(/Cleanup of stored copies is in progress/u).length).toBeGreaterThan(0)
   expect(view.getAllByText(/Copies you downloaded earlier are not affected/u).length).toBeGreaterThan(0)
 })
+
+it('opens learning only on request and saves a gap answer through explicit memory controls', async()=>{
+  let saved=false
+  handler=ready((url,init)=>{
+    if(url.includes('view=gaps'))return {body:{ok:true,items:saved?[]:[{question_hash:'a'.repeat(64),question:'Which room do I prefer?',times_asked:2}]}}
+    if(url.includes('view=overlays'))return {body:{ok:true,items:[{overlay_id:'overlay/check',state:'candidate',instructions:['When a supplied preference applies, use it.']}]}}
+    if(init?.method==='POST'){saved=true;return {body:{ok:true,receipt:{receiptState:'accepted'}}}}
+    return {status:404,body:{ok:false,error:{code:'x',message:'unexpected',retryable:false}}}
+  })
+  const view=render(<MemoryInspector />)
+  await view.findByRole('heading',{name:'At a glance'})
+  expect(calls.some(call=>call.url.includes('view=gaps'))).toBe(false)
+  fireEvent.click(view.getByRole('button',{name:'Review learning'}))
+  expect(await view.findByText('Candidate, awaiting checks')).toBeTruthy()
+  fireEvent.click(view.getByRole('button',{name:'Add an answer'}))
+  fireEvent.change(view.getByLabelText('Your answer'),{target:{value:'I prefer quiet rooms.'}})
+  fireEvent.click(view.getByRole('button',{name:'Save to memory'}))
+  expect(await view.findByText('No unanswered memory questions.')).toBeTruthy()
+  expect(calls.find(call=>(call.body as {op?:string})?.op==='resolve_gap')?.body).toMatchObject({questionHash:'a'.repeat(64),text:'I prefer quiet rooms.'})
+  expect(view.getByRole('status').textContent).toBe('Answer saved to memory.')
+})

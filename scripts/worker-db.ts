@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 
 /**
- * Migrations for the Worker's PostgreSQL database (Supabase): accounts and
- * account memory. They run from a trusted machine over a direct connection,
+ * Migrations for the Worker's PostgreSQL database (Supabase): accounts,
+ * interaction audit, and the canonical memory authority. They run from a trusted machine over a direct connection,
  * never through Hyperdrive and never from the Worker itself.
  *
  *   GIDEON_DATABASE_URL=… npm run db:status
@@ -17,6 +17,7 @@ import pg from 'pg'
  */
 
 export const WORKER_MIGRATIONS = resolve(fileURLToPath(new URL('..', import.meta.url)), 'backend/worker/supabase/migrations')
+const MEMORY_MIGRATIONS = resolve(fileURLToPath(new URL('..', import.meta.url)), 'backend/memory/migrations')
 
 const TABLE = 'public.gideon_worker_migrations'
 
@@ -25,14 +26,26 @@ export interface WorkerMigrationStatus { applied: string[]; pending: string[] }
 interface Queryable { query(text: string, values?: unknown[]): Promise<{ rows: Record<string, unknown>[] }> }
 
 function files(directory: string): { name: string; sql: string; checksum: string }[] {
-  return readdirSync(directory)
+  const workerFiles = readdirSync(directory)
     .filter((name) => /^\d{3}_[a-z0-9_]+\.sql$/u.test(name))
-    .sort()
-    .map((name) => {
-      const sql = readFileSync(join(directory, name), 'utf8')
+    .map((name) => ({ name, path: join(directory, name) }))
+  const memoryFiles = directory === WORKER_MIGRATIONS
+    ? readdirSync(MEMORY_MIGRATIONS)
+      .filter((name) => /^\d{3}-[a-z0-9-]+\.sql$/u.test(name))
+      .map((name) => ({ name: `memory_${name.replaceAll('-', '_')}`, path: join(MEMORY_MIGRATIONS, name) }))
+    : []
+  return [...workerFiles, ...memoryFiles]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(({ name, path }) => {
+      const sql = readFileSync(path, 'utf8')
       // Hashed with LF endings, so a Windows checkout of the same file matches.
       return { name, sql, checksum: createHash('sha256').update(sql.replace(/\r\n/gu, '\n')).digest('hex') }
     })
+}
+
+function memoryVersion(name: string): string | null {
+  const match = /^memory_(\d{3})_(.+)\.sql$/u.exec(name)
+  return match ? `${match[1]}-${match[2].replaceAll('_', '-')}.sql` : null
 }
 
 export async function workerMigrationStatus(client: Queryable, directory = WORKER_MIGRATIONS): Promise<WorkerMigrationStatus> {
@@ -52,7 +65,21 @@ export async function applyWorkerMigrations(client: Queryable, directory = WORKE
       const found = await client.query(`SELECT checksum FROM ${TABLE} WHERE name = $1`, [file.name])
       const checksum = found.rows[0]?.checksum
       if (checksum === undefined) {
-        await client.query(file.sql)
+        const version = memoryVersion(file.name)
+        let alreadyApplied = false
+        if (version) {
+          const ledger = await client.query('SELECT to_regclass($1) AS name', ['gideon_memory.schema_migrations'])
+          if (ledger.rows[0]?.name) {
+            const prior = await client.query('SELECT version FROM gideon_memory.schema_migrations WHERE version = $1', [version])
+            alreadyApplied = prior.rows.length > 0
+          }
+        }
+        if (!alreadyApplied) await client.query(file.sql)
+        if (version) {
+          await client.query(`CREATE SCHEMA IF NOT EXISTS gideon_memory`)
+          await client.query(`CREATE TABLE IF NOT EXISTS gideon_memory.schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`)
+          await client.query('INSERT INTO gideon_memory.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING', [version])
+        }
         await client.query(`INSERT INTO ${TABLE} (name, checksum) VALUES ($1, $2)`, [file.name, file.checksum])
       } else if (checksum !== file.checksum) {
         throw new Error(`${file.name} changed after it was applied; add a new migration instead.`)

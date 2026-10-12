@@ -37,6 +37,7 @@ export type MemoryRecallOutcome =
   | { status: 'unavailable'; reason: 'not_configured' | 'unauthorized' | 'timeout' | 'stale' | 'failure' | 'temporary' }
 
 export interface MemoryTurnRuntime extends MemoryToolRuntime {
+  observeTurn?(turn: { turnId: string; question: string; reply: string }): Promise<void>
   captureUserTurn?(
     context: MemoryCaptureTurnContext,
     signal: AbortSignal,

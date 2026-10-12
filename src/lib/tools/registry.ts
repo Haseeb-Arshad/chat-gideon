@@ -38,6 +38,7 @@ import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
 import type { CardPatch } from '../cards/patch'
 import type { CardV2 } from '../cards/schema'
+import type { InteractionAudit } from '../interaction-audit'
 
 export interface ToolSchema {
   name: string
@@ -540,6 +541,7 @@ async function runResearch(
   const deep = args.depth === 'deep'
 
   const deps = defaultDeps(context.env)
+  deps.audit = (type, payload) => context.audit?.record(type, payload)
   const result = await research(question, { signal: context.signal, timezone: context.timezone, ...(deep ? { depth: 'deep' as const } : {}) }, deps)
   if (!result.ok) {
     return {
@@ -675,6 +677,8 @@ export interface ToolContext {
   env: EnvReader
   /** Roughly where the user is, when the host knows. */
   location?: CoarseLocation | null
+  /** Optional persistence for nested research model and web-search evidence. */
+  audit?: InteractionAudit
 }
 
 /** Runs one server-side tool. Client tools never reach this. */

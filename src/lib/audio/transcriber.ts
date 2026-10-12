@@ -41,11 +41,16 @@ export class Transcriber {
    * Resolves `null` when the answer is stale, superseded, or empty — all three
    * mean "nothing to show", and collapsing them here keeps the decision out of
    * the caller.
+   *
+   * @param ordered drops the answer when a newer ordered request has already
+   * been shown. Only captions want that: a finished utterance's transcript is
+   * the words themselves, and a later caption landing first must not discard it.
    */
   async run(
     frames: Float32Array[],
     sampleRate: number,
     signal?: AbortSignal,
+    ordered = true,
   ): Promise<TranscriptResult | null> {
     if (!frames.length) return null
 
@@ -60,6 +65,9 @@ export class Transcriber {
         headers: {
           ...backendHeaders('audio/wav'),
           ...(this.options.language ? { 'X-Gideon-Language': this.options.language } : {}),
+          // A caption is a throwaway read of audio that is still being spoken;
+          // the server has no reason to keep it, only the utterance that follows.
+          ...(ordered ? { 'X-Gideon-Purpose': 'caption' } : {}),
         },
         body: wav,
         signal,
@@ -79,8 +87,10 @@ export class Transcriber {
       const body = (await response.json()) as { text?: string; model?: string }
       // A slower earlier request finishing last must not overwrite a newer
       // transcript that is already on screen.
-      if (seq < this.latestShown) return null
-      this.latestShown = seq
+      if (ordered) {
+        if (seq < this.latestShown) return null
+        this.latestShown = seq
+      }
 
       const text = (body.text ?? '').trim()
       if (!text) return null

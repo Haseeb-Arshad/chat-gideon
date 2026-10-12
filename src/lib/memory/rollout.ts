@@ -39,6 +39,7 @@ export function memoryFeatureFlags(
   // An unset or malformed percentage is zero: deploying code cannot silently
   // opt accounts in. Each capability remains an independent server switch.
   if (memoryRolloutBucket(owner) >= rolloutPercent(env.GIDEON_MEMORY_ROLLOUT_PERCENT)) return DISABLED
+  if (env.GIDEON_MEMORY_CANONICAL_ONLY === '1') return Object.freeze({capture:true,commandWrites:true,recall:true})
   return Object.freeze({
     capture: env.GIDEON_MEMORY_CAPTURE_ENABLED === '1',
     commandWrites: env.GIDEON_MEMORY_COMMAND_WRITES_ENABLED === '1',
