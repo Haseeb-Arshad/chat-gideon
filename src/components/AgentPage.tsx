@@ -4,6 +4,8 @@ import {
   ArrowUp,
   AudioLines,
   Brain,
+  Cloud,
+  CloudOff,
   Library,
   Mic,
   MicOff,
@@ -50,6 +52,19 @@ import { VoiceQueue } from '../lib/voice-queue'
 import { readVoiceChoice } from '../lib/voice-options'
 import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
+import { ThoughtCloud } from './ThoughtCloud'
+import {
+  IDLE_HOLD_MS,
+  THOUGHT_MODES,
+  idleThoughts,
+  nextIdleDelay,
+  pickIdle,
+  readThoughtMode,
+  saveThoughtMode,
+  workThought,
+  type Thought,
+  type ThoughtMode,
+} from '../lib/thoughts'
 import { LatencyHud } from './LatencyHud'
 import { GlassButton, useGlass } from './LiquidGlass'
 import { GLANCE_EVENT, gazeToward, type Glance } from './stage/glance'
@@ -150,6 +165,18 @@ const MAX_STAGE = 12
 const CARD_GAZE = { x: 0.85, y: 0.45 }
 /** How long a glance at something just said lingers before the eyes return to the card. */
 const GLANCE_HOLD_MS = 1_300
+/** How long a guess at an unfinished sentence shows as a thought if nothing settles it sooner. */
+const GUESS_SHOWN_MS = 6_000
+/** What GIDEON remembers is re-read this often, for the thoughts it has when idle. */
+const MEMORY_FRESH_MS = 5 * 60_000
+const THOUGHT_LABELS: Record<ThoughtMode, string> = {
+  on: 'on',
+  private: 'on, without anything remembered about you',
+  off: 'off',
+}
+/** Up and to the right, where the thought cloud forms, and how long the eyes stay on it. */
+const THOUGHT_GAZE = { x: 0.5, y: -0.8 }
+const THOUGHT_GLANCE_MS = 1_500
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
@@ -229,11 +256,13 @@ function LivingPresence({
   emotion,
   levelRef,
   docked,
+  thought,
 }: {
   phase: Phase
   emotion: EyeEmotion
   levelRef: React.RefObject<number>
   docked: boolean
+  thought: Thought | null
 }) {
   const acrossRef = useRef<HTMLDivElement>(null)
   const downRef = useRef<HTMLDivElement>(null)
@@ -362,6 +391,20 @@ function LivingPresence({
     }
   }, [docked])
 
+  // A thought that arrives by itself draws a glance: up to where the cloud is,
+  // and back to whatever the eyes were on. Work in hand does not, since the
+  // face is already looking away to think.
+  const idleKey = thought?.kind === 'idle' ? thought.key : null
+  useEffect(() => {
+    if (!idleKey) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    attentionRef.current = dockedRef.current ? { x: 0.9, y: -0.2 } : THOUGHT_GAZE
+    const back = setTimeout(() => {
+      attentionRef.current = dockedRef.current ? CARD_GAZE : null
+    }, THOUGHT_GLANCE_MS)
+    return () => clearTimeout(back)
+  }, [idleKey])
+
   return (
     <div
       className="robot-presence"
@@ -379,6 +422,7 @@ function LivingPresence({
             levelRef={levelRef}
             attentionRef={attentionRef}
           />
+          <ThoughtCloud thought={thought} />
         </div>
       </div>
     </div>
@@ -1136,6 +1180,109 @@ export function AgentPage() {
 
   /** What GIDEON is busy with while the turn is silent, for the status line. */
   const [working, setWorking] = useState<string | null>(null)
+  /** The tool that is running, which the thought cloud draws as what is on GIDEON's mind. */
+  const [busy, setBusy] = useState<{ name: string; detail: string } | null>(null)
+
+  // -- Thoughts ------------------------------------------------------------
+  // Read after mounting, so the server and the first client render agree.
+  const [thoughtMode, setThoughtMode] = useState<ThoughtMode>('on')
+  useEffect(() => setThoughtMode(readThoughtMode()), [])
+  const cycleThoughtMode = useCallback(() => {
+    setThoughtMode((mode) => {
+      const next = THOUGHT_MODES[(THOUGHT_MODES.indexOf(mode) + 1) % THOUGHT_MODES.length]
+      saveThoughtMode(next)
+      return next
+    })
+  }, [])
+  const [guessing, setGuessing] = useState(false)
+  const guessTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(guessTimerRef.current), [])
+  const [idleThought, setIdleThought] = useState<Thought | null>(null)
+  const lastIdleRef = useRef<string | null>(null)
+  /** Timers still running, kept by the tool runner's own callbacks. */
+  const timersRef = useRef<Timer[]>([])
+  /** What GIDEON has stored about the user, read when it first has an idle moment. */
+  const remembered = useRef<{ texts: string[]; at: number }>({ texts: [], at: 0 })
+
+  /**
+   * A mind that wanders when nothing is happening.
+   *
+   * Only while the room is quiet, and only onto something GIDEON really holds:
+   * a thing it was told, a topic set aside, a card put away, a timer running.
+   * If it holds nothing, no thought comes.
+   */
+  // Resting with the microphone off counts: someone who only types is always there.
+  const quiet = (phase === 'idle' || phase === 'listening' || phase === 'paused') && !busy && !liveTranscript && thoughtMode !== 'off'
+  useEffect(() => {
+    if (!quiet) {
+      setIdleThought(null)
+      return
+    }
+    const controller = new AbortController()
+    let show: ReturnType<typeof setTimeout> | undefined
+    let hide: ReturnType<typeof setTimeout> | undefined
+    let first = true
+
+    const refresh = async () => {
+      if (!memoryControls || Date.now() - remembered.current.at < MEMORY_FRESH_MS) return
+      remembered.current.at = Date.now()
+      try {
+        const response = await fetch('/api/memory?view=items&limit=24', { credentials: 'same-origin', signal: controller.signal })
+        if (!response.ok) return
+        const body = (await response.json()) as { page?: { items?: { text?: unknown; status?: unknown; freshness?: unknown }[] } }
+        remembered.current.texts = (body.page?.items ?? [])
+          .filter((item) => item.status === 'accepted' && item.freshness === 'current' && typeof item.text === 'string')
+          .map((item) => item.text as string)
+      } catch {
+        // No memory to think about this time; the other sources still stand.
+      }
+    }
+
+    const wander = () => {
+      show = setTimeout(async () => {
+        first = false
+        await refresh()
+        if (controller.signal.aborted) return
+        const state = conversationStateRef.current
+        timersRef.current = timersRef.current.filter((timer) => timer.fireAt > Date.now())
+        const next = pickIdle(
+          idleThoughts(
+            {
+              memories: remembered.current.texts,
+              topics: [
+                ...state.suspendedTopics.map((topic) => topic.label),
+                ...state.openQuestions.filter((question) => question.status === 'open').map((question) => question.text),
+              ],
+              cards:
+                stageModeRef.current === 'tucked'
+                  ? stageEntriesRef.current.flatMap((entry) => (entry.card && !entry.leaving ? [entry.card.title] : []))
+                  : [],
+              timers: timersRef.current,
+              now: Date.now(),
+            },
+            thoughtMode,
+          ),
+          lastIdleRef.current,
+        )
+        if (next) {
+          lastIdleRef.current = next.key
+          setIdleThought(next)
+          hide = setTimeout(() => setIdleThought(null), IDLE_HOLD_MS)
+        }
+        wander()
+      }, nextIdleDelay(first))
+    }
+    wander()
+
+    return () => {
+      controller.abort()
+      clearTimeout(show)
+      clearTimeout(hide)
+    }
+  }, [quiet, thoughtMode, memoryControls])
+
+  // What is in hand outranks what drifts in.
+  const thought = workThought({ phase, action: busy, guessing }, thoughtMode) ?? idleThought
 
   /** Puts one of a live turn's actions in front of the user. */
   const showAction = useCallback(
@@ -1160,6 +1307,7 @@ export function AgentPage() {
       })
       recordActionOutcome(turn.id, action)
       setWorking(action.pending ? action.summary : null)
+      setBusy(action.pending ? { name: action.name, detail: action.detail } : null)
       if (!staging) return
       if (action.pending) {
         openSearch(id, action.detail, action.name === 'draw_illustration' ? 'drawing' : action.name === 'show_images' ? 'pictures' : 'web')
@@ -1184,6 +1332,7 @@ export function AgentPage() {
   useEffect(() => {
     const runner = new ClientToolRunner({
       onTimerSet: (timer: Timer) => {
+        timersRef.current = [...timersRef.current, timer]
         const seconds = Math.max(0, Math.round((timer.fireAt - Date.now()) / 1000))
         record(null, {
           title: `Timer for ${describeDuration(seconds)}${timer.label ? ` · ${timer.label}` : ''}`,
@@ -1191,6 +1340,7 @@ export function AgentPage() {
         })
       },
       onTimerFired: (timer: Timer) => {
+        timersRef.current = timersRef.current.filter((pending) => pending.id !== timer.id)
         record(null, {
           title: timer.label ? `Timer finished · ${timer.label}` : 'Timer finished',
           detail: 'Timer',
@@ -1778,6 +1928,7 @@ export function AgentPage() {
             if (turn.cancelled) return
             if (metadata?.responseId) turn.responseId = metadata.responseId
             setWorking(null)
+            setBusy(null)
             turn.complete = finalText || turn.complete
             turn.finished = true
             turn.timeline.mark('reply_done')
@@ -1786,6 +1937,7 @@ export function AgentPage() {
           onError: (message, retryable) => {
             if (turn.cancelled) return
             setWorking(null)
+            setBusy(null)
             turn.finished = true
             turn.failed = true
             // A speculative failure is invisible on purpose. The real turn is
@@ -1876,6 +2028,7 @@ export function AgentPage() {
       liveUserIdRef.current = makeId()
 
       // Resolve any guesses made while this sentence was still being spoken.
+      setGuessing(false)
       const resolved = speculationRef.current.resolve(text)
       for (const run of resolved.discard) abandon(run.handle)
 
@@ -1952,6 +2105,10 @@ export function AgentPage() {
       if (!turn) return
       turn.timeline.speculation = 'hit'
       speculationRef.current.start(text, turn, Date.now())
+      // Already working on an answer while the sentence is still being said.
+      setGuessing(true)
+      clearTimeout(guessTimerRef.current)
+      guessTimerRef.current = setTimeout(() => setGuessing(false), GUESS_SHOWN_MS)
     },
     [beginTurn],
   )
@@ -2596,6 +2753,16 @@ export function AgentPage() {
         <GlassButton
           className="reset-button"
           type="button"
+          onClick={cycleThoughtMode}
+          aria-label={`Thoughts: ${THOUGHT_LABELS[thoughtMode]}. Press to change.`}
+          title={`Thoughts: ${THOUGHT_LABELS[thoughtMode]}`}
+        >
+          {thoughtMode === 'off' ? <CloudOff size={17} /> : <Cloud size={17} />}
+          <span>{thoughtMode === 'private' ? 'Thoughts · private' : 'Thoughts'}</span>
+        </GlassButton>
+        <GlassButton
+          className="reset-button"
+          type="button"
           onClick={() => {
             setHudOpen((open) => !open)
             setResourcesOpen(false)
@@ -2632,7 +2799,7 @@ export function AgentPage() {
         data-stage={stageOpen ? 'open' : undefined}
         aria-label="GIDEON voice presence"
       >
-        <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} docked={stageOpen} />
+        <LivingPresence phase={phase} emotion={emotion} levelRef={levelRef} docked={stageOpen} thought={thought} />
 
         <div className="transcript-frame" ref={frameRef}>
           <div className="transcript-veil" aria-hidden="true" />

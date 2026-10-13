@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { RefObject } from 'react'
 import type { EyeEmotion } from '../lib/mood'
+import { EYE_KEYS, eyeOutline, keepOpen, type EyeShape } from '../lib/eye-shape'
+import { PHASES, targetPose, type EyePhase, type Pose } from '../lib/eye-poses'
 import {
   Spring,
   breath,
@@ -19,6 +21,9 @@ import {
  * the acting and the eyes just rotated inside it. With the housing gone the
  * eyes have to carry the whole performance, so nothing here is a keyframe:
  *
+ *  - each eye is a soft body cut by two lids (`eye-shape.ts`), so a feeling
+ *    changes the silhouette itself: crescents for a smile, a slant for worry
+ *    or resolve, a circle for surprise;
  *  - poses are reached by real second-order springs, so a surprised face
  *    overshoots and settles while a concerned one arrives heavy and late;
  *  - gaze is a saccade generator on the physiological main sequence, layered
@@ -33,29 +38,7 @@ import {
  * The loop writes straight to the DOM. React never re-renders for motion.
  */
 
-export type EyePhase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'paused'
-export type { EyeEmotion }
-
-interface EyeShape {
-  w: number
-  h: number
-  r: number
-  /** Positive lifts the middle of the top edge. */
-  topBow: number
-  /** Positive pushes the middle of the bottom edge up into the eye. */
-  bottomBow: number
-  tilt: number
-  dy: number
-}
-
-interface Pose {
-  left: EyeShape
-  right: EyeShape
-  /** Halo intensity, 0–1. */
-  glow: number
-  /** Extra separation between the eyes. */
-  spread: number
-}
+export type { EyeEmotion, EyePhase }
 
 const VIEW_W = 280
 const VIEW_H = 156
@@ -63,72 +46,6 @@ const CENTER_X = VIEW_W / 2
 const CENTER_Y = VIEW_H / 2
 /** Wide enough that the eyes read as two lights, not one visor. */
 const BASE_GAP = 96
-
-const NEUTRAL: EyeShape = { w: 48, h: 74, r: 21, topBow: 3, bottomBow: 0, tilt: 0, dy: 0 }
-
-function eye(overrides: Partial<EyeShape> = {}): EyeShape {
-  return { ...NEUTRAL, ...overrides }
-}
-
-function pose(left: Partial<EyeShape>, right: Partial<EyeShape>, glow = 0.4, spread = 0): Pose {
-  return { left: eye(left), right: eye(right), glow, spread }
-}
-
-/**
- * Emotion first, then the phase layered on top — a happy GIDEON that is
- * currently listening should still read as happy.
- */
-const EMOTIONS: Record<EyeEmotion, Pose> = {
-  neutral: pose({}, {}, 0.4),
-  curious: pose(
-    { h: 66, dy: -11, tilt: -15, topBow: 6 },
-    { h: 78, dy: 6, tilt: 6, topBow: 1 },
-    0.55,
-    2,
-  ),
-  focused: pose(
-    { h: 53, w: 52, r: 18, topBow: 0 },
-    { h: 53, w: 52, r: 18, topBow: 0 },
-    0.5,
-    -4,
-  ),
-  happy: pose(
-    { h: 43, r: 19, topBow: 9, bottomBow: 14, dy: -5 },
-    { h: 43, r: 19, topBow: 9, bottomBow: 14, dy: -5 },
-    0.82,
-    7,
-  ),
-  concerned: pose(
-    { h: 55, tilt: 18, dy: 6, topBow: 7 },
-    { h: 55, tilt: -18, dy: 6, topBow: 7 },
-    0.3,
-    -2,
-  ),
-  surprised: pose(
-    { h: 90, w: 54, r: 25, topBow: 3 },
-    { h: 90, w: 54, r: 25, topBow: 3 },
-    0.78,
-    6,
-  ),
-}
-
-/**
- * Phase nudges applied on top of the emotion pose.
- *
- * Height is a *scale*, not an offset. As a flat subtraction it worked for the
- * neutral eye and quietly destroyed the short ones: a happy face is only 43
- * units tall, so pausing it took 34 of those away and left a slit.
- */
-const PHASES: Record<
-  EyePhase,
-  Partial<EyeShape> & { hScale?: number; glow?: number; gazeY?: number }
-> = {
-  idle: {},
-  listening: { hScale: 1.09, w: 1, topBow: 3, glow: 0.22 },
-  thinking: { hScale: 0.72, topBow: -3, glow: 0.1, gazeY: -0.55 },
-  speaking: { glow: 0.24 },
-  paused: { hScale: 0.56, topBow: -3, glow: -0.22 },
-}
 
 /**
  * How each feeling *moves*, independent of what it looks like.
@@ -168,52 +85,6 @@ const FOLLOW: Record<EyePhase, number> = {
   paused: 0.4,
 }
 
-function eyePath(shape: EyeShape, blink: number) {
-  const hw = shape.w / 2
-  const hh = Math.max(1.4, (shape.h * blink) / 2)
-  const r = Math.max(0, Math.min(shape.r, hw, hh))
-  const bow = Math.min(blink, 1)
-  const top = shape.topBow * bow
-  const bottom = shape.bottomBow * bow
-  const x0 = -hw
-  const x1 = hw
-  const y0 = -hh
-  const y1 = hh
-
-  return [
-    `M${x0} ${y0 + r}`,
-    `Q${x0} ${y0} ${x0 + r} ${y0}`,
-    `Q0 ${y0 - top * 2} ${x1 - r} ${y0}`,
-    `Q${x1} ${y0} ${x1} ${y0 + r}`,
-    `L${x1} ${y1 - r}`,
-    `Q${x1} ${y1} ${x1 - r} ${y1}`,
-    `Q0 ${y1 - bottom * 2} ${x0 + r} ${y1}`,
-    `Q${x0} ${y1} ${x0} ${y1 - r}`,
-    'Z',
-  ].join(' ')
-}
-
-function targetPose(phase: EyePhase, emotion: EyeEmotion): Pose {
-  const base = EMOTIONS[emotion] ?? EMOTIONS.neutral
-  const shift = PHASES[phase] ?? {}
-  const apply = (shape: EyeShape): EyeShape => ({
-    w: shape.w + (shift.w ?? 0),
-    h: Math.max(8, shape.h * (shift.hScale ?? 1) + (shift.h ?? 0)),
-    r: shape.r,
-    topBow: Math.max(0, shape.topBow + (shift.topBow ?? 0)),
-    bottomBow: shape.bottomBow,
-    tilt: shape.tilt + (shift.tilt ?? 0),
-    dy: shape.dy + (shift.dy ?? 0),
-  })
-
-  return {
-    left: apply(base.left),
-    right: apply(base.right),
-    glow: clamp(base.glow + (shift.glow ?? 0), 0, 1),
-    spread: base.spread,
-  }
-}
-
 // -- Gestures ---------------------------------------------------------------
 
 /**
@@ -234,6 +105,16 @@ interface Gesture {
   open?: number
   /** Extra separation at the peak. */
   spread?: number
+  /** 0 to 1: the lower lids rise and curve into the crescents of a smile. */
+  smile?: number
+  /** 0 to 1: both lids close in, narrowing the eye without blinking. */
+  squint?: number
+  /** Degrees added to the upper lid's slant: positive frowns, negative worries. */
+  slant?: number
+  /** 0 to 1: one eye closes on its own. Which one follows the mirror. */
+  wink?: number
+  /** Added to the body's squareness: negative goes round, positive squares up. */
+  round?: number
   /** Repeats the whole envelope this many times inside the duration. */
   beats?: number
 }
@@ -242,40 +123,54 @@ const GESTURES: Record<EyeEmotion, Gesture[]> = {
   neutral: [
     { duration: 1.5, rise: 0.35, hold: 0.25, gazeX: 0.42, roll: 2 },
     { duration: 1.9, rise: 0.4, hold: 0.3, gazeY: 0.3, lift: 2, open: 0.94 },
+    // A small private smile, there and gone.
+    { duration: 2.2, rise: 0.35, hold: 0.3, smile: 0.4, lift: -1.5 },
   ],
   curious: [
     // The peer: head cocks over and the gaze goes with it.
     { duration: 2.1, rise: 0.3, hold: 0.42, roll: 7.5, gazeX: 0.34, open: 1.05 },
     // The double take: out fast, back fast, twice.
     { duration: 0.9, rise: 0.28, hold: 0.06, gazeX: -0.55, beats: 2, open: 1.06 },
+    // The sceptic: one eye narrows while the other stays wide.
+    { duration: 1.8, rise: 0.3, hold: 0.42, wink: 0.5, roll: 4, gazeX: 0.2 },
   ],
   focused: [
     { duration: 1.7, rise: 0.45, hold: 0.1, gazeX: 0.5, open: 0.9 },
     { duration: 1.1, rise: 0.3, hold: 0.3, open: 0.82, lift: 1.5 },
+    // Bearing down on it: the slant deepens and the lids close in.
+    { duration: 1.5, rise: 0.3, hold: 0.4, slant: 8, squint: 0.55, round: 1 },
   ],
   happy: [
     // Bounce up; the underdamped spring on `lift` does the landing wobble.
     { duration: 1, rise: 0.34, hold: 0.05, lift: -6, spread: 3, beats: 2 },
     { duration: 1.4, rise: 0.3, hold: 0.25, roll: -4, open: 0.9, spread: 4 },
+    // The full smile: the crescents thin and lift.
+    { duration: 1.9, rise: 0.25, hold: 0.45, smile: 1, lift: -3, spread: 3 },
+    // A wink, with the head tipped into it.
+    { duration: 0.95, rise: 0.3, hold: 0.22, wink: 1, roll: 5, smile: 0.4 },
   ],
   concerned: [
     // Aversion: down and away, slowly, and slow to come back.
     { duration: 2.6, rise: 0.42, hold: 0.34, gazeY: 0.52, gazeX: -0.36, lift: 3, open: 0.88 },
+    // The brows draw up further in the middle, and hold.
+    { duration: 2.3, rise: 0.4, hold: 0.36, slant: -9, squint: 0.2, lift: 2 },
   ],
   surprised: [
     { duration: 0.8, rise: 0.16, hold: 0.2, lift: -4, open: 1.12, spread: 4 },
     { duration: 0.7, rise: 0.14, hold: 0.1, gazeX: 0.7, beats: 2 },
+    // Popping fully round for a moment.
+    { duration: 0.9, rise: 0.15, hold: 0.3, round: -0.9, open: 1.1, spread: 3 },
   ],
 }
 
 /** Gestures fired by an event rather than by the idle timer. */
 const REACTIONS: Record<string, Gesture> = {
   // Acknowledgement when the microphone opens: a small nod.
-  listening: { duration: 0.85, rise: 0.3, hold: 0.05, lift: 3.5, gazeY: 0.22, beats: 2 },
+  listening: { duration: 0.85, rise: 0.3, hold: 0.05, lift: 3.5, gazeY: 0.22, beats: 2, round: -0.5 },
   // Turning inward to think: look up and away, and hold it.
-  thinking: { duration: 2.4, rise: 0.3, hold: 0.45, gazeX: -0.6, gazeY: -0.5, roll: 3, open: 0.9 },
+  thinking: { duration: 2.4, rise: 0.3, hold: 0.45, gazeX: -0.6, gazeY: -0.5, roll: 3, open: 0.9, squint: 0.35 },
   // Settling in to talk.
-  speaking: { duration: 0.7, rise: 0.35, hold: 0.1, lift: -2.5, open: 1.05 },
+  speaking: { duration: 0.7, rise: 0.35, hold: 0.1, lift: -2.5, open: 1.05, smile: 0.25 },
   paused: { duration: 1.2, rise: 0.5, hold: 0.2, lift: 3, open: 0.86, gazeY: 0.3 },
   // Something to look at has appeared: a small lift and a widening.
   attend: { duration: 0.9, rise: 0.3, hold: 0.2, lift: -3, open: 1.08, spread: 2 },
@@ -307,11 +202,13 @@ interface EyeNodes {
   glow: SVGPathElement | null
   /** Scanline overlay clipped to the eye, drawn from the same path. */
   scan: SVGPathElement | null
+  /** The same outline once more, so the catchlight never shows outside a lid. */
+  clip: SVGPathElement | null
   spark: SVGEllipseElement | null
 }
 
 function emptyNodes(): EyeNodes {
-  return { group: null, glowGroup: null, core: null, glow: null, scan: null, spark: null }
+  return { group: null, glowGroup: null, core: null, glow: null, scan: null, clip: null, spark: null }
 }
 
 /** One spring per shape parameter, so each can carry its own momentum. */
@@ -319,34 +216,22 @@ class ShapeSprings {
   private readonly springs: Record<keyof EyeShape, Spring>
 
   constructor(shape: EyeShape) {
-    this.springs = {
-      w: new Spring(shape.w, 1.6, 0.95),
-      h: new Spring(shape.h, 1.6, 0.95),
-      r: new Spring(shape.r, 1.6, 1),
-      topBow: new Spring(shape.topBow, 1.6, 0.95),
-      bottomBow: new Spring(shape.bottomBow, 1.6, 0.95),
-      tilt: new Spring(shape.tilt, 1.6, 0.95),
-      dy: new Spring(shape.dy, 1.6, 0.95),
-    }
+    this.springs = Object.fromEntries(
+      EYE_KEYS.map((key) => [key, new Spring(shape[key], 1.6, key === 'n' ? 1 : 0.95)]),
+    ) as Record<keyof EyeShape, Spring>
   }
 
   tune(frequency: number, damping: number) {
-    for (const key of Object.keys(this.springs) as (keyof EyeShape)[]) {
+    for (const key of EYE_KEYS) {
       const spring = this.springs[key]
       spring.frequency = frequency
-      // Radius has no business wobbling; it would ripple the whole silhouette.
-      spring.damping = key === 'r' ? Math.max(1, damping) : damping
+      // Squareness has no business wobbling; it would ripple the whole silhouette.
+      spring.damping = key === 'n' ? Math.max(1, damping) : damping
     }
   }
 
   step(target: EyeShape, dt: number, out: EyeShape) {
-    out.w = this.springs.w.step(target.w, dt)
-    out.h = this.springs.h.step(target.h, dt)
-    out.r = this.springs.r.step(target.r, dt)
-    out.topBow = this.springs.topBow.step(target.topBow, dt)
-    out.bottomBow = this.springs.bottomBow.step(target.bottomBow, dt)
-    out.tilt = this.springs.tilt.step(target.tilt, dt)
-    out.dy = this.springs.dy.step(target.dy, dt)
+    for (const key of EYE_KEYS) out[key] = this.springs[key].step(target[key], dt)
   }
 }
 
@@ -372,6 +257,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
   const haloRef = useRef<SVGEllipseElement>(null)
   const auraRef = useRef<SVGGElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  // Ids are per face, so two on one page never borrow each other's clip or gradient.
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '')
 
   // Live inputs, read by the animation loop without restarting it.
   const input = useRef({ phase, emotion })
@@ -424,6 +311,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
     }
     const roll = new Spring(0, 1.3, 0.75)
     const lift = new Spring(0, 1.7, 0.55)
+    // How fast the gaze is travelling, which is what stretches and leans an eye.
+    const glance = { x: 0, y: 0, vx: 0, vy: 0 }
 
     // Blink timeline. Closing is quicker than opening, which is what makes a
     // blink read as a blink rather than as a wipe.
@@ -484,6 +373,12 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
       let gLift = 0
       let gOpen = 1
       let gSpread = 0
+      let gSmile = 0
+      let gSquint = 0
+      let gSlant = 0
+      let gWink = 0
+      let gRound = 0
+      let winkSide: -1 | 1 = 1
 
       if (!rm) {
         gestureIn -= dt
@@ -513,6 +408,12 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
             gLift = (g.lift ?? 0) * k
             gOpen = 1 + ((g.open ?? 1) - 1) * k
             gSpread = (g.spread ?? 0) * k
+            gSmile = (g.smile ?? 0) * k
+            gSquint = (g.squint ?? 0) * k
+            gSlant = (g.slant ?? 0) * k
+            gWink = (g.wink ?? 0) * k
+            gRound = (g.round ?? 0) * k
+            winkSide = mirror
           }
         }
       }
@@ -579,6 +480,18 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
       const thinkBias = p === 'thinking' ? (PHASES.thinking.gazeY ?? 0) : 0
       const gazeX = clamp(fx + saccade.x + drift.x + tremorX + gGazeX, -1.5, 1.5)
       const gazeY = clamp(fy + saccade.y + drift.y + tremorY + gGazeY + thinkBias, -1.3, 1.3)
+
+      // A glance has speed, and an eye that is moving fast smears along its
+      // path the way a drawn one does: longer in the direction of travel,
+      // leaning into it, and back to itself the moment it lands.
+      const settle = Math.min(1, dt * 16)
+      glance.vx += ((rm ? 0 : (gazeX - glance.x) / dt) - glance.vx) * settle
+      glance.vy += ((rm ? 0 : (gazeY - glance.y) / dt) - glance.vy) * settle
+      glance.x = gazeX
+      glance.y = gazeY
+      const smearX = clamp(Math.abs(glance.vx) * 0.03, 0, 0.2)
+      const smearY = clamp(Math.abs(glance.vy) * 0.03, 0, 0.16)
+      const lean = clamp(glance.vx * 0.022, -0.26, 0.26)
 
       // -- Blink -------------------------------------------------------------
       if (rm) {
@@ -650,15 +563,30 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         const far = sign * yaw < 0
         const squeeze = 1 - Math.abs(yaw) * (far ? 0.17 : 0.04)
         const speech = 1 + amplitude * 0.17
-        const shaped: EyeShape = {
+        // Lids travel with the gaze, as real ones do: down with a look down,
+        // and the lower one up a little with a look up.
+        const lookDown = Math.max(0, gazeY)
+        const lookUp = Math.max(0, -gazeY)
+        const shaped: EyeShape = keepOpen({
           ...shape,
-          h: Math.max(6, shape.h * speech * gOpen),
-          w: Math.max(6, shape.w * squeeze * (1 - amplitude * 0.03)),
-        }
-        const d = eyePath(shaped, blink)
+          h: Math.max(6, shape.h * speech * gOpen * (1 + smearY - smearX * 0.5)),
+          w: Math.max(6, shape.w * squeeze * (1 - amplitude * 0.03) * (1 + smearX - smearY * 0.5)),
+          n: clamp(shape.n + gRound, 2, 9),
+          upperLid: clamp(shape.upperLid + gSquint * 0.2 + lookDown * 0.14, 0, 0.85),
+          upperAngle: shape.upperAngle + gSlant,
+          lowerLid: clamp(shape.lowerLid + gSquint * 0.16 + gSmile * 0.24 + lookUp * 0.09, 0, 0.8),
+          // Talking lifts the lower lids a touch on each syllable.
+          lowerBend: clamp(shape.lowerBend + gSmile * 0.8 + amplitude * 0.16, -1, 1),
+        })
+        const lid = sign === winkSide ? blink * (1 - gWink * 0.95) : blink
+        // The near side of a turned head is the taller one.
+        const outline = eyeOutline(shaped, sign, lid, { lean, turn: yaw * 0.22 })
+        const d = outline.d
+        const open = outline.bottom - outline.top
         nodes.core.setAttribute('d', d)
         nodes.glow?.setAttribute('d', d)
         nodes.scan?.setAttribute('d', d)
+        nodes.clip?.setAttribute('d', d)
 
         // Position on the turning head, then rolled about the midpoint.
         const bx = sign * halfGap * cosYaw - sign * verge
@@ -674,10 +602,10 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         if (nodes.spark) {
           // The catchlight sits opposite the gaze, the way a real one would.
           nodes.spark.setAttribute('cx', (gazeX * 4 - shaped.w * 0.17).toFixed(2))
-          nodes.spark.setAttribute('cy', (gazeY * 3 - (shaped.h * blink) / 2 + 10).toFixed(2))
+          nodes.spark.setAttribute('cy', (gazeY * 3 + outline.top + Math.max(2, open * 0.15)).toFixed(2))
           nodes.spark.setAttribute('rx', (shaped.w * 0.2).toFixed(2))
-          nodes.spark.setAttribute('ry', Math.max(0.6, shaped.h * blink * 0.09).toFixed(2))
-          nodes.spark.setAttribute('opacity', (0.52 * blink).toFixed(3))
+          nodes.spark.setAttribute('ry', Math.max(0.6, open * 0.09).toFixed(2))
+          nodes.spark.setAttribute('opacity', (0.52 * clamp(open / 24, 0, 1)).toFixed(3))
         }
       }
 
@@ -729,8 +657,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         CENTER_Y + shape.dy
       ).toFixed(2)}) rotate(${shape.tilt.toFixed(2)})`
     seed.current = {
-      left: eyePath(resting.left, 1),
-      right: eyePath(resting.right, 1),
+      left: eyeOutline(resting.left, -1).d,
+      right: eyeOutline(resting.right, 1).d,
       leftTransform: transform(resting.left, -1),
       rightTransform: transform(resting.right, 1),
       aura: Number((0.3 + resting.glow * 0.7).toFixed(3)),
@@ -755,21 +683,28 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         aria-label={`GIDEON is ${phase}`}
       >
         <defs>
-          <linearGradient id="eye-core" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`eye-core-${uid}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#ffffff" />
             <stop offset="46%" stopColor="#edf5ff" />
             <stop offset="100%" stopColor="#cbd8e8" />
           </linearGradient>
-          <radialGradient id="eye-halo" cx="50%" cy="50%" r="50%">
+          <radialGradient id={`eye-halo-${uid}`} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#bfe9ff" stopOpacity="0.34" />
             <stop offset="62%" stopColor="#bfe9ff" stopOpacity="0.1" />
             <stop offset="100%" stopColor="#bfe9ff" stopOpacity="0" />
           </radialGradient>
 
           {/* Fine horizontal scanlines read the lights as an emissive panel. */}
-          <pattern id="eye-scan" width="3" height="3" patternUnits="userSpaceOnUse">
+          <pattern id={`eye-scan-${uid}`} width="3" height="3" patternUnits="userSpaceOnUse">
             <rect width="3" height="1" fill="#0b1017" fillOpacity="0.4" />
           </pattern>
+
+          <clipPath id={`eye-clip-left-${uid}`}>
+            <path ref={bindLeft('clip')} d={rest.left} />
+          </clipPath>
+          <clipPath id={`eye-clip-right-${uid}`}>
+            <path ref={bindRight('clip')} d={rest.right} />
+          </clipPath>
         </defs>
 
         <ellipse
@@ -779,7 +714,7 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
           cy={CENTER_Y}
           rx={108}
           ry={68}
-          fill="url(#eye-halo)"
+          fill={`url(#eye-halo-${uid})`}
         />
 
         <g ref={auraRef} className="eye-aura" opacity={rest.aura}>
@@ -793,24 +728,24 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
 
         <g>
           <g ref={bindLeft('group')} transform={rest.leftTransform}>
-            <path ref={bindLeft('core')} className="eye-core" fill="url(#eye-core)" d={rest.left} />
-            <path ref={bindLeft('scan')} className="eye-scan" fill="url(#eye-scan)" d={rest.left} />
-            <ellipse ref={bindLeft('spark')} className="eye-spark" />
+            <path ref={bindLeft('core')} className="eye-core" fill={`url(#eye-core-${uid})`} d={rest.left} />
+            <path ref={bindLeft('scan')} className="eye-scan" fill={`url(#eye-scan-${uid})`} d={rest.left} />
+            <ellipse ref={bindLeft('spark')} className="eye-spark" clipPath={`url(#eye-clip-left-${uid})`} />
           </g>
           <g ref={bindRight('group')} transform={rest.rightTransform}>
             <path
               ref={bindRight('core')}
               className="eye-core"
-              fill="url(#eye-core)"
+              fill={`url(#eye-core-${uid})`}
               d={rest.right}
             />
             <path
               ref={bindRight('scan')}
               className="eye-scan"
-              fill="url(#eye-scan)"
+              fill={`url(#eye-scan-${uid})`}
               d={rest.right}
             />
-            <ellipse ref={bindRight('spark')} className="eye-spark" />
+            <ellipse ref={bindRight('spark')} className="eye-spark" clipPath={`url(#eye-clip-right-${uid})`} />
           </g>
         </g>
       </svg>

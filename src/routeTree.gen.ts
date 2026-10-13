@@ -23,6 +23,7 @@ import { Route as ApiMemoryRouteImport } from './routes/api.memory'
 import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
 import { Route as ApiVoiceRouteImport } from './routes/api.voice'
 import { Route as LabCardsRouteImport } from './routes/lab.cards'
+import { Route as LabEyesRouteImport } from './routes/lab.eyes'
 import { Route as LabIllustrationsRouteImport } from './routes/lab.illustrations'
 
 const IndexRoute = IndexRouteImport.update({
@@ -95,6 +96,11 @@ const LabCardsRoute = LabCardsRouteImport.update({
   path: '/lab/cards',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LabEyesRoute = LabEyesRouteImport.update({
+  id: '/lab/eyes',
+  path: '/lab/eyes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LabIllustrationsRoute = LabIllustrationsRouteImport.update({
   id: '/lab/illustrations',
   path: '/lab/illustrations',
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/eyes': typeof LabEyesRoute
   '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRoutesByTo {
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/eyes': typeof LabEyesRoute
   '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRoutesById {
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/eyes': typeof LabEyesRoute
   '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRouteTypes {
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/eyes'
     | '/lab/illustrations'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/eyes'
     | '/lab/illustrations'
   id:
     | '__root__'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/eyes'
     | '/lab/illustrations'
   fileRoutesById: FileRoutesById
 }
@@ -222,6 +234,7 @@ export interface RootRouteChildren {
   ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiVoiceRoute: typeof ApiVoiceRoute
   LabCardsRoute: typeof LabCardsRoute
+  LabEyesRoute: typeof LabEyesRoute
   LabIllustrationsRoute: typeof LabIllustrationsRoute
 }
 
@@ -325,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LabCardsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lab/eyes': {
+      id: '/lab/eyes'
+      path: '/lab/eyes'
+      fullPath: '/lab/eyes'
+      preLoaderRoute: typeof LabEyesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lab/illustrations': {
       id: '/lab/illustrations'
       path: '/lab/illustrations'
@@ -350,6 +370,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTranscribeRoute: ApiTranscribeRoute,
   ApiVoiceRoute: ApiVoiceRoute,
   LabCardsRoute: LabCardsRoute,
+  LabEyesRoute: LabEyesRoute,
   LabIllustrationsRoute: LabIllustrationsRoute,
 }
 export const routeTree = rootRouteImport
