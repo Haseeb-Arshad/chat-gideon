@@ -844,6 +844,184 @@ button:active:not(:disabled) {
   filter: blur(6px);
   opacity: 0.45;
 }
+
+/* -- The thought cloud ---------------------------------------------------- */
+
+/*
+ * Sits above and outside the right eye, with three puffs leading up to it from
+ * the face. Nothing here is clickable: it is something GIDEON has, not a
+ * control.
+ */
+.thought-cloud {
+  position: absolute;
+  z-index: 3;
+  left: 68%;
+  bottom: 84%;
+  pointer-events: none;
+  transition:
+    opacity 420ms ease,
+    transform 420ms cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+.thought-cloud[data-open='false'] {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.thought-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(280px, 58vw);
+  padding: 9px 14px;
+  border: 1px solid rgba(191, 233, 255, 0.24);
+  /* The corner nearest the face is the tight one, like the tail of a bubble. */
+  border-radius: 18px 18px 18px 7px;
+  background: rgba(12, 14, 18, 0.74);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 26px rgba(92, 128, 184, 0.2);
+  color: var(--ice);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  white-space: nowrap;
+  transform-origin: 0 100%;
+  animation: thought-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both;
+}
+
+/* A thought that arrived by itself is quieter than one about work in hand. */
+.thought-cloud[data-kind='idle'] .thought-body {
+  border-color: rgba(191, 233, 255, 0.16);
+  color: rgba(214, 228, 244, 0.86);
+}
+
+.thought-body svg {
+  flex: none;
+  opacity: 0.85;
+}
+
+.thought-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thought-puff {
+  position: absolute;
+  border: 1px solid rgba(191, 233, 255, 0.26);
+  border-radius: 50%;
+  background: rgba(12, 14, 18, 0.74);
+  animation: thought-puff 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.thought-puff:nth-child(1) {
+  left: -36px;
+  bottom: -32px;
+  width: 6px;
+  height: 6px;
+}
+
+.thought-puff:nth-child(2) {
+  left: -26px;
+  bottom: -21px;
+  width: 9px;
+  height: 9px;
+  animation-delay: 80ms;
+}
+
+.thought-puff:nth-child(3) {
+  left: -13px;
+  bottom: -9px;
+  width: 12px;
+  height: 12px;
+  animation-delay: 160ms;
+}
+
+.thought-dots {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px 1px;
+}
+
+.thought-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: thought-dot 1.25s ease-in-out infinite;
+}
+
+.thought-dots i:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.thought-dots i:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+/* Docked in the corner there is no room above the face, so it goes beside it. */
+.agent-presence[data-stage='open'] .thought-cloud {
+  left: 100%;
+  bottom: auto;
+  top: 18%;
+}
+
+.agent-presence[data-stage='open'] .thought-puff:nth-child(1) {
+  left: -27px;
+  bottom: 2px;
+}
+
+.agent-presence[data-stage='open'] .thought-puff:nth-child(2) {
+  left: -19px;
+  bottom: 5px;
+}
+
+.agent-presence[data-stage='open'] .thought-puff:nth-child(3) {
+  left: -8px;
+  bottom: 8px;
+}
+
+@keyframes thought-in {
+  from {
+    opacity: 0;
+    transform: scale(0.72) translateY(6px);
+  }
+}
+
+@keyframes thought-puff {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+}
+
+@keyframes thought-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thought-cloud,
+  .thought-body,
+  .thought-puff,
+  .thought-dots i {
+    animation: none;
+    transition: none;
+  }
+
+  .thought-dots i {
+    opacity: 0.8;
+  }
+}
 /* -- The transcript ------------------------------------------------------- */
 
 /*
