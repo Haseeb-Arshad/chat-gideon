@@ -46,11 +46,14 @@ function flagsFor(env: Env, owner: string) {
 function createStore(connectionString: string): { store: PostgresMemoryStore; close(): Promise<void> } {
   const pool = new Pool({
     connectionString,
-    // Four recall branches and capture run concurrently. A smaller pool queues
-    // those bounded reads behind each other even though retrieval uses Promise.all.
-    max: 5,
+    // Five recall branches, the mode and authority reads beside them, and
+    // capture all run at once. A smaller pool queues those bounded reads behind
+    // each other even though retrieval uses Promise.all.
+    max: 8,
     connectionTimeoutMillis: 3_000,
-    idleTimeoutMillis: 10_000,
+    // Long enough to span the pause between two things said, so the second
+    // turn finds the first one's connections still open.
+    idleTimeoutMillis: 30_000,
     allowExitOnIdle: true,
     application_name: 'chat-gideon-worker-memory',
   })
@@ -144,8 +147,11 @@ function guardedRuntime(runtime: MemoryTurnRuntime, store: PostgresMemoryStore, 
       }
     },
     async retrieve(query, context, signal) {
-      if (!(await active())) return { status: 'unavailable', reason: 'stale' }
-      return runtime.retrieve(query, context, signal)
+      // Checked beside the lookup rather than in front of it: a lookup made
+      // while the owner was being moved is thrown away unread, and every other
+      // turn no longer pays a round trip before its lookup starts.
+      const [isActive, result] = await Promise.all([active(), runtime.retrieve(query, context, signal)])
+      return isActive ? result : { status: 'unavailable', reason: 'stale' }
     },
     async execute(name, args, context) {
       if (name === 'recall') return (await active()) ? runtime.execute(name, args, context) : PAUSED
@@ -219,5 +225,125 @@ export async function resolveWorkerMemoryForTurn(input: {
     return { memoryStore: fencedSession.store, memorySession: fencedSession, close }
   } catch {
     return { memoryStore: fencedSession.store, memorySession: fencedSession, memoryRuntime: pausedRuntime(flags), close }
+  }
+}
+
+/** How long a connection trusts that its owner is still on the canonical authority before looking again. */
+const AUTHORITY_FRESH_MS = 30_000
+/** A lookup reads on about this many connections at once; warming opens them before it needs them. */
+const WARM_CONNECTIONS = 6
+const WARM_EVERY_MS = 5_000
+
+export interface ConnectionMemory {
+  /** The memory for one turn. `close` hands it back; the connection decides when it is really closed. */
+  resolve(): Promise<WorkerMemoryContext>
+  /** Starts resolving before the first turn asks, so that turn does not wait for it. */
+  warm(): void
+  close(): Promise<void>
+}
+
+/**
+ * One connection's memory, resolved once and kept for the turns that follow.
+ *
+ * Every turn used to open a pool, ask which authority the owner was on, run,
+ * and close the pool again: several connections and a round trip of setup in
+ * front of each reply, to learn what the turn before had just learned. An
+ * owner on the canonical authority keeps its runtime and its connections for
+ * the life of the socket instead. The runtime still checks the authority beside
+ * every read and under the writer lock for every write, so a cutover that
+ * happens mid-connection is noticed by the turn it affects; this only saves
+ * asking in advance. Any other state is resolved afresh each turn, as before.
+ */
+export function createConnectionMemory(input: Parameters<typeof resolveWorkerMemoryForTurn>[0]): ConnectionMemory {
+  interface Held { context: WorkerMemoryContext; users: number; retired: boolean; checkedAt: number }
+  let held: Held | null = null
+  let pending: Promise<WorkerMemoryContext> | null = null
+  let closed = false
+  let warmedAt = 0
+
+  const release = async (entry: Held) => {
+    entry.users -= 1
+    if (entry.retired && entry.users <= 0) await entry.context.close().catch(() => undefined)
+  }
+  const retire = (entry: Held) => {
+    entry.retired = true
+    if (held === entry) held = null
+    if (entry.users <= 0) void entry.context.close().catch(() => undefined)
+  }
+  const lend = (entry: Held): WorkerMemoryContext => {
+    entry.users += 1
+    let returned = false
+    const runtime = entry.context.memoryRuntime
+    return {
+      ...entry.context,
+      // A lookup refused as stale means the owner has left the canonical
+      // authority, so the next turn asks afresh which one it is on. A lookup
+      // that merely failed or ran out of time keeps its connections: the pool
+      // already discards a broken one, and reopening them all in front of the
+      // next reply would make a slow database slower.
+      ...(runtime ? {
+        memoryRuntime: {
+          ...runtime,
+          async retrieve(query, context, signal) {
+            const result = await runtime.retrieve(query, context, signal)
+            if (result.status === 'unavailable' && result.reason === 'stale' && !signal.aborted) retire(entry)
+            return result
+          },
+        },
+      } : {}),
+      async close() {
+        if (returned) return
+        returned = true
+        await release(entry)
+      },
+    }
+  }
+  const recheck = (entry: Held) => {
+    entry.checkedAt = Date.now()
+    const session = entry.context.controlSession
+    if (!session) return
+    void readAuthority(session.store, session.scope.id).then(
+      ({ state }) => { if (state !== 'active') retire(entry) },
+      () => retire(entry),
+    )
+  }
+
+  const resolve = async (): Promise<WorkerMemoryContext> => {
+    if (held && !held.retired) {
+      if (Date.now() - held.checkedAt > AUTHORITY_FRESH_MS) recheck(held)
+      return lend(held)
+    }
+    pending ??= resolveWorkerMemoryForTurn(input).finally(() => { pending = null })
+    const context = await pending
+    // Only the canonical authority's runtime is worth keeping; `controlSession`
+    // is what marks it. Anything else belongs to this turn alone.
+    if (!context.controlSession) return context
+    if (closed) return context
+    if (!held || held.retired) held = { context, users: 0, retired: false, checkedAt: Date.now() }
+    // Two turns that resolved together share the first one's context.
+    else if (held.context !== context) void context.close().catch(() => undefined)
+    return lend(held)
+  }
+
+  return {
+    resolve,
+    warm() {
+      // Called when the socket opens and again whenever speech arrives, which
+      // is a moment before the turn that will want these connections.
+      if (closed || Date.now() - warmedAt < WARM_EVERY_MS) return
+      warmedAt = Date.now()
+      void resolve().then(async (context) => {
+        try {
+          const pool = context.controlSession?.store.pool
+          if (pool) await Promise.all(Array.from({ length: WARM_CONNECTIONS }, () => pool.query('SELECT 1').catch(() => undefined)))
+        } finally {
+          await context.close()
+        }
+      }, () => undefined)
+    },
+    async close() {
+      closed = true
+      if (held) retire(held)
+    },
   }
 }

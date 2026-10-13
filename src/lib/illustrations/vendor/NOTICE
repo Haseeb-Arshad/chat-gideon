@@ -1,0 +1,9 @@
+Anatomy isometric geometry kit
+Source: https://github.com/wheresryan22/anatomy/blob/main/kit/iso-kit.mjs
+Retrieved: 2026-10-12
+Copyright (c) 2026 Ryan. MIT licence reproduced in LICENSE.
+
+iso-kit.txt is the unmodified source. document.ts removes module export keywords,
+isolates the kit in an IIFE, exposes a small browser API, accepts either a single
+solid or a list in solidSvg, and gives non-dark palettes the light base theme.
+No package install, build-time downloads or external runtime requests are needed.

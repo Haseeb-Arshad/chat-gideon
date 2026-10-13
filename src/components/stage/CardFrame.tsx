@@ -64,6 +64,7 @@ export function CardFrame({ entry, slot, sideIndex, spoken, behind, quiet, onFoc
   // Only the card in front is worth refracting: the ones beside it are small,
   // and each map costs a pane-sized image to build.
   const glass = useGlass({ enabled: front, blur: 14, saturate: 180 })
+  const illustration = card?.recipe === 'illustration'
 
   // What has lit up so far in this reply, so the face glances only at what is new.
   const pane = useRef<HTMLDivElement | null>(null)
@@ -127,13 +128,14 @@ export function CardFrame({ entry, slot, sideIndex, spoken, behind, quiet, onFoc
             glass.ref(node)
             pane.current = node
           }}
-          style={glass.style}
+          style={illustration ? { backdropFilter: 'none', WebkitBackdropFilter: 'none' } : glass.style}
           data-state={card ? 'ready' : 'searching'}
           data-recipe={card?.recipe}
           data-size={card?.size}
           data-media={media ? mediaShape : undefined}
           data-refracting={glass.refracting ? 'true' : undefined}
         >
+          {illustration ? <div className="illustration-glass" aria-hidden="true" style={glass.style} /> : null}
           {slot !== 'front' ? (
             <CardBoundary resetKey={card}>
               <CompactFace entry={entry} />

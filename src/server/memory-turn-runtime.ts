@@ -6,7 +6,7 @@ import { readMemoryMode } from '../../backend/memory/src/controls.ts'
 import type { PostgresMemoryStore } from '../../backend/memory/src/postgres.ts'
 import { retrieveMemory } from '../../backend/memory/src/retrieval.ts'
 import type { RetrieveMemoryOptions } from '../../backend/memory/src/retrieval.ts'
-import { attachVerifiedOverlays, recordMemoryTurn } from '../../backend/memory/src/turn-traces.ts'
+import { applyVerifiedOverlays, readVerifiedOverlays, recordMemoryTurn } from '../../backend/memory/src/turn-traces.ts'
 import type { ContextPack } from '../lib/memory/retrieval.ts'
 import type { ConversationState } from '../lib/conversation-state'
 import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
@@ -115,7 +115,18 @@ function assertionKind(value: unknown): 'fact' | 'preference' | 'constraint' | '
  * was shown no memory at all. The largest tier leaves about 2,900 bytes, which
  * is roughly 700 real tokens of English; a deep lookup drops the reserves.
  */
-export function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep') {
+/**
+ * The lookup in front of every reply is given a second: it is silence the
+ * user sits through, and a lookup that has not answered by then is better
+ * skipped than waited for. One the model asked for by calling recall is the
+ * answer itself, so it is given long enough for the semantic branch to finish.
+ */
+const AUTOMATIC_RECALL_DEADLINE_MS = 1_000
+const REQUESTED_RECALL_DEADLINE_MS = 4_000
+/** One read of the temporary-conversation setting serves the capture and the lookup of the same turn. */
+const MODE_FRESH_MS = 2_000
+
+export function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep', deadlineMs = 1_500) {
   return {
     query,
     // Topic, recent committed turns and local instructions come from the
@@ -128,29 +139,49 @@ export function createRecallInput(query: string, timezone: string, conversationS
     budget: depth
       ? { tier: 'maximum', reserveAnswerTokens: 0, reserveToolTokens: 0 }
       : { tier: 'maximum', reserveAnswerTokens: 128, reserveToolTokens: 64 },
-    deadlineAt: new Date(Date.now() + 1_500).toISOString(),
+    deadlineAt: new Date(Date.now() + deadlineMs).toISOString(),
   }
 }
 
 /** The per-request memory runtime for an already bound session (exported for tests). */
 export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags: ReturnType<typeof memoryFeatureFlags>, retrievalOptions: RetrieveMemoryOptions = {}): MemoryTurnRuntime {
   const turnPacks = new Map<string, ContextPack>()
-  // The owner's temporary-conversation setting, read once per request. An
-  // unreadable setting is not treated as "temporary off": capture and recall
-  // then fail the same way the authority itself would.
-  let modeRead: Promise<Awaited<ReturnType<typeof readMemoryMode>>> | null = null
+  // The owner's temporary-conversation setting, read once per turn: a runtime
+  // can outlive the turn it was made for, and a setting changed since must be
+  // seen by the next one. An unreadable setting is not treated as "temporary
+  // off": capture and recall then fail the same way the authority itself would.
+  let modeRead: { at: number; value: Promise<Awaited<ReturnType<typeof readMemoryMode>>> } | null = null
   const temporary = async () => {
-    modeRead ??= readMemoryMode(session)
-    return (await modeRead)?.temporary === true
+    if (!modeRead || Date.now() - modeRead.at > MODE_FRESH_MS) modeRead = { at: Date.now(), value: readMemoryMode(session) }
+    return (await modeRead.value)?.temporary === true
   }
-  const retrieve = async (query: string, context: MemoryRecallTurnContext, signal: AbortSignal) => {
+  const retrieve = async (query: string, context: MemoryRecallTurnContext, signal: AbortSignal, requested = false) => {
     if (!flags.recall || session.trust !== 'authenticated') return { status: 'unavailable' as const, reason: 'unauthorized' as const }
-    if (await temporary()) return { status: 'unavailable' as const, reason: 'temporary' as const }
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
     if (context.principalId !== session.principal.id || context.scopeId !== session.scope.id || context.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
-    const result = await retrieveMemory(session, createRecallInput(query, context.timezone, context.conversationState, context.latestUserText, context.depth), { ...retrievalOptions, signal })
+    // The setting is read beside the lookup rather than in front of it, and a
+    // lookup made in a temporary conversation is thrown away unread. The one
+    // thing that leaves the database, the query's embedding, still waits for it.
+    const off = temporary()
+    const authorize = retrievalOptions.authorizeRemoteEmbedding
+    // Read beside the lookup too: which overlays apply depends on the pack, reading them does not.
+    const overlays = retrievalOptions.recordTraces ? readVerifiedOverlays(session).catch(() => null) : null
+    const [isTemporary, result] = await Promise.all([
+      off,
+      retrieveMemory(
+        session,
+        createRecallInput(query, context.timezone, context.conversationState, context.latestUserText, context.depth, requested ? REQUESTED_RECALL_DEADLINE_MS : AUTOMATIC_RECALL_DEADLINE_MS),
+        {
+          ...retrievalOptions,
+          signal,
+          ...(requested ? { semanticGraceMs: undefined } : {}),
+          ...(authorize ? { authorizeRemoteEmbedding: async (...args: Parameters<typeof authorize>) => !(await off) && authorize(...args) } : {}),
+        },
+      ),
+    ])
+    if (isTemporary) return { status: 'unavailable' as const, reason: 'temporary' as const }
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
     if (!result.ok) {
       return { status: 'unavailable' as const, reason: result.failure.code === 'unauthorized' ? 'unauthorized' as const : 'failure' as const }
@@ -163,7 +194,8 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
       || result.pack.authenticatedContext.policyEpoch !== session.policyEpoch) {
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
-    const pack = retrievalOptions.recordTraces ? await attachVerifiedOverlays(session, result.pack).catch(() => result.pack) : result.pack
+    const reviewed = await overlays
+    const pack = reviewed ? applyVerifiedOverlays(result.pack, reviewed) : result.pack
     if (!context.speculative) {
       if (turnPacks.size >= 4) turnPacks.delete(turnPacks.keys().next().value!)
       turnPacks.set(context.turnId, pack)
@@ -233,7 +265,7 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
           if (!query) return { ok: false, content: 'Nothing was given to look up in memory.', summary: 'Memory lookup was not run' }
           const command = parsePublicMemoryCommand({ schemaVersion: MEMORY_CONTRACT_VERSION, commandId: id, kind: 'recall', query, limit: args.depth === 'deep' ? 12 : 5 })
           if (!command.ok) return { ok: false, content: 'That memory question could not be read safely.', summary: 'Memory lookup was not run' }
-          const recalled = await retrieve(query, { ...context, depth: args.depth === 'deep' ? 'deep' : undefined }, context.signal)
+          const recalled = await retrieve(query, { ...context, depth: args.depth === 'deep' ? 'deep' : undefined }, context.signal, true)
           if (context.signal.aborted) return { ok: false, content: 'The memory lookup was interrupted.', summary: 'Memory lookup interrupted' }
           if (recalled.status !== 'ready') return unavailableOutcome()
           if (!recalled.pack.text.trim()) return { ok: true, content: 'The bounded search did not find a relevant memory; that does not prove the detail was never shared.', summary: 'Memory search complete' }

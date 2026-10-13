@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FRAME_MS, MicCapture, type CaptureOptions, type Utterance } from './capture'
 
 /**
@@ -287,6 +287,31 @@ describe('MicCapture with Silero', () => {
     ;(h.capture as unknown as { silero: unknown }).silero = fake
     return fake
   }
+
+  it('neither confirms nor exposes loud noise for early transcription', () => {
+    const confirmed = vi.fn()
+    const h = harness({ onSpeechConfirmed: confirmed })
+    withSilero(h, 0.1)
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 40)
+    expect(h.capture.snapshot()).toBeNull()
+    expect(confirmed).not.toHaveBeenCalled()
+    feed(h, ROOM, 40)
+    expect(h.utterances).toHaveLength(0)
+  })
+
+  it('confirms actual speech once per utterance and permits its snapshot', () => {
+    const confirmed = vi.fn()
+    const h = harness({ onSpeechConfirmed: confirmed })
+    withSilero(h, 0.97, 320)
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 40)
+    expect(confirmed).toHaveBeenCalledTimes(1)
+    expect(h.capture.snapshot()).not.toBeNull()
+    feed(h, ROOM, 40)
+    feed(h, VOICE, 40)
+    expect(confirmed).toHaveBeenCalledTimes(2)
+  })
 
   it('does not let loud noise interrupt GIDEON when Silero hears no speech', () => {
     const h = harness({ duckDb: 0 })

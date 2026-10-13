@@ -87,7 +87,9 @@ export class SegmentAccumulator {
           piece = (await eager.then((result) => result?.text?.trim() ?? '').catch(() => '')) ?? ''
           if (!current()) return
         }
-        if (!piece) piece = (await this.transcribe(segment, token))?.text?.trim() ?? ''
+        // An eager request already owns this segment, including its provider
+        // failover. Retrying an empty/failed result duplicates billed audio.
+        if (!eager) piece = (await this.transcribe(segment, token))?.text?.trim() ?? ''
         if (!current()) return
         if (piece) this.text = [this.text, piece].filter(Boolean).join(' ')
         // Speech that resumed after this segment was pushed is the same

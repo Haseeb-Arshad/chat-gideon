@@ -21,6 +21,8 @@ function joined(parts: string[], separator = '; '): string {
 
 function blockDigest(block: Block): string {
   switch (block.type) {
+    case 'illustration':
+      return `Interactive drawing: ${block.title}. ${block.summary} Current control values are not available.`
     case 'headline':
       return block.subtitle ?? ''
     case 'stat':

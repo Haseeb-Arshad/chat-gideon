@@ -87,6 +87,13 @@ export const ROUTING_CORPUS: RoutingCase[] = [
   plain('how many people live in Tokyo', 'research'),
   plain('can you check whether the M25 is closed today', 'research'),
 
+  // -- original drawings ------------------------------------------------------------
+  plain('draw an isometric water pump with a working handle', 'draw_illustration'),
+  plain('make an interactive diagram showing how a hash table handles collisions', 'draw_illustration'),
+  boundary('sketch a purple dragon in watercolour', 'draw_illustration', 'original drawing, not existing photographs'),
+  boundary('illustrate the lifecycle of a butterfly as an interactive model', 'draw_illustration', 'explicit illustration rather than an ordinary factual answer'),
+  boundary('explain how a hash table works', null, 'ordinary explanation, no drawing requested'),
+
   // -- show_images ------------------------------------------------------------------
   plain('show me pictures of red pandas', 'show_images'),
   plain('what does a pangolin look like', 'show_images'),

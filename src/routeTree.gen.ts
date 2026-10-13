@@ -9,27 +9,25 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SystemCardRouteImport } from './routes/system-card'
-import { Route as MemoryRouteImport } from './routes/memory'
-import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as LabCardsRouteImport } from './routes/lab.cards'
-import { Route as ApiVoiceRouteImport } from './routes/api.voice'
-import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
-import { Route as ApiMemoryRouteImport } from './routes/api.memory'
-import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
-import { Route as ApiConfigRouteImport } from './routes/api.config'
-import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as AgentRouteImport } from './routes/agent'
+import { Route as MemoryRouteImport } from './routes/memory'
+import { Route as SystemCardRouteImport } from './routes/system-card'
+import { Route as VoicesRouteImport } from './routes/voices'
 import { Route as ApiAccountRouteImport } from './routes/api.account'
+import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as ApiConfigRouteImport } from './routes/api.config'
+import { Route as ApiHealthzRouteImport } from './routes/api.healthz'
+import { Route as ApiIllustrationRepairRouteImport } from './routes/api.illustration-repair'
+import { Route as ApiMemoryRouteImport } from './routes/api.memory'
+import { Route as ApiTranscribeRouteImport } from './routes/api.transcribe'
+import { Route as ApiVoiceRouteImport } from './routes/api.voice'
+import { Route as LabCardsRouteImport } from './routes/lab.cards'
+import { Route as LabIllustrationsRouteImport } from './routes/lab.illustrations'
 
-const SystemCardRoute = SystemCardRouteImport.update({
-  id: '/system-card',
-  path: '/system-card',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MemoryRoute = MemoryRouteImport.update({
-  id: '/memory',
-  path: '/memory',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentRoute = AgentRouteImport.update({
@@ -37,39 +35,24 @@ const AgentRoute = AgentRouteImport.update({
   path: '/agent',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const MemoryRoute = MemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LabCardsRoute = LabCardsRouteImport.update({
-  id: '/lab/cards',
-  path: '/lab/cards',
+const SystemCardRoute = SystemCardRouteImport.update({
+  id: '/system-card',
+  path: '/system-card',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiVoiceRoute = ApiVoiceRouteImport.update({
-  id: '/api/voice',
-  path: '/api/voice',
+const VoicesRoute = VoicesRouteImport.update({
+  id: '/voices',
+  path: '/voices',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
-  id: '/api/transcribe',
-  path: '/api/transcribe',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMemoryRoute = ApiMemoryRouteImport.update({
-  id: '/api/memory',
-  path: '/api/memory',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiHealthzRoute = ApiHealthzRouteImport.update({
-  id: '/api/healthz',
-  path: '/api/healthz',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiConfigRoute = ApiConfigRouteImport.update({
-  id: '/api/config',
-  path: '/api/config',
+const ApiAccountRoute = ApiAccountRouteImport.update({
+  id: '/api/account',
+  path: '/api/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
@@ -77,9 +60,44 @@ const ApiChatRoute = ApiChatRouteImport.update({
   path: '/api/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAccountRoute = ApiAccountRouteImport.update({
-  id: '/api/account',
-  path: '/api/account',
+const ApiConfigRoute = ApiConfigRouteImport.update({
+  id: '/api/config',
+  path: '/api/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthzRoute = ApiHealthzRouteImport.update({
+  id: '/api/healthz',
+  path: '/api/healthz',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiIllustrationRepairRoute = ApiIllustrationRepairRouteImport.update({
+  id: '/api/illustration-repair',
+  path: '/api/illustration-repair',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMemoryRoute = ApiMemoryRouteImport.update({
+  id: '/api/memory',
+  path: '/api/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
+  id: '/api/transcribe',
+  path: '/api/transcribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVoiceRoute = ApiVoiceRouteImport.update({
+  id: '/api/voice',
+  path: '/api/voice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabCardsRoute = LabCardsRouteImport.update({
+  id: '/lab/cards',
+  path: '/lab/cards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabIllustrationsRoute = LabIllustrationsRouteImport.update({
+  id: '/lab/illustrations',
+  path: '/lab/illustrations',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -88,28 +106,34 @@ export interface FileRoutesByFullPath {
   '/agent': typeof AgentRoute
   '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
+  '/voices': typeof VoicesRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/illustration-repair': typeof ApiIllustrationRepairRoute
   '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agent': typeof AgentRoute
   '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
+  '/voices': typeof VoicesRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/illustration-repair': typeof ApiIllustrationRepairRoute
   '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -117,14 +141,17 @@ export interface FileRoutesById {
   '/agent': typeof AgentRoute
   '/memory': typeof MemoryRoute
   '/system-card': typeof SystemCardRoute
+  '/voices': typeof VoicesRoute
   '/api/account': typeof ApiAccountRoute
   '/api/chat': typeof ApiChatRoute
   '/api/config': typeof ApiConfigRoute
   '/api/healthz': typeof ApiHealthzRoute
+  '/api/illustration-repair': typeof ApiIllustrationRepairRoute
   '/api/memory': typeof ApiMemoryRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/api/voice': typeof ApiVoiceRoute
   '/lab/cards': typeof LabCardsRoute
+  '/lab/illustrations': typeof LabIllustrationsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -133,42 +160,51 @@ export interface FileRouteTypes {
     | '/agent'
     | '/memory'
     | '/system-card'
+    | '/voices'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/illustration-repair'
     | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/illustrations'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/agent'
     | '/memory'
     | '/system-card'
+    | '/voices'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/illustration-repair'
     | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/illustrations'
   id:
     | '__root__'
     | '/'
     | '/agent'
     | '/memory'
     | '/system-card'
+    | '/voices'
     | '/api/account'
     | '/api/chat'
     | '/api/config'
     | '/api/healthz'
+    | '/api/illustration-repair'
     | '/api/memory'
     | '/api/transcribe'
     | '/api/voice'
     | '/lab/cards'
+    | '/lab/illustrations'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -176,30 +212,26 @@ export interface RootRouteChildren {
   AgentRoute: typeof AgentRoute
   MemoryRoute: typeof MemoryRoute
   SystemCardRoute: typeof SystemCardRoute
+  VoicesRoute: typeof VoicesRoute
   ApiAccountRoute: typeof ApiAccountRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiConfigRoute: typeof ApiConfigRoute
   ApiHealthzRoute: typeof ApiHealthzRoute
+  ApiIllustrationRepairRoute: typeof ApiIllustrationRepairRoute
   ApiMemoryRoute: typeof ApiMemoryRoute
   ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiVoiceRoute: typeof ApiVoiceRoute
   LabCardsRoute: typeof LabCardsRoute
+  LabIllustrationsRoute: typeof LabIllustrationsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/system-card': {
-      id: '/system-card'
-      path: '/system-card'
-      fullPath: '/system-card'
-      preLoaderRoute: typeof SystemCardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/memory': {
-      id: '/memory'
-      path: '/memory'
-      fullPath: '/memory'
-      preLoaderRoute: typeof MemoryRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agent': {
@@ -209,53 +241,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/memory': {
+      id: '/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/lab/cards': {
-      id: '/lab/cards'
-      path: '/lab/cards'
-      fullPath: '/lab/cards'
-      preLoaderRoute: typeof LabCardsRouteImport
+    '/system-card': {
+      id: '/system-card'
+      path: '/system-card'
+      fullPath: '/system-card'
+      preLoaderRoute: typeof SystemCardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/voice': {
-      id: '/api/voice'
-      path: '/api/voice'
-      fullPath: '/api/voice'
-      preLoaderRoute: typeof ApiVoiceRouteImport
+    '/voices': {
+      id: '/voices'
+      path: '/voices'
+      fullPath: '/voices'
+      preLoaderRoute: typeof VoicesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/transcribe': {
-      id: '/api/transcribe'
-      path: '/api/transcribe'
-      fullPath: '/api/transcribe'
-      preLoaderRoute: typeof ApiTranscribeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/memory': {
-      id: '/api/memory'
-      path: '/api/memory'
-      fullPath: '/api/memory'
-      preLoaderRoute: typeof ApiMemoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/healthz': {
-      id: '/api/healthz'
-      path: '/api/healthz'
-      fullPath: '/api/healthz'
-      preLoaderRoute: typeof ApiHealthzRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/config': {
-      id: '/api/config'
-      path: '/api/config'
-      fullPath: '/api/config'
-      preLoaderRoute: typeof ApiConfigRouteImport
+    '/api/account': {
+      id: '/api/account'
+      path: '/api/account'
+      fullPath: '/api/account'
+      preLoaderRoute: typeof ApiAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat': {
@@ -265,11 +276,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiChatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/account': {
-      id: '/api/account'
-      path: '/api/account'
-      fullPath: '/api/account'
-      preLoaderRoute: typeof ApiAccountRouteImport
+    '/api/config': {
+      id: '/api/config'
+      path: '/api/config'
+      fullPath: '/api/config'
+      preLoaderRoute: typeof ApiConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/healthz': {
+      id: '/api/healthz'
+      path: '/api/healthz'
+      fullPath: '/api/healthz'
+      preLoaderRoute: typeof ApiHealthzRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/illustration-repair': {
+      id: '/api/illustration-repair'
+      path: '/api/illustration-repair'
+      fullPath: '/api/illustration-repair'
+      preLoaderRoute: typeof ApiIllustrationRepairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/memory': {
+      id: '/api/memory'
+      path: '/api/memory'
+      fullPath: '/api/memory'
+      preLoaderRoute: typeof ApiMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/transcribe': {
+      id: '/api/transcribe'
+      path: '/api/transcribe'
+      fullPath: '/api/transcribe'
+      preLoaderRoute: typeof ApiTranscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/voice': {
+      id: '/api/voice'
+      path: '/api/voice'
+      fullPath: '/api/voice'
+      preLoaderRoute: typeof ApiVoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lab/cards': {
+      id: '/lab/cards'
+      path: '/lab/cards'
+      fullPath: '/lab/cards'
+      preLoaderRoute: typeof LabCardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lab/illustrations': {
+      id: '/lab/illustrations'
+      path: '/lab/illustrations'
+      fullPath: '/lab/illustrations'
+      preLoaderRoute: typeof LabIllustrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -280,14 +340,17 @@ const rootRouteChildren: RootRouteChildren = {
   AgentRoute: AgentRoute,
   MemoryRoute: MemoryRoute,
   SystemCardRoute: SystemCardRoute,
+  VoicesRoute: VoicesRoute,
   ApiAccountRoute: ApiAccountRoute,
   ApiChatRoute: ApiChatRoute,
   ApiConfigRoute: ApiConfigRoute,
   ApiHealthzRoute: ApiHealthzRoute,
+  ApiIllustrationRepairRoute: ApiIllustrationRepairRoute,
   ApiMemoryRoute: ApiMemoryRoute,
   ApiTranscribeRoute: ApiTranscribeRoute,
   ApiVoiceRoute: ApiVoiceRoute,
   LabCardsRoute: LabCardsRoute,
+  LabIllustrationsRoute: LabIllustrationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

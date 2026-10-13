@@ -60,7 +60,7 @@ export const Route = createFileRoute('/api/transcribe')({
           audio_bytes: audio.byteLength,
           language_configured: Boolean(language),
         })
-        return transcribe(audio, request.signal, language)
+        return transcribe(audio, request.signal, language, request.headers.get('x-gideon-purpose') === 'caption')
       },
     },
   },

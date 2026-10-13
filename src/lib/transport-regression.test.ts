@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => 'browser', setItem: vi.fn() })
   vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: vi.fn() })
   vi.stubGlobal('WebSocket', Socket)
+  vi.stubGlobal('navigator', { language: 'en-US' })
   vi.stubEnv('VITE_GIDEON_BACKEND_URL', '')
   vi.stubEnv('VITE_GIDEON_BACKEND_WS_URL', '')
   // Every fetch in this file is mocked. Never contact a real account/provider.
@@ -51,6 +52,66 @@ async function link(options = {}) {
   links.push(result)
   return result
 }
+
+describe('warm socket voice path', () => {
+  it('retries a legacy permanent fallback marker and allows a cold socket to open', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => '1', setItem: vi.fn() })
+    const client = await link(); client.connect(); await tick()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(Socket.instances).toHaveLength(1)
+    expect(Socket.instances[0].readyState).toBe(0)
+    Socket.instances[0].open()
+    expect(client.transport).toBe('socket')
+  })
+  async function connected(capabilities: Record<string, unknown> = {}) {
+    const client = await link(); client.connect(); await tick()
+    const socket = Socket.instances[0]; socket.open()
+    socket.frame({ t: 'ready', version: 4, configured: true, chatModel: 'fixture', voiceModel: 'fixture', sttModel: 'fixture', tools: [], ...capabilities })
+    vi.mocked(fetch).mockClear()
+    return { client, socket }
+  }
+  it('recognizes audio on the warm socket and waits for committed input', async () => {
+    const { client, socket } = await connected({ transcriptionSocket: true })
+    const preview = vi.fn()
+    const pending = client.transcribe(new ArrayBuffer(44), new AbortController().signal, false, preview)
+    const frame = socket.sent.find(f => f.t === 'transcribe')!
+    expect(frame.audio).toBeTypeOf('string')
+    socket.frame({ t: 'transcript_preview', id: frame.id, text: 'hello', model: 'fixture' })
+    expect(preview).toHaveBeenCalledWith('hello')
+    socket.frame({ t: 'transcript', id: frame.id, text: 'hello', model: 'fixture' })
+    expect(await pending).toEqual({ text: 'hello', model: 'fixture' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('cancels once and ignores late transcript frames without retrying over HTTP', async () => {
+    const { client, socket } = await connected({ transcriptionSocket: true })
+    const controller = new AbortController(); const preview = vi.fn()
+    const pending = client.transcribe(new ArrayBuffer(44), controller.signal, false, preview)
+    const rejection = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    const frame = socket.sent.find(f => f.t === 'transcribe')!
+    controller.abort(); await rejection
+    socket.frame({ t: 'transcript_preview', id: frame.id, text: 'late', model: 'fixture' })
+    socket.frame({ t: 'transcript', id: frame.id, text: 'late', model: 'fixture' })
+    expect(preview).not.toHaveBeenCalled()
+    expect(socket.sent.filter(f => f.t === 'cancel')).toHaveLength(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('leaves HTTP available without sending a transcription to an older server', async () => {
+    const { client, socket } = await connected()
+    expect(await client.transcribe(new ArrayBuffer(44), new AbortController().signal, false)).toBeUndefined()
+    expect(socket.sent.some(f => f.t === 'transcribe')).toBe(false)
+  })
+  it('receives automatic first speech without requesting the same synthesis again', async () => {
+    const { client, socket } = await connected({ autoSpeech: true })
+    const voiceChoice = { model: 'microsoft/mai-voice-2.1-flash', voice: 'en-US-Harper:MAI-Voice-2.1-Flash' }
+    client.startTurn('turn', [{ role: 'user', content: 'hello' }], handlers(), { voiceChoice })
+    expect(socket.sent.find(f => f.t === 'turn')).toMatchObject({ autoSpeech: true, voiceChoice })
+    const audio = client.speak('turn', 0, 'Hello.', new AbortController().signal, 'response', 0, 6, voiceChoice)
+    expect(socket.sent.some(f => f.t === 'speak')).toBe(false)
+    socket.frame({ t: 'audio', id: 'turn#0', seq: 0, mime: 'audio/mpeg', bytes: 2, responseId: 'response', segmentId: 'segment', startChar: 0, endChar: 6 })
+    socket.onmessage?.({ data: new Uint8Array([1, 2]).buffer })
+    expect((await audio).size).toBe(2)
+  })
+})
 
 describe('account bootstrap', () => {
   it('does not forget a success arriving after the socket wait', async () => {

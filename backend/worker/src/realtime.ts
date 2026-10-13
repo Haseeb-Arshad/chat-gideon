@@ -21,7 +21,7 @@ import {
 } from './memory'
 import type { Env } from './types'
 import { createWorkerInteractionAudit } from './audit'
-import { resolveWorkerMemoryForTurn } from './worker-memory'
+import { createConnectionMemory } from './worker-memory'
 
 interface SessionAttachment {
   /** Whose memory this is: `user/<id>` for an account, otherwise the browser's id. */
@@ -62,7 +62,7 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
  * alive with `waitUntil`, so hibernation only occurs between real work.
  */
 export class GideonSession extends DurableObject<Env> {
-  private readonly sessions = new Map<WebSocket, RealtimeSession>()
+  private readonly sessions = new Map<WebSocket, { session: RealtimeSession; release(): void }>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -116,7 +116,16 @@ export class GideonSession extends DurableObject<Env> {
       authority: attachment.owner.startsWith('user/') ? 'worker_internal_owner' : 'ephemeral_request',
     })
 
-    return createRealtimeSession(
+    // Kept for the life of the socket, so a turn does not open a pool and
+    // re-ask who owns this memory in front of every reply.
+    const memory = createConnectionMemory({
+      env: this.env,
+      owner: attachment.owner,
+      channel: 'worker_websocket',
+      legacyStore: memoryStore,
+    })
+
+    const session = createRealtimeSession(
       {
         sendText: (data) => socket.send(data),
         sendBinary: (data) => socket.send(data),
@@ -132,15 +141,15 @@ export class GideonSession extends DurableObject<Env> {
           owner: attachment.owner,
           sessionKey: attachment.auditSessionKey,
           channel: 'websocket',
+          // The record is written behind the reply; this keeps the object
+          // awake until what was noted has reached the database.
+          keepAlive: (work) => this.ctx.waitUntil(work),
         }),
-        resolveMemory: () => resolveWorkerMemoryForTurn({
-          env: this.env,
-          owner: attachment.owner,
-          channel: 'worker_websocket',
-          legacyStore: memoryStore,
-        }),
+        resolveMemory: () => memory.resolve(),
+        warm: () => memory.warm(),
       },
     )
+    return { session, release: () => void memory.close() }
   }
 
   fetch(request: Request): Response {
@@ -204,7 +213,7 @@ export class GideonSession extends DurableObject<Env> {
       return
     }
 
-    const session = this.sessions.get(socket)
+    const session = this.sessions.get(socket)?.session
     if (!session) return
     this.ctx.waitUntil(
       session.handleMessage(message).catch(() => {
@@ -217,9 +226,15 @@ export class GideonSession extends DurableObject<Env> {
     )
   }
 
-  webSocketClose(socket: WebSocket, code: number, reason: string) {
-    this.sessions.get(socket)?.close()
+  private drop(socket: WebSocket) {
+    const entry = this.sessions.get(socket)
     this.sessions.delete(socket)
+    entry?.session.close()
+    entry?.release()
+  }
+
+  webSocketClose(socket: WebSocket, code: number, reason: string) {
+    this.drop(socket)
     try {
       socket.close(code, reason)
     } catch {
@@ -228,7 +243,6 @@ export class GideonSession extends DurableObject<Env> {
   }
 
   webSocketError(socket: WebSocket) {
-    this.sessions.get(socket)?.close()
-    this.sessions.delete(socket)
+    this.drop(socket)
   }
 }

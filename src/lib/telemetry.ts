@@ -125,6 +125,14 @@ export class TurnTimeline {
     return Math.max(0, b - a)
   }
 
+  /** The same marks on the wall clock, in epoch milliseconds, for a record kept outside the page. */
+  wallClock(): Partial<Record<Mark, number>> {
+    const offset = Date.now() - now()
+    const marks: Partial<Record<Mark, number>> = {}
+    for (const [name, at] of this.marks) marks[name] = Math.round(at + offset)
+    return marks
+  }
+
   summary(): TurnSummary {
     const origin = this.origin ?? 0
     const spans: SpanResult[] = []

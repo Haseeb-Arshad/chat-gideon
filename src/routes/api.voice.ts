@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { parseVoiceBody, RequestValidationError, apiError } from '../lib/openrouter'
 import { guardRequest, synthesizeVoice } from '../lib/openrouter.server'
 import { captureServerEvent } from '../lib/posthog-server'
+import { parseVoiceChoice } from '../lib/voice-options'
 
 export const Route = createFileRoute('/api/voice')({
   server: {
@@ -13,10 +14,11 @@ export const Route = createFileRoute('/api/voice')({
         try {
           const body = await request.json()
           const text = parseVoiceBody(body)
+          const voiceChoice = parseVoiceChoice((body as { voiceChoice?: unknown } | null)?.voiceChoice)
           captureServerEvent(request, 'voice_synthesis_requested', {
             character_count: text.length,
           })
-          return await synthesizeVoice(text, request.signal)
+          return await synthesizeVoice(text, request.signal, voiceChoice)
         } catch (error) {
           if (error instanceof RequestValidationError) {
             return Response.json(apiError(error.code, error.message), { status: 400 })

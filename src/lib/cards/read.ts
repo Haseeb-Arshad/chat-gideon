@@ -18,6 +18,7 @@ import { fromLegacy } from './legacy'
 import { isAdvancedForm } from './advanced-types'
 import { readAdvancedChart, readEvidence } from './advanced-validation'
 import { isRecipeId, preferredSize } from './recipes'
+import { readIllustrationHtml } from '../illustrations/validation'
 import {
   BLOCK_TYPES,
   CARD_SCHEMA,
@@ -280,6 +281,12 @@ function readChart(input: Input): ChartBlock | null {
 /** One block's own fields, or null when it has nothing it could draw. */
 function readBody(type: BlockType, input: Input, sources: number): BlockBody | null {
   switch (type) {
+    case 'illustration': {
+      const title = text(input.title, 100)
+      const summary = text(input.summary, 800)
+      const html = readIllustrationHtml(input.html)
+      return title && summary && html ? { type, title, summary, html } : null
+    }
     case 'headline': {
       const title = text(input.title, 200)
       if (!title) return null

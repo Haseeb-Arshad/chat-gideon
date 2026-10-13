@@ -169,6 +169,7 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
   async assertAuthorizedContext(
     session: Pick<MemorySession, 'trust' | 'principal' | 'scope' | 'policyEpoch' | 'grants'>,
     action: MemoryAction,
+    options: { statementTimeoutMs?: number } = {},
   ): Promise<void> {
     const context = this.scope()
     if (session.trust !== 'authenticated' || session.principal.id !== context.principalId || session.scope.id !== context.scopeId) {
@@ -176,9 +177,13 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
     }
     const decision = evaluateGrant(session, action, context.scopeId)
     if (!decision.allowed) throw new PostgresMemoryOperationError(decision.failure)
+    // Set in the same statement that proves the caller may read at all: a
+    // bounded read then costs one round trip for both instead of one each.
+    const timeout = Number.isFinite(options.statementTimeoutMs) ? `${Math.max(1, Math.floor(options.statementTimeoutMs!))}ms` : null
     const result = await this.query<{ policy_epoch: string; principal_trust: string; recovery_status: string; required_ledger_sequence: string; reconciled_ledger_sequence: string }>(
       `
-        SELECT p.trust AS principal_trust, e.policy_epoch,
+        SELECT ${timeout ? `set_config('statement_timeout', $4, true) AS statement_timeout,` : ''}
+               p.trust AS principal_trust, e.policy_epoch,
                COALESCE(r.status, 'ready') AS recovery_status,
                COALESCE(r.required_ledger_sequence, 0) AS required_ledger_sequence,
                COALESCE(r.reconciled_ledger_sequence, 0) AS reconciled_ledger_sequence
@@ -194,7 +199,7 @@ export class PostgresMemoryTransaction implements MemoryStorageTransaction {
           AND (g.expires_at IS NULL OR g.expires_at > now())
         LIMIT 1
       `,
-      [context.principalId, context.scopeId, JSON.stringify([action])],
+      [context.principalId, context.scopeId, JSON.stringify([action]), ...(timeout ? [timeout] : [])],
     )
     if (!result.rows[0]) throw failure('unauthorized', 'The database has no active grant for this memory scope.')
     if (result.rows[0].recovery_status === 'blocked' || Number(result.rows[0].reconciled_ledger_sequence) < Number(result.rows[0].required_ledger_sequence)) {
@@ -751,19 +756,29 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
     return new PostgresMemoryStore(this.pool, context)
   }
 
-  async runTransaction<T>(work: (transaction: PostgresMemoryTransaction) => Promise<T>): Promise<T> {
+  /**
+   * `readOnly` says the work wrote nothing, so its result is returned as soon
+   * as it is known and the commit is sent behind it. The connection goes back
+   * to the pool once that commit has landed, as it would have anyway.
+   */
+  async runTransaction<T>(work: (transaction: PostgresMemoryTransaction) => Promise<T>, options: { readOnly?: boolean } = {}): Promise<T> {
     const client = await this.pool.connect()
     // A backend terminated while this client is checked out (restart,
     // failover, admin kill) emits 'error' on the client itself; unheard, that
     // is an uncaught exception that takes the whole process down. The query
     // in flight fails on its own, so the event only marks the client broken.
     let broken: Error | undefined
+    let committing: Promise<void> | null = null
     const onError = (error: Error) => { broken = error }
     client.on('error', onError)
     try {
       await client.query('BEGIN')
       const transaction = new PostgresMemoryTransaction(client, this.context)
       const result = await work(transaction)
+      if (options.readOnly) {
+        committing = client.query('COMMIT').then(() => undefined, (error: Error) => { broken ??= error })
+        return result
+      }
       await client.query('COMMIT')
       return result
     } catch (error) {
@@ -771,9 +786,13 @@ export class PostgresMemoryStore implements MemoryStorageCapabilities {
       if (!rolledBack) broken ??= error instanceof Error ? error : new Error('rollback failed')
       throw error
     } finally {
-      client.off('error', onError)
-      // A broken client is destroyed rather than returned to the pool.
-      client.release(broken)
+      const release = () => {
+        client.off('error', onError)
+        // A broken client is destroyed rather than returned to the pool.
+        client.release(broken)
+      }
+      if (committing) void committing.then(release)
+      else release()
     }
   }
 

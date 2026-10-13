@@ -19,6 +19,7 @@ import {
   type ServerFrame,
 } from './protocol'
 import { backendHeaders, backendUrl, backendWebSocketUrl, awaitAccount, ensureAccount, onAccountReady } from './backend'
+import type { VoiceChoice } from './voice-options'
 import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
 import type { CardV2 } from './cards/schema'
@@ -81,7 +82,9 @@ export interface ChatTurnMessage {
 
 /** Remembered per tab so a host without upgrades is only probed once. */
 const FALLBACK_KEY = 'gideon-transport-fallback'
-const OPEN_TIMEOUT_MS = 1_600
+// Establish the socket while the microphone opens. A cold Worker/DO handshake
+// can exceed 1.6s; permanently downgrading then made every later turn slower.
+const OPEN_TIMEOUT_MS = 5_000
 const PING_INTERVAL_MS = 20_000
 
 /** Best-effort IANA zone, so the server can answer "what day is it". */
@@ -95,7 +98,7 @@ function localTimezone(): string {
 
 function rememberFallback() {
   try {
-    sessionStorage.setItem(FALLBACK_KEY, '1')
+    sessionStorage.setItem(FALLBACK_KEY, String(Date.now() + 60_000))
   } catch {
     // A blocked storage accessor only costs us one probe per load.
   }
@@ -103,7 +106,8 @@ function rememberFallback() {
 
 function fallbackRemembered() {
   try {
-    return sessionStorage.getItem(FALLBACK_KEY) === '1'
+    const until = Number(sessionStorage.getItem(FALLBACK_KEY))
+    return Number.isFinite(until) && until > Date.now()
   } catch {
     return false
   }
@@ -148,6 +152,15 @@ export class RealtimeLink {
   private readonly speculativeTurns = new Set<string>()
   private readonly discardedSpeculativeTurns = new Set<string>()
   private readonly audio = new Map<string, PendingAudio>()
+  private transcriptionSocket = false
+  private automaticSpeech = false
+  private readonly automaticSpeechTurns = new Set<string>()
+  private readonly transcripts = new Map<string, {
+    resolve: (result: { text: string; model: string }) => void
+    reject: (error: Error) => void
+    preview?: (text: string) => void
+    cleanup: () => void
+  }>()
   private readonly issuedAudioSegments = new Map<string, { turnId: string; responseId: string; segmentId: string; startChar: number; endChar: number; reportedThrough: number }>()
   private pendingAudioKey: string | null = null
 
@@ -234,7 +247,7 @@ export class RealtimeLink {
   private refreshSocket() {
     this.unsubscribeAccount?.()
     this.unsubscribeAccount = null
-    if (this.disposed || !this.refreshPending || this.socketTurns.size || this.audio.size) return
+    if (this.disposed || !this.refreshPending || this.socketTurns.size || this.audio.size || this.transcripts.size) return
     this.refreshPending = false
     const old = this.socket
     if (!old) return
@@ -248,7 +261,7 @@ export class RealtimeLink {
   /** A turn finished; a refresh held back for it can now have the socket. */
   private drainRefresh() {
     if (!this.refreshPending || this.disposed) return
-    if (this.socketTurns.size === 0 && this.audio.size === 0) this.refreshSocket()
+    if (this.socketTurns.size === 0 && this.audio.size === 0 && this.transcripts.size === 0) this.refreshSocket()
   }
 
   private open() {
@@ -340,6 +353,9 @@ export class RealtimeLink {
       pending.reject(new Error('The link closed.'))
     }
     this.audio.clear()
+    for (const pending of this.transcripts.values()) { pending.cleanup(); pending.reject(new DOMException('Aborted', 'AbortError')) }
+    this.transcripts.clear()
+    this.automaticSpeechTurns.clear()
     try {
       this.socket?.close()
     } catch {
@@ -353,7 +369,7 @@ export class RealtimeLink {
     id: string,
     messages: ChatTurnMessage[],
     handlers: TurnHandlers,
-    options: { speculative?: boolean; screen?: ScreenState; conversationState?: ConversationState } = {},
+    options: { speculative?: boolean; screen?: ScreenState; conversationState?: ConversationState; voiceChoice?: VoiceChoice } = {},
   ): TurnHandle {
     if (this.disposed) {
       handlers.onError('The link closed.', false)
@@ -373,11 +389,15 @@ export class RealtimeLink {
       this.speculativeTurns.delete(id)
       this.socketTurns.delete(id)
       this.httpControllers.delete(id)
+      this.automaticSpeechTurns.delete(id)
     }
 
     if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
       // Remembered so a close — and only a close — can settle what rode on it.
       this.socketTurns.add(id)
+      const autoSpeech = this.automaticSpeech && !options.speculative && Boolean(options.voiceChoice)
+      if (autoSpeech) this.automaticSpeechTurns.add(id)
+      if (this.automaticSpeechTurns.size > 128) this.automaticSpeechTurns.delete(this.automaticSpeechTurns.values().next().value!)
       this.send({
         t: 'turn',
         id,
@@ -386,12 +406,15 @@ export class RealtimeLink {
         speculative: options.speculative,
         screen: options.screen,
         conversationState: options.conversationState,
+        autoSpeech,
+        voiceChoice: options.voiceChoice,
       })
       return {
         id,
         cancel: () => {
           forget()
           this.send({ t: 'cancel', id })
+          this.send({ t: 'cancel', id: `${id}#0` })
           this.drainRefresh()
         },
       }
@@ -409,6 +432,27 @@ export class RealtimeLink {
     }
   }
 
+  /** Reuse the warm socket: no new upload connection or browser preflight. */
+  async transcribe(audio: ArrayBuffer, signal: AbortSignal, caption: boolean, preview?: (text: string) => void) {
+    if (signal.aborted || this.disposed) throw new DOMException('Aborted', 'AbortError')
+    if (!this.transcriptionSocket || this.refreshPending || this.transport !== 'socket' || this.socket?.readyState !== WebSocket.OPEN || audio.byteLength > 1_024_000) return undefined
+    const id = `stt-${crypto.randomUUID()}`
+    const bytes = new Uint8Array(audio)
+    let binary = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+    return new Promise<{ text: string; model: string }>((resolve, reject) => {
+      const abort = () => {
+        const pending = this.transcripts.get(id)
+        if (!pending) return
+        this.transcripts.delete(id); pending.cleanup()
+        this.send({ t: 'cancel', id }); reject(new DOMException('Aborted', 'AbortError')); this.drainRefresh()
+      }
+      signal.addEventListener('abort', abort, { once: true })
+      this.transcripts.set(id, { resolve, reject, preview, cleanup: () => signal.removeEventListener('abort', abort) })
+      this.send({ t: 'transcribe', id, audio: btoa(binary), caption, language: navigator.language, at: Date.now() })
+    })
+  }
+
   /** Requests spoken audio for one chunk of the reply. */
   async speak(
     turnId: string,
@@ -418,6 +462,7 @@ export class RealtimeLink {
     responseId?: string,
     startChar?: number,
     endChar?: number,
+    voiceChoice?: VoiceChoice,
   ): Promise<Blob> {
     if (this.disposed) throw new DOMException('Aborted', 'AbortError')
     if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
@@ -450,8 +495,9 @@ export class RealtimeLink {
             : {}),
           cleanup: () => signal.removeEventListener('abort', onAbort),
         })
+        if (seq === 0 && this.automaticSpeechTurns.delete(turnId)) return
         this.send({
-          t: 'speak', id: key, seq, text,
+          t: 'speak', id: key, seq, text, voiceChoice,
           ...(responseId && Number.isSafeInteger(startChar) && Number.isSafeInteger(endChar)
             ? { turnId, responseId, startChar, endChar }
             : {}),
@@ -465,7 +511,7 @@ export class RealtimeLink {
     const response = await fetch(backendUrl('/api/voice'), {
       method: 'POST',
       headers: backendHeaders('application/json'),
-      body: JSON.stringify({ text, id: `${turnId}#${seq}`, turnId, responseId, seq, startChar, endChar }),
+      body: JSON.stringify({ text, voiceChoice, id: `${turnId}#${seq}`, turnId, responseId, seq, startChar, endChar }),
       signal,
     })
     if (!response.ok) throw new Error(await readErrorMessage(response))
@@ -484,7 +530,7 @@ export class RealtimeLink {
       segment.reportedThrough = end
       this.send({
         t: 'observation', id: crypto.randomUUID(), turnId, responseId,
-        kind: 'playback_reported', segmentId: segment.segmentId, startChar: start, endChar: end,
+        kind: 'playback_reported', segmentId: segment.segmentId, startChar: start, endChar: end, at: Date.now(),
       })
     }
   }
@@ -493,15 +539,38 @@ export class RealtimeLink {
     if (this.transport !== 'socket' || !this.socket || !Number.isSafeInteger(atChar) || atChar < 0) return
     this.send({
       t: 'observation', id: crypto.randomUUID(), turnId, responseId,
-      kind: 'playback_interrupted', startChar: atChar, endChar: atChar,
+      kind: 'playback_interrupted', startChar: atChar, endChar: atChar, at: Date.now(),
     })
   }
 
   reportArtifactDisplayed(turnId: string, artifactId: string, displayRevision: number) {
     if (this.transport !== 'socket' || !this.socket || !artifactId || !Number.isSafeInteger(displayRevision)) return
     this.send({
-      t: 'observation', id: crypto.randomUUID(), turnId, kind: 'displayed', artifactId, displayRevision,
+      t: 'observation', id: crypto.randomUUID(), turnId, kind: 'displayed', artifactId, displayRevision, at: Date.now(),
     })
+  }
+
+  /**
+   * What only the page knows about a turn, for the record the server keeps.
+   *
+   * Each is one small frame sent after the fact and never answered: that a
+   * reply was actually used (a guess is otherwise never confirmed), the page's
+   * own timeline once the reply has been heard, and what was done with a card.
+   * Nothing waits on any of them, and the HTTP fallback simply goes without.
+   */
+  reportTurnCommitted(turnId: string, source: 'voice' | 'typed' | 'card', speculation: 'none' | 'hit' | 'miss') {
+    if (this.transport !== 'socket') return
+    this.send({ t: 'telemetry', id: turnId, kind: 'committed', at: Date.now(), source, speculation })
+  }
+
+  reportTurnFinished(turnId: string, summary: { marks: Record<string, number>; interrupted: boolean; speculation: 'none' | 'hit' | 'miss'; savedMs: number }) {
+    if (this.transport !== 'socket') return
+    this.send({ t: 'telemetry', id: turnId, kind: 'finished', at: Date.now(), ...summary })
+  }
+
+  reportCard(turnId: string, action: 'opened' | 'tucked', card: string, artifactId?: string) {
+    if (this.transport !== 'socket') return
+    this.send({ t: 'telemetry', id: turnId, kind: 'card', at: Date.now(), action, card, ...(artifactId ? { artifactId } : {}) })
   }
 
   private awaitAccountForRequest(signal?: AbortSignal): Promise<void> {
@@ -517,6 +586,11 @@ export class RealtimeLink {
    * transport died next to it.
    */
   private abortSocketWork(message: string) {
+    this.transcriptionSocket = false
+    this.automaticSpeech = false
+    this.automaticSpeechTurns.clear()
+    for (const pending of this.transcripts.values()) { pending.cleanup(); pending.reject(new Error(message)) }
+    this.transcripts.clear()
     for (const id of this.socketTurns) {
       const handlers = this.turns.get(id)
       this.turns.delete(id)
@@ -568,6 +642,8 @@ export class RealtimeLink {
   private dispatch(frame: ServerFrame) {
     switch (frame.t) {
       case 'ready':
+        this.transcriptionSocket = frame.transcriptionSocket === true
+        this.automaticSpeech = frame.autoSpeech === true
         this.onConfig?.({
           configured: frame.configured,
           chatModel: frame.chatModel,
@@ -674,7 +750,22 @@ export class RealtimeLink {
         this.drainRefresh()
         return
       }
+      case 'transcript_preview':
+        this.transcripts.get(frame.id)?.preview?.(frame.text)
+        return
+      case 'transcript': {
+        const pending = this.transcripts.get(frame.id)
+        if (!pending) return
+        this.transcripts.delete(frame.id); pending.cleanup()
+        pending.resolve({ text: frame.text, model: frame.model }); this.drainRefresh()
+        return
+      }
       case 'error': {
+        if (frame.id && this.transcripts.has(frame.id)) {
+          const pending = this.transcripts.get(frame.id)!
+          this.transcripts.delete(frame.id); pending.cleanup(); pending.reject(new Error(frame.message)); this.drainRefresh()
+          return
+        }
         if (frame.id && this.audio.has(frame.id)) {
           const pending = this.audio.get(frame.id)!
           this.audio.delete(frame.id)

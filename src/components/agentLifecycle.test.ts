@@ -12,6 +12,19 @@ function setup() {
 }
 
 describe('segmented transcription', () => {
+  it.each([null, { text: '' }])('does not transcribe the same audio again after an empty eager result: %s', async (result) => {
+    const { accumulator, transcribe, onFinal } = setup()
+    await accumulator.push(segment(), Promise.resolve(result))
+    expect(transcribe).not.toHaveBeenCalled()
+    expect(onFinal).toHaveBeenCalledWith('')
+  })
+  it('does not retry rejected eager audio or submit it twice', async () => {
+    const { accumulator, transcribe, onFinal } = setup()
+    await accumulator.push(segment(), Promise.reject(new Error('provider failed')))
+    await accumulator.release()
+    expect(transcribe).not.toHaveBeenCalled()
+    expect(onFinal).toHaveBeenCalledTimes(1)
+  })
   it('retains the first segment after its request finishes, then appends the tail', async () => {
     const { accumulator, transcribe, onFinal } = setup()
     transcribe.mockResolvedValueOnce({ text: 'one' }).mockResolvedValueOnce({ text: 'two' })

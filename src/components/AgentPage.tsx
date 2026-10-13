@@ -47,6 +47,7 @@ import {
 } from '../lib/tools/client-tools'
 import { LatencyLog, TurnTimeline } from '../lib/telemetry'
 import { VoiceQueue } from '../lib/voice-queue'
+import { readVoiceChoice } from '../lib/voice-options'
 import { EmotionField } from './EmotionField'
 import { GideonEyes, type EyePhase } from './GideonEyes'
 import { LatencyHud } from './LatencyHud'
@@ -196,6 +197,7 @@ interface RunningTurn {
    */
   failed: boolean
   voice: VoiceQueue | null
+  voiceChoice?: ReturnType<typeof readVoiceChoice>
   /**
    * What a speculative turn did while nobody could see it. Held back so a
    * guess that is thrown away leaves no trace, and replayed if it is kept.
@@ -501,21 +503,8 @@ export function AgentPage() {
   const partialTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   /** The partial transcript, and when it last actually changed. */
   const partialRef = useRef({ text: '', changedAt: 0 })
-  /**
-   * A transcription started the instant silence began, before the hangover has
-   * expired.
-   *
-   * This is what keeps the recogniser off the critical path. The detector waits
-   * a third of a second to be sure a sentence is over; transcription takes
-   * about the same. Running them concurrently rather than in sequence means the
-   * transcript is usually already in hand the moment the utterance is declared
-   * finished, so the whole speech-to-text step costs almost nothing.
-   */
-  const eagerRef = useRef<{
-    frames: number
-    controller: AbortController
-    promise: Promise<{ text: string } | null>
-  } | null>(null)
+  const partialAudioMsRef = useRef(0)
+  const liveUserIdRef = useRef(makeId())
   const inputGenerationRef = useRef(new InputGeneration())
   /**
    * Live captions only. Speech starting again retires these without touching
@@ -586,11 +575,6 @@ export function AgentPage() {
     partialTimerRef.current = null
   }, [])
 
-  const dropEager = useCallback(() => {
-    eagerRef.current?.controller.abort()
-    eagerRef.current = null
-  }, [])
-
   const invalidateInput = useCallback(() => {
     inputGenerationRef.current.invalidate()
     partialGenerationRef.current.invalidate()
@@ -598,13 +582,12 @@ export function AgentPage() {
     accumulatorRef.current = null
     reopenedRef.current = null
     stopPartials()
-    dropEager()
     transcriberRef.current?.reset()
     partialRef.current = { text: '', changedAt: 0 }
     setLiveTranscript('')
     if (suspicionRef.current) clearTimeout(suspicionRef.current.timer)
     suspicionRef.current = null
-  }, [dropEager, stopPartials])
+  }, [stopPartials])
 
   const stopVoice = useCallback(() => {
     turnRef.current?.voice?.cancel()
@@ -629,7 +612,6 @@ export function AgentPage() {
       listenerRef.current?.abort()
       listenerRef.current = null
       stopPartials()
-      dropEager()
       for (const run of speculationRef.current.clear()) abandon(run.handle)
       stopVoice()
       void captureRef.current?.stop()
@@ -639,7 +621,7 @@ export function AgentPage() {
       setLiveTranscript('')
       if (message) setNotice(message)
     },
-    [abandon, clearSilenceTimer, dropEager, invalidateInput, setPhase, setVoiceMode, stopPartials, stopVoice],
+    [abandon, clearSilenceTimer, invalidateInput, setPhase, setVoiceMode, stopPartials, stopVoice],
   )
 
   /** Ambient noise can trip VAD, so only confirmed user actions reset this timer. */
@@ -785,6 +767,16 @@ export function AgentPage() {
   const focus = useCallback((id: string | null) => {
     frontIdRef.current = id
     setFrontId(id)
+  }, [])
+
+  /** Sends the page's own timeline of a finished turn to the record the server keeps. */
+  const reportTurnFinished = useCallback((turn: RunningTurn) => {
+    linkRef.current?.reportTurnFinished(turn.id, {
+      marks: turn.timeline.wallClock(),
+      interrupted: turn.timeline.interrupted,
+      speculation: turn.timeline.speculation,
+      savedMs: Math.round(turn.timeline.saved),
+    })
   }, [])
 
   const updateStage = useCallback((change: (current: StageEntry[]) => StageEntry[]) => {
@@ -1047,6 +1039,13 @@ export function AgentPage() {
     [patchCard, placeCard, showCard, tuckStage],
   )
 
+  /** A card the user pressed, on the stage or on the shelf, as opposed to one the conversation brought back. */
+  const openCard = useCallback((id: string) => {
+    showCard(id)
+    const entry = stageEntriesRef.current.find((item) => item.id === id)
+    if (entry?.card && entry.sourceTurnId) linkRef.current?.reportCard(entry.sourceTurnId, 'opened', id, entry.artifactId)
+  }, [showCard])
+
   /** Read by the link, which is created once and so cannot close over these. */
   const stageEventRef = useRef<(turnId: string, event: StageEvent) => void>(() => undefined)
   stageEventRef.current = (turnId, event) => {
@@ -1142,7 +1141,7 @@ export function AgentPage() {
   const showAction = useCallback(
     (turn: RunningTurn, action: ActionEvent) => {
       const id = `${turn.id}:${action.call}`
-      const staging = action.name === 'research' || action.name === 'show_images'
+      const staging = action.name === 'research' || action.name === 'show_images' || action.name === 'draw_illustration'
       record(id, {
         // A search is headed by what was asked, anything else by what was done.
         title: staging ? action.detail : action.summary,
@@ -1163,7 +1162,7 @@ export function AgentPage() {
       setWorking(action.pending ? action.summary : null)
       if (!staging) return
       if (action.pending) {
-        openSearch(id, action.detail, action.name === 'show_images' ? 'pictures' : 'web')
+        openSearch(id, action.detail, action.name === 'draw_illustration' ? 'drawing' : action.name === 'show_images' ? 'pictures' : 'web')
       } else if (!action.ok) {
         dropCard(id)
       } else {
@@ -1296,7 +1295,7 @@ export function AgentPage() {
       inputGenerationRef.current.invalidate()
       captureGenerationRef.current += 1
       if (partialTimerRef.current) clearInterval(partialTimerRef.current)
-      eagerRef.current?.controller.abort()
+      partialGenerationRef.current.invalidate()
       listenerRef.current?.abort()
       turnRef.current?.handle?.cancel()
       turnRef.current?.voice?.cancel()
@@ -1432,6 +1431,7 @@ export function AgentPage() {
 
     turn.timeline.interrupted = true
     logRef.current.push(turn.timeline.summary())
+    reportTurnFinished(turn)
 
     abandon(turn)
     turnRef.current = null
@@ -1599,11 +1599,13 @@ export function AgentPage() {
 
       let publishedCaption = ''
       let reportedPlaybackThrough = 0
+      // Keep one voice for every chunk of this reply, even if preferences change.
+      const voiceChoice = turn.voiceChoice ?? readVoiceChoice()
       const voice =
         voiceModeRef.current === 'active'
           ? new VoiceQueue({
               request: (seq, chunk, signal, span) => link.speak(
-                turn.id, seq, chunk, signal, turn.responseId, span.startChar, span.endChar,
+                turn.id, seq, chunk, signal, turn.responseId, span.startChar, span.endChar, voiceChoice,
               ),
               onSpeakingChange: (isSpeaking) => {
                 if (isSpeaking) {
@@ -1688,6 +1690,7 @@ export function AgentPage() {
         setSpokenChars(turn.complete.length)
         turn.timeline.mark('turn_done')
         logRef.current.push(turn.timeline.summary())
+        reportTurnFinished(turn)
 
         turn.voice = null
         turnRef.current = null
@@ -1731,6 +1734,7 @@ export function AgentPage() {
         cancelled: false,
         failed: false,
         voice: null,
+        voiceChoice: voiceModeRef.current === 'active' ? readVoiceChoice() : undefined,
         actions: [],
       }
 
@@ -1805,7 +1809,7 @@ export function AgentPage() {
             if (voiceModeRef.current === 'active') scheduleListen(700)
           },
         },
-        { speculative, screen: screenNow(), conversationState: conversationStateRef.current },
+        { speculative, screen: screenNow(), conversationState: conversationStateRef.current, voiceChoice: turn.voiceChoice },
       )
 
       turn.timeline.mark('turn_sent')
@@ -1822,6 +1826,7 @@ export function AgentPage() {
       // A voice turn taken back because the sentence carried on comes back as
       // a correction of itself, not as a second message.
       const reopened = source === 'voice' ? reopenedRef.current : null
+      const messageId = reopened?.messageId ?? (source === 'voice' ? liveUserIdRef.current : makeId())
       invalidateInput()
       if (source !== 'voice') {
         listenerRef.current?.abort()
@@ -1841,7 +1846,7 @@ export function AgentPage() {
       captureRef.current?.setDucking(false)
 
       const userMessage: Message = {
-        id: reopened?.messageId ?? makeId(),
+        id: messageId,
         role: 'user',
         content: text,
         createdAt: new Date().toISOString(),
@@ -1868,6 +1873,7 @@ export function AgentPage() {
           }
         : { type: 'turn_committed', turn: committed })
       const context = [...messagesRef.current, userMessage]
+      liveUserIdRef.current = makeId()
 
       // Resolve any guesses made while this sentence was still being spoken.
       const resolved = speculationRef.current.resolve(text)
@@ -1911,6 +1917,7 @@ export function AgentPage() {
       setEmotion(deriveEmotion(text) === 'concerned' ? 'concerned' : 'focused')
       feel(text, SPEAKER_WEIGHT.user)
 
+      linkRef.current?.reportTurnCommitted(turn.id, source, turn.timeline.speculation)
       promote(turn, text, context)
       sentVoiceRef.current = source === 'voice'
         ? { turn, messageId: userMessage.id, text, revision: committed.revision }
@@ -1963,15 +1970,20 @@ export function AgentPage() {
     const capture = captureRef.current
     const transcriber = transcriberRef.current
     if (!capture || !transcriber || transcriber.busy) return
-    if (midTurn()) return
+    if (capture.isDucking || midTurn()) return
 
     const snapshot = capture.snapshot()
-    // Below about a second there is not enough audio to transcribe usefully,
+    // Below about a second there is too little audio for a useful caption,
     // and a one-word guess is not worth a request. Above fifteen seconds the
     // partial is re-uploading a buffer that grows every time, for a caption
     // nobody is reading during a monologue; the final transcript still covers
     // the whole thing.
     if (!snapshot || snapshot.ms < 900 || snapshot.ms > 15_000) return
+    // Show the first words promptly; refresh only after another four seconds
+    // of input rather than repeatedly uploading the growing buffer.
+    if (partialAudioMsRef.current && snapshot.ms - partialAudioMsRef.current < 4_000) return
+    if (vadStateRef.current !== 'speech') return
+    partialAudioMsRef.current = snapshot.ms
 
     const request = partialGenerationRef.current.request()
     const result = await transcriber.run(snapshot.frames, snapshot.sampleRate, request.signal)
@@ -2005,17 +2017,21 @@ export function AgentPage() {
   /**
    * Turns a finished utterance into a turn.
    *
-   * Prefers the eager transcription started when silence began, which by now
-   * has usually already returned; falls back to transcribing the utterance from
-   * scratch when speech resumed after that attempt or it failed. An utterance
-   * cut by the duration cap arrives as several segments, which accumulate one
-   * transcript until the segment that ends the sentence.
+   * One final request per confirmed audio segment. Starting on every pause
+   * spent requests that speech resuming immediately discarded. Long speech
+   * accumulates bounded segments until the sentence actually ends.
    */
   const ensureAccumulator = useCallback(() => {
     const transcriber = transcriberRef.current
     if (!transcriber) return null
     accumulatorRef.current ??= new SegmentAccumulator(
-      (segment, token) => transcriber.run(segment.frames, segment.sampleRate, token.signal, false),
+      (segment, token) => {
+        const display = partialGenerationRef.current.request()
+        return transcriber.run(segment.frames, segment.sampleRate, token.signal, false, (text) => {
+          if (!token.isCurrent() || !display.isCurrent()) return
+          setLiveTranscript([accumulatorRef.current?.heard, text].filter(Boolean).join(' '))
+        }).finally(display.finish)
+      },
       {
         token: () => {
           const request = inputGenerationRef.current.request()
@@ -2045,13 +2061,11 @@ export function AgentPage() {
   const handleUtterance = useCallback(
     (utterance: Utterance) => {
       stopPartials()
+      partialGenerationRef.current.invalidate()
+      partialAudioMsRef.current = 0
       const accumulator = ensureAccumulator()
       if (!accumulator) return
-      const eager = eagerRef.current
-      eagerRef.current = null
-      // The eager attempt is only valid if nothing was still being said when
-      // it was taken; `dropEager` clears it the moment speech resumes.
-      void accumulator.push(utterance, eager?.promise)
+      void accumulator.push(utterance)
     },
     [ensureAccumulator, stopPartials],
   )
@@ -2080,6 +2094,7 @@ export function AgentPage() {
     turnRef.current = null
     sentVoiceRef.current = null
     reopenedRef.current = { messageId: sent.messageId, revision: sent.revision }
+    liveUserIdRef.current = sent.messageId
     setWorking(null)
     messagesRef.current = messages.slice(0, -1)
     setMessages(messagesRef.current)
@@ -2103,6 +2118,7 @@ export function AgentPage() {
     transcriberRef.current ??= new Transcriber({
       language: (navigator.language || 'en').slice(0, 5),
       onError: (message) => setNotice(message),
+      request: (audio, signal, caption, preview) => linkRef.current?.transcribe(audio, signal, caption, preview) ?? Promise.resolve(undefined),
     })
 
     const capture = new MicCapture({
@@ -2112,57 +2128,32 @@ export function AgentPage() {
         // have its utterance in transcription, and those words are the start
         // of this sentence. Only stale captions are retired; the accumulator
         // holds what it has for the utterance that is starting now.
-        partialGenerationRef.current.invalidate()
-        // If the first half already went, take it back while it is unanswered.
-        reopenVoiceTurn()
-        accumulatorRef.current?.resume()
         heardUtteranceRef.current = false
         for (const run of speculationRef.current.clear()) abandon(run.handle)
         speechEndRef.current = 0
         partialRef.current = { text: '', changedAt: Date.now() }
+        partialAudioMsRef.current = 0
         // Each utterance starts from the configured default; the partials
         // below lengthen it only while the words are still trailing off.
         captureRef.current?.setHangover(null)
-        dropEager()
         if (phaseRef.current === 'idle') setPhase('listening')
         stopPartials()
         partialTimerRef.current = setInterval(() => void runPartial(), 850)
+      },
+
+      onSpeechConfirmed: () => {
+        if (captureRef.current !== capture) return
+        partialGenerationRef.current.invalidate()
+        // Noise cannot withdraw a submitted message or restart its reply.
+        reopenVoiceTurn()
+        accumulatorRef.current?.resume()
       },
 
       onFrame: (result) => {
         if (captureRef.current !== capture) return
         // Too short to be a word, so no utterance will carry what was held.
         if (result.onFalseStart) accumulatorRef.current?.release()
-        const previous = vadStateRef.current
         vadStateRef.current = result.state
-        if (previous === result.state) return
-
-        if (result.state === 'trailing') {
-          // Not while GIDEON is audible: the detector is running against a
-          // raised threshold on a signal that may be his own echo, and
-          // transcribing that would spend a request on nothing.
-          if (phaseRef.current === 'speaking') return
-          // Silence has begun but the hangover has not expired. Transcribing
-          // now runs the round trip concurrently with the wait instead of
-          // after it, which is most of what makes a turn feel immediate.
-          const capture = captureRef.current
-          const transcriber = transcriberRef.current
-          const snapshot = capture?.snapshot()
-          if (!capture || !transcriber || !snapshot) return
-          dropEager()
-          const request = inputGenerationRef.current.request()
-          const controller = request.controller
-          eagerRef.current = {
-            frames: snapshot.frames.length,
-            controller,
-            promise: transcriber.run(snapshot.frames, snapshot.sampleRate, controller.signal, false)
-              .finally(request.finish),
-          }
-        } else if (result.state === 'speech' && previous === 'trailing') {
-          // It was a pause, not the end. Whatever was transcribed is now short
-          // of the sentence and has to be thrown away.
-          dropEager()
-        }
       },
 
       onUtterance: (utterance) => {
@@ -2227,7 +2218,6 @@ export function AgentPage() {
   }, [
     abandon,
     invalidateInput,
-    dropEager,
     handleUtterance,
     reopenVoiceTurn,
     interrupt,
@@ -2252,13 +2242,11 @@ export function AgentPage() {
        */
       if (captureSupported()) {
         setNotice(null)
-        setLiveTranscript('')
         const capture = captureRef.current
         if (capture?.running) {
-          // Already open; it never stopped listening. Only the phase needs to
-          // catch up, and the detector needs to forget the last utterance.
-          invalidateInput()
-          capture.resetUtterance()
+          // Already open; only the phase needs to catch up.
+          // The microphone never closed. A scheduled playback completion
+          // must not erase speech or transcription already in progress.
           setVoiceMode('active')
           setPhase('listening')
           resetSilenceTimer()
@@ -2373,6 +2361,7 @@ export function AgentPage() {
       })
       turn.timeline.interrupted = true
       logRef.current.push(turn.timeline.summary())
+      reportTurnFinished(turn)
     }
     abandon(turn)
     turnRef.current = null
@@ -2527,7 +2516,7 @@ export function AgentPage() {
       live: true,
     })
   } else if (liveTranscript.trim()) {
-    stream.push({ id: 'live-user', role: 'user', content: liveTranscript, cut: false, live: true })
+    stream.push({ id: liveUserIdRef.current, role: 'user', content: liveTranscript, cut: false, live: true })
   }
 
   const freshResources = resources.length > resourcesSeen
@@ -2561,6 +2550,15 @@ export function AgentPage() {
       </div>
 
       <div className="corner-actions">
+        <GlassButton
+          className="reset-button"
+          type="button"
+          onClick={() => { window.location.assign('/voices') }}
+          aria-label="Voices: choose how GIDEON sounds"
+        >
+          <AudioLines size={17} />
+          <span>Voices</span>
+        </GlassButton>
         {resources.length ? (
           <GlassButton
             className="reset-button"
@@ -2657,18 +2655,16 @@ export function AgentPage() {
                   return (
                     <p className="turn-said" data-role="user" data-current={current} key={entry.id}>
                       <span className="turn-who">You</span>
-                      {entry.live
-                        ? // Keyed by position and word, so a word already on
+                      {// Keyed by position and word, so a word already on
                           // screen stays put and only new or corrected ones rise.
                           entry.content
                             .split(/\s+/)
                             .filter(Boolean)
                             .map((word, wordIndex) => (
                               <span className="caption-word" key={`${wordIndex}-${word}`}>
-                                {word}
+                                {word}{' '}
                               </span>
-                            ))
-                        : entry.content}
+                            ))}
                     </p>
                   )
                 }
@@ -2711,13 +2707,13 @@ export function AgentPage() {
           frontId={frontId}
           tucking={stageMode === 'tucking'}
           spoken={assistantCaption}
-          onFocus={showCard}
+          onFocus={openCard}
           onTuck={tuckStage}
           onAsk={(text) => sendMessage(text, 'card')}
         />
       ) : null}
 
-      {stageMode === 'tucked' ? <StageShelf entries={stage} onShow={showCard} /> : null}
+      {stageMode === 'tucked' ? <StageShelf entries={stage} onShow={openCard} /> : null}
 
       <section className="voice-dock" ref={dockRef} aria-label="Voice and text controls">
         <div className="presence-status" aria-live="polite" data-phase={phase}>

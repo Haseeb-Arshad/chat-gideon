@@ -27,6 +27,7 @@ const recipe = (id: RecipeId, label: string, about: string, sizes: readonly Card
 })
 
 export const RECIPES: Record<RecipeId, Recipe> = {
+  illustration: recipe('illustration', 'Drawing', 'an interactive illustration or conceptual model', ['feature', 'wide', 'standard']),
   answer: recipe('answer', 'Answer', 'an answer', ['standard']),
   profile: recipe('profile', 'Card', 'about a person, place or thing', ['standard']),
   figure: recipe('figure', 'Figure', 'a number', ['standard', 'glance']),

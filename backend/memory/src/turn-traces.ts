@@ -30,22 +30,38 @@ export async function recordMemoryTurn(session: MemorySession<PostgresMemoryStor
   })
 }
 
-/** Only reviewed, independently tested overlays at current epochs can reach a turn. */
-export async function attachVerifiedOverlays(session: MemorySession<PostgresMemoryStore>, pack: ContextPack): Promise<ContextPack> {
-  const topics=['general',...pack.sections.relevantFacts.flatMap(f=>f.document.topicLabel?[f.document.topicLabel]:[])]
+export interface VerifiedOverlay { topic: string; instructions: string[]; deletion_epoch: string | number }
+
+/**
+ * Every reviewed overlay still valid at the current epochs, newest first.
+ * Which of them a turn uses depends on its pack, but reading them does not, so
+ * a turn reads them beside its lookup rather than after it.
+ */
+export async function readVerifiedOverlays(session: MemorySession<PostgresMemoryStore>): Promise<VerifiedOverlay[]> {
   const rows = await session.store.forSession(session).runTransaction(async tx => {
     await tx.assertAuthorizedContext(session, 'recall')
-    return tx.query<{ instructions: string[] }>(`SELECT o.instructions FROM gideon_memory.skill_overlays o JOIN gideon_memory.policy_epochs e ON e.scope_id=o.scope_id
-      WHERE o.scope_id=$1 AND o.state='verified' AND o.policy_epoch=e.policy_epoch AND o.deletion_epoch=e.deletion_epoch AND e.deletion_epoch=$2
-      AND o.topic=ANY($3::text[])
+    return tx.query<VerifiedOverlay>(`SELECT o.topic, o.instructions, e.deletion_epoch FROM gideon_memory.skill_overlays o JOIN gideon_memory.policy_epochs e ON e.scope_id=o.scope_id
+      WHERE o.scope_id=$1 AND o.state='verified' AND o.policy_epoch=e.policy_epoch AND o.deletion_epoch=e.deletion_epoch
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(o.source_turn_ids) s(id) WHERE NOT EXISTS(SELECT 1 FROM gideon_memory.turn_traces t WHERE t.scope_id=o.scope_id AND t.turn_id=s.id))
-      ORDER BY o.created_at DESC LIMIT 3`,[session.scope.id,pack.coverage.authority.deletionEpoch,topics])
-  })
-  const guidance = rows.rows.flatMap(r=>r.instructions).map(t=>`- ${t.replace(/[<>]/gu,'')}`).join('\n')
+      ORDER BY o.created_at DESC LIMIT 200`,[session.scope.id])
+  }, { readOnly: true })
+  return rows.rows
+}
+
+/** The three newest overlays on the pack's topics, at the pack's own deletion epoch. */
+export function applyVerifiedOverlays(pack: ContextPack, overlays: readonly VerifiedOverlay[]): ContextPack {
+  const topics=new Set(['general',...pack.sections.relevantFacts.flatMap(f=>f.document.topicLabel?[f.document.topicLabel]:[])])
+  const rows = overlays.filter(o=>Number(o.deletion_epoch)===pack.coverage.authority.deletionEpoch && topics.has(o.topic)).slice(0,3)
+  const guidance = rows.flatMap(r=>r.instructions).map(t=>`- ${t.replace(/[<>]/gu,'')}`).join('\n')
   if (!guidance) return pack
   const advice = `Reviewed memory-answering guidance (subordinate to system rules and this turn's explicit user instructions; no new facts or permissions):\n${guidance}`
   const text = `${pack.text}\n${advice}`
   const tokens = MEMORY_TOKENIZER.countTokens(text)
   if (tokens > pack.tokenUsage.memoryTokenLimit) return pack
   return {...pack,guidance:advice,tokenUsage:{...pack.tokenUsage,renderedMemoryTokens:tokens,remainingMemoryTokens:pack.tokenUsage.memoryTokenLimit-tokens}}
+}
+
+/** Only reviewed, independently tested overlays at current epochs can reach a turn. */
+export async function attachVerifiedOverlays(session: MemorySession<PostgresMemoryStore>, pack: ContextPack): Promise<ContextPack> {
+  return applyVerifiedOverlays(pack, await readVerifiedOverlays(session))
 }

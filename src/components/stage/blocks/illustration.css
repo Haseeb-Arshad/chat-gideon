@@ -1,0 +1,11 @@
+.glass-pane[data-recipe='illustration'] .card-body { width: 100%; padding: 0; }
+/* Keep the existing glass optics behind the iframe so Chromium cannot blur its foreground. */
+.illustration-glass { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none; backdrop-filter: blur(30px) saturate(175%); -webkit-backdrop-filter: blur(30px) saturate(175%); }
+.illustration-work { width: 100%; min-width: 0; }
+.illustration-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 44px 14px 22px; border-bottom: 1px solid rgba(255,255,255,.12); font: 12px/1.4 var(--font-mono); color: rgba(226,232,241,.8); }
+.illustration-tools button,.illustration-error button { color: var(--white); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 6px 10px; cursor: pointer; font: inherit; }
+.illustration-tools button:disabled { opacity: .45; cursor: default; }
+.illustration-frame { display: block; width: 100%; height: clamp(380px, 60vh, 640px); border: 0; background: #f8f7f3; }
+.illustration-caption,.illustration-status,.illustration-error { margin: 0; padding: 16px 22px; font: 13px/1.6 var(--font-text); }
+.illustration-caption { border-top: 1px solid rgba(255,255,255,.12); color: rgba(226,232,241,.8); }
+.illustration-error { min-height: 180px; }

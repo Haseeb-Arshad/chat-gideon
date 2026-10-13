@@ -46,6 +46,8 @@ export interface CaptureHandlers {
   /** Every frame, with the detector's verdict attached. */
   onFrame?: (result: VadFrameResult, features: FrameFeatures) => void
   onSpeechStart?: () => void
+  /** Once per utterance, after sustained speech passes the noise gate. */
+  onSpeechConfirmed?: () => void
   /**
    * An utterance finished, with the audio it was made of.
    *
@@ -121,6 +123,7 @@ export class MicCapture {
   private silero: SileroStream | null = null
   /** Whether Silero was already listening when this utterance began. */
   private sileroHeardStart = false
+  private speechConfirmed = false
   private level = 0
   /**
    * True while GIDEON's voice is coming out of the speakers. It raises the
@@ -174,6 +177,10 @@ export class MicCapture {
     return this.rate
   }
 
+  get isDucking() {
+    return this.ducking
+  }
+
   /**
    * The utterance so far, without ending it.
    *
@@ -183,6 +190,7 @@ export class MicCapture {
    */
   snapshot(): Utterance | null {
     if (!this.recording || !this.recording.length) return null
+    if (this.silero && this.sileroHeardStart && this.silero.speechMs < MIN_NEURAL_SPEECH_MS) return null
     return {
       frames: [...this.recording],
       sampleRate: this.rate,
@@ -413,6 +421,7 @@ export class MicCapture {
     // recording would lose the words the person cut in with — which are the
     // whole point of letting them cut in.
     if (result.onSpeechStart) {
+      this.speechConfirmed = false
       // The pre-roll becomes the head of the utterance, so the first consonant
       // survives the frames onset detection spent making up its mind.
       this.recording = [...this.preRoll]
@@ -449,6 +458,10 @@ export class MicCapture {
 
     const noise = this.silero !== null && this.sileroHeardStart &&
       this.silero.speechMs < MIN_NEURAL_SPEECH_MS
+    if (!this.speechConfirmed && !noise && result.speechMs >= MIN_NEURAL_SPEECH_MS) {
+      this.speechConfirmed = true
+      this.options.onSpeechConfirmed?.()
+    }
     // Bound PCM without resetting VAD, repeating pre-roll, or dropping samples.
     // Keep a full final segment for the endpoint rather than emitting an empty tail.
     while (this.recording && this.recordedFrames >= this.maxFrames &&

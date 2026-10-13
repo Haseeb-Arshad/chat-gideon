@@ -50,6 +50,7 @@ export type RecipeId =
   | 'video'
   | 'memory'
   | 'spread'
+  | 'illustration'
 
 export interface CardSource {
   title: string
@@ -365,7 +366,16 @@ export interface GalleryBlock extends BlockBase {
   pictures: CardPicture[]
 }
 
+export interface IllustrationBlock extends BlockBase {
+  type: 'illustration'
+  title: string
+  summary: string
+  /** Body fragment executed only in an opaque-origin sandbox. */
+  html: string
+}
+
 export type Block =
+  | IllustrationBlock
   | HeadlineBlock
   | StatBlock
   | ProseBlock
@@ -388,6 +398,7 @@ export type Block =
 export type BlockType = Block['type']
 
 export const BLOCK_TYPES: readonly BlockType[] = [
+  'illustration',
   'headline',
   'stat',
   'prose',
