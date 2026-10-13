@@ -19,6 +19,7 @@ export interface CompactCard {
 }
 
 const RECIPE_WORDS: Partial<Record<CardV2['recipe'], string>> = {
+  illustration: 'Drawing',
   weather: 'Weather',
   place: 'Map',
   route: 'Route',
@@ -44,6 +45,8 @@ function thumbOf(card: CardV2): CompactThumb | null {
 }
 
 function detailOf(card: CardV2): string {
+  const drawing = blockOf(card, 'illustration')
+  if (drawing) return drawing.summary
   const stat = blockOf(card, 'stat')
   if (stat) return [stat.value, stat.label].filter(Boolean).join(' · ')
   const headline = blockOf(card, 'headline')

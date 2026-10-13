@@ -1,6 +1,6 @@
 {
   "reportVersion": "stage-01-baseline-v1",
-  "generatedAt": "2026-09-21T13:03:01.114Z",
+  "generatedAt": "2026-10-13T12:06:13.766Z",
   "scope": "local offline baseline; not staging, production, live provider, or voice proof",
   "runtime": {
     "node": "v22.13.0",
@@ -249,7 +249,7 @@
       "capability": "truthful-capacity-receipt",
       "outcome": "PASS",
       "latencyBoundary": "local in-process legacy tool and ephemeral store; not voice or deployment",
-      "latencyMs": 4.355,
+      "latencyMs": 11.031,
       "evidence": "The full 400-record corpus remained intact, the new record was absent, and the tool returned ok=false.",
       "releaseBlocking": true
     },
@@ -353,7 +353,7 @@
           "queryLabel": "empty/no-match",
           "backend": "legacy-memory",
           "source": "legacy-memory",
-          "selectionMs": 1.7513999999999896,
+          "selectionMs": 2.6831999999999425,
           "selectedCount": 0,
           "contextChars": 0,
           "estimatedTokens": 0
@@ -368,7 +368,7 @@
           "queryLabel": "small/detail",
           "backend": "legacy-memory",
           "source": "legacy-memory",
-          "selectionMs": 0.7855999999999312,
+          "selectionMs": 1.3529000000000906,
           "selectedCount": 3,
           "contextChars": 110,
           "estimatedTokens": 28
@@ -383,7 +383,7 @@
           "queryLabel": "cap-sized/detail",
           "backend": "legacy-memory",
           "source": "legacy-memory",
-          "selectionMs": 5.796600000000012,
+          "selectionMs": 7.614900000000034,
           "selectedCount": 4,
           "contextChars": 139,
           "estimatedTokens": 35
@@ -396,7 +396,7 @@
       "queryLabel": "profile",
       "backend": "profile-session-summary",
       "source": "supplied-summary-fixture",
-      "selectionMs": 0.49530000000004293,
+      "selectionMs": 0.45280000000002474,
       "selectedCount": 1,
       "contextChars": 61,
       "estimatedTokens": 16
@@ -405,7 +405,7 @@
       "queryLabel": "session-summary",
       "backend": "profile-session-summary",
       "source": "supplied-summary-fixture",
-      "selectionMs": 0.20289999999999964,
+      "selectionMs": 0.18790000000012697,
       "selectedCount": 2,
       "contextChars": 130,
       "estimatedTokens": 33
@@ -414,7 +414,7 @@
   "persistenceMeasurement": {
     "backend": "json-memory-local-fixture",
     "ok": true,
-    "persistenceMs": 4.834,
+    "persistenceMs": 6.513,
     "corpusCount": 1,
     "evidence": "Local Node JSON store only; no database, Worker, deployment, provider, or customer data involved."
   },

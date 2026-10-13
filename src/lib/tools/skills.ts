@@ -14,7 +14,7 @@
  * sentences it has been shown has only recognised them.
  */
 
-export type ToolName = 'get_time' | 'remember' | 'correct' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'show_map' | 'set_timer' | 'offer_link'
+export type ToolName = 'get_time' | 'remember' | 'correct' | 'recall' | 'forget' | 'research' | 'show_images' | 'weather' | 'show_map' | 'set_timer' | 'offer_link' | 'draw_illustration'
 
 export interface SkillManifest {
   tool: ToolName
@@ -35,6 +35,22 @@ export interface SkillManifest {
 }
 
 export const SKILLS: Record<ToolName, SkillManifest> = {
+  draw_illustration: {
+    tool: 'draw_illustration',
+    job: 'Create an original drawing or interactive conceptual explainer on its own canvas, in the requested visual style.',
+    useWhen: ['an explicit request to draw, sketch, illustrate, make a diagram or build an interactive explanation, including /anatomy or accepting an offered drawing', 'an explicit request to change an illustration: describe the complete subject and requested changes'],
+    neverFor: [
+      { when: 'photographs or existing images of a thing', use: 'show_images' },
+      { when: 'charts, rankings or comparisons of sourced facts and measured data', use: 'research' },
+      { when: 'an ordinary explanation without a request to draw or make it interactive', use: null },
+      { when: 'a figure of speech asking someone to picture or imagine something', use: null },
+      { when: 'a geographic map or real directions', use: 'show_map' },
+    ],
+    voice: 'Pass the full subject, style and behaviour in request. Drawings are conceptual first drafts; never call illustrative numbers verified data. Invite the user to try its controls in one short line. Regenerating a revised drawing does not preserve the previous control state.',
+    examples: ['make an interactive sketch of a rack and pinion', 'draw a little red sailboat in ink'],
+    counterExamples: [{ text: 'explain a binary search in words', use: null }, { text: 'find photographs of a steam locomotive', use: 'show_images' }],
+    sideEffects: false,
+  },
   get_time: {
     tool: 'get_time',
     job: "The current date and time in the user's timezone.",
@@ -137,6 +153,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
       { when: 'the forecast, or the weather now, for a place', use: 'weather' },
       { when: 'where a place is, or how far or how long it is by road, on foot or by bike from one place to another', use: 'show_map' },
       { when: 'restaurants, cafes, pharmacies or any other kind of place nearby or around somewhere, by category rather than by name', use: 'show_map' },
+      { when: 'an original drawing or interactive conceptual explainer explicitly requested by the user', use: 'draw_illustration' },
       { when: 'pictures, photos, or what something looks like', use: 'show_images' },
       { when: 'something the user told you about themselves', use: 'recall' },
       { when: 'a question about a card already on screen that what it already shows answers, with nothing more asked for', use: null },
@@ -160,6 +177,7 @@ export const SKILLS: Record<ToolName, SkillManifest> = {
       '"show me" a thing or a place',
     ],
     neverFor: [
+      { when: 'drawing an original illustration, diagram or interactive conceptual explainer', use: 'draw_illustration' },
       { when: 'facts about the thing, such as who made it or how big it is', use: 'research' },
       { when: 'charts, graphs, data comparisons or timelines, which need sourced values rather than image search results', use: 'research' },
       { when: 'where a place is', use: 'show_map' },

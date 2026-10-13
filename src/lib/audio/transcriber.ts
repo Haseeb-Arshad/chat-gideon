@@ -22,6 +22,8 @@ export interface TranscriberOptions {
   /** BCP-47 hint. Improves accuracy and rules out a wrong-language guess. */
   language?: string
   onError?: (message: string, retryable: boolean) => void
+  /** undefined means no socket request was sent, so HTTP may handle it once. */
+  request?: (audio: ArrayBuffer, signal: AbortSignal, caption: boolean, preview?: (text: string) => void) => Promise<{ text: string; model: string } | undefined>
 }
 
 export class Transcriber {
@@ -51,15 +53,27 @@ export class Transcriber {
     sampleRate: number,
     signal?: AbortSignal,
     ordered = true,
+    preview?: (text: string) => void,
   ): Promise<TranscriptResult | null> {
-    if (!frames.length) return null
+    if (!frames.length || signal?.aborted) return null
 
     const seq = ++this.sequence
     const started = performance.now()
     this.inFlight += 1
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(), ordered ? 3_000 : 10_000)
+    const requestSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal
 
     try {
       const wav = utteranceToWav(frames, sampleRate)
+      const socketResult = this.options.request ? await this.options.request(wav, requestSignal, ordered, preview) : undefined
+      if (this.options.request && requestSignal.aborted) return null
+      if (socketResult) {
+        if (ordered && seq < this.latestShown) return null
+        if (ordered) this.latestShown = seq
+        const text = socketResult.text.trim()
+        return text ? { text, model: socketResult.model, ms: Math.round(performance.now() - started) } : null
+      }
       const response = await fetch(backendUrl('/api/transcribe'), {
         method: 'POST',
         headers: {
@@ -68,23 +82,57 @@ export class Transcriber {
           // A caption is a throwaway read of audio that is still being spoken;
           // the server has no reason to keep it, only the utterance that follows.
           ...(ordered ? { 'X-Gideon-Purpose': 'caption' } : {}),
+          ...(!ordered ? { Accept: 'application/x-ndjson' } : {}),
         },
         body: wav,
-        signal,
+        signal: requestSignal,
       })
 
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as {
           error?: { message?: string; retryable?: boolean }
         } | null
-        this.options.onError?.(
+        if (!ordered) this.options.onError?.(
           body?.error?.message ?? 'Speech could not be transcribed.',
           Boolean(body?.error?.retryable),
         )
         return null
       }
 
-      const body = (await response.json()) as { text?: string; model?: string }
+      let body: { text?: string; model?: string }
+      if (response.headers.get('content-type')?.includes('application/x-ndjson') && response.body) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let committed: typeof body | null = null
+        try {
+          while (!committed) {
+            const chunk = await reader.read()
+            buffer += decoder.decode(chunk.value, { stream: !chunk.done })
+            if (buffer.length > 256_000) throw new Error('Transcript exceeds the stream limit')
+            let end: number
+            while ((end = buffer.indexOf('\n')) >= 0) {
+              const line = buffer.slice(0, end); buffer = buffer.slice(end + 1)
+              if (!line.trim()) continue
+              const frame = JSON.parse(line) as { t: string; text?: string; model?: string; error?: { message?: string; retryable?: boolean } }
+              if (requestSignal.aborted) return null
+              if (frame.t === 'preview' && typeof frame.text === 'string') preview?.(frame.text.trim())
+              if (frame.t === 'error') {
+                this.options.onError?.(frame.error?.message ?? 'Speech could not be transcribed.', Boolean(frame.error?.retryable))
+                return null
+              }
+              if (frame.t === 'done') { committed = frame; break }
+            }
+            if (chunk.done) break
+          }
+          if (!committed) throw new Error('Transcript stream ended before it was saved')
+          body = committed
+        } finally {
+          await reader.cancel().catch(() => undefined)
+          reader.releaseLock()
+        }
+      } else body = (await response.json()) as typeof body
+      if (requestSignal.aborted) return null
       // A slower earlier request finishing last must not overwrite a newer
       // transcript that is already on screen.
       if (ordered) {
@@ -96,10 +144,14 @@ export class Transcriber {
       if (!text) return null
       return { text, model: body.model ?? '', ms: Math.round(performance.now() - started) }
     } catch (error) {
+      if (deadline.signal.aborted && !signal?.aborted && !ordered) {
+        this.options.onError?.('Speech recognition took too long. Please try again.', true)
+      }
       if ((error as Error).name === 'AbortError') return null
-      this.options.onError?.('Speech recognition could not be reached.', true)
+      if (!ordered) this.options.onError?.('Speech recognition could not be reached.', true)
       return null
     } finally {
+      clearTimeout(timer)
       this.inFlight -= 1
     }
   }

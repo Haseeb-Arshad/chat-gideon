@@ -20,6 +20,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = original
+  vi.unstubAllEnvs()
   delete process.env.OPENROUTER_API_KEY
 })
 
@@ -28,6 +29,47 @@ function abortError() {
 }
 
 describe('fetchVoice', () => {
+  it('honors a Fish request override independently of the Microsoft server default', async () => {
+    vi.stubEnv('OPENROUTER_VOICE_MODEL', 'microsoft/mai-voice-2.1-flash')
+    vi.stubEnv('OPENROUTER_VOICE', 'en-US-Harper:MAI-Voice-2.1-Flash')
+    const request = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(new Uint8Array([1, 2, 3])))
+    globalThis.fetch = request as unknown as typeof fetch
+    await fetchVoice('Hello there.', new AbortController().signal, {
+      model: 'fish-audio/s2.1-pro', voice: '933563129e564b19a115bedd57b7406a',
+    })
+    expect(JSON.parse(request.mock.calls[0][1]?.body as string)).toMatchObject({
+      model: 'fish-audio/s2.1-pro', voice: '933563129e564b19a115bedd57b7406a',
+    })
+  })
+
+  it('sends Microsoft the spoken text without Fish delivery cues', async () => {
+    vi.stubEnv('OPENROUTER_VOICE_MODEL', 'microsoft/mai-voice-2.1-flash')
+    vi.stubEnv('OPENROUTER_VOICE', 'en-US-Harper:MAI-Voice-2.1-Flash')
+    const request = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'Content-Type': 'audio/mpeg' },
+    }))
+    globalThis.fetch = request as unknown as typeof fetch
+    expect((await fetchVoice('Hello there.', new AbortController().signal)).ok).toBe(true)
+    const body = JSON.parse(request.mock.calls[0][1]?.body as string)
+    expect(body).toEqual({
+      model: 'microsoft/mai-voice-2.1-flash',
+      input: 'Hello there.',
+      voice: 'en-US-Harper:MAI-Voice-2.1-Flash',
+      response_format: 'mp3',
+    })
+  })
+
+  it('retains delivery cues when explicitly configured for Fish', async () => {
+    vi.stubEnv('OPENROUTER_VOICE_MODEL', 'fish-audio/s2.1-pro')
+    vi.stubEnv('OPENROUTER_VOICE', '933563129e564b19a115bedd57b7406a')
+    const request = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(new Uint8Array([1, 2, 3])))
+    globalThis.fetch = request as unknown as typeof fetch
+    await fetchVoice('Hello there.', new AbortController().signal)
+    const body = JSON.parse(request.mock.calls[0][1]?.body as string)
+    expect(body.input).toBe('(warm natural adult woman, conversational, clear, intimate, relaxed pace) Hello there.')
+    expect(body.voice).toBe('933563129e564b19a115bedd57b7406a')
+  })
+
   it('reports a cancellation instead of rejecting when the body read aborts', async () => {
     // Headers arrive, then the caller cancels mid-download. This is precisely
     // what an interruption does to the chunk currently being fetched.

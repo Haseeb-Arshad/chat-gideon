@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 import { hear, saidDays, saidEvents, saidItems, saidPins, saidPoints, saidRows, saidStories, type Heard } from '../../lib/cards/mentions'
 import { blockOf, orderBySlot, type Block, type CardSize, type CardSource, type CardV2, type ForecastBlock, type MediaBlock, type StoriesBlock, type TableBlock } from '../../lib/cards/schema'
 import { Chips, Note, Quote } from './blocks/Asides'
@@ -8,6 +8,7 @@ import { Gallery } from './blocks/Gallery'
 import { MapView } from './blocks/MapView'
 import { Media, type MediaShape } from './blocks/Media'
 import { Meter } from './blocks/Meter'
+const Illustration = lazy(() => import('./blocks/Illustration').then(module => ({ default: module.Illustration })))
 import { List, Steps, Timeline } from './blocks/Sequences'
 import { Sources } from './blocks/Sources'
 import { FrontPage, StoryList } from './blocks/Stories'
@@ -66,6 +67,8 @@ interface BodyBlockProps {
 function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, onAsk, sources, sourceTable }: BodyBlockProps) {
   const start = useFirst(planned)
   switch (block.type) {
+    case 'illustration':
+      return <Suspense fallback={<p role="status">Opening the drawing…</p>}><Illustration block={block} front={front} onAsk={onAsk} /></Suspense>
     case 'headline':
       return <Headline block={block} start={start} />
     case 'stat':

@@ -66,7 +66,12 @@ export interface RetrievalEmbeddingProvider {
   dimensions: number
   placement: 'local' | 'remote'
   embed(texts: readonly string[], signal: AbortSignal): Promise<readonly (readonly number[])[]>
+  /** How long its last query embedding took, when it has made one. */
+  recentQueryMs?(): number | null
 }
+
+/** An embedding this slow cannot catch the other branches up, so they do not wait at all. */
+const SLOW_QUERY_EMBEDDING_MS = 400
 
 export type RemoteEmbeddingAuthorizer = (
   session: MemorySession,
@@ -84,6 +89,15 @@ export interface RetrieveMemoryOptions {
   signal?: AbortSignal
   maxExpansionEdges?: number
   maxEvidenceFetches?: number
+  /**
+   * How long the other branches, once they have all answered, go on waiting
+   * for the semantic one, which needs a remote embedding of the query first.
+   * Past it they answer without it and coverage says so. A quick embedding
+   * arrives while the others are still reading and costs nothing; a slow one
+   * costs this and no more. Unset, the semantic branch has the whole deadline:
+   * right for a lookup someone asked for, wrong for the one in front of every reply.
+   */
+  semanticGraceMs?: number
   /**
    * Stage 13 evaluation only: switch one mechanism off to measure what it
    * contributes. Never set by the application. Each switch removes a branch;
@@ -218,21 +232,37 @@ async function beginAuthorizedRead<T>(
 ): Promise<T> {
   return session.store.forSession(session).runTransaction(async (transaction) => {
     checkSignal(signal)
-    const timeoutMs = queryTimeoutMs(request, signal)
-    await transaction.query(`SELECT set_config('statement_timeout', $1, true)`, [`${timeoutMs}ms`])
-    await transaction.assertAuthorizedContext(session, 'recall')
+    await transaction.assertAuthorizedContext(session, 'recall', { statementTimeoutMs: queryTimeoutMs(request, signal) })
     return work(transaction)
-  })
+  }, { readOnly: true })
+}
+
+const EPOCH_SQL = `SELECT policy_epoch, deletion_epoch, (SELECT next_watermark FROM gideon_memory.change_counters c WHERE c.scope_id=$1) AS change_watermark FROM ${SQL.epochs} WHERE scope_id = $1`
+
+function checkedEpoch(row: EpochRow | undefined, session: MemorySession): EpochRow {
+  if (!row || Number(row.policy_epoch) !== session.policyEpoch) throw opFailure('conflict', 'Memory authorization changed during retrieval; retry with a fresh session.', true)
+  return row
 }
 
 async function readEpoch(transaction: PostgresMemoryTransaction, session: MemorySession): Promise<EpochRow> {
-  const result = await transaction.query<EpochRow>(
-    `SELECT policy_epoch, deletion_epoch, (SELECT next_watermark FROM gideon_memory.change_counters c WHERE c.scope_id=$1) AS change_watermark FROM ${SQL.epochs} WHERE scope_id = $1`,
-    [session.scope.id],
-  )
-  const row = result.rows[0]
-  if (!row || Number(row.policy_epoch) !== session.policyEpoch) throw opFailure('conflict', 'Memory authorization changed during retrieval; retry with a fresh session.', true)
-  return row
+  const result = await transaction.query<EpochRow>(EPOCH_SQL, [session.scope.id])
+  return checkedEpoch(result.rows[0], session)
+}
+
+/**
+ * The epochs a retrieval starts from, as one statement on its own.
+ *
+ * It is read before any branch looks at memory, so a deletion or a policy
+ * change after it is still caught by the closing read. It no longer opens a
+ * transaction and proves authorization first: every branch does exactly that
+ * in its own transaction immediately afterwards, and repeating it here was four
+ * round trips in front of all of them.
+ */
+async function openingEpoch(session: MemorySession<PostgresMemoryStore>, request: RetrievalRequest, signal: AbortSignal): Promise<EpochRow> {
+  queryTimeoutMs(request, signal)
+  const result = await session.store.pool.query<EpochRow>(EPOCH_SQL, [session.scope.id])
+  checkSignal(signal)
+  return checkedEpoch(result.rows[0], session)
 }
 
 function validRef(value: ExactVersionRef): boolean {
@@ -764,6 +794,7 @@ async function searchSemantic(
   provider: RetrievalEmbeddingProvider | undefined,
   authorizeRemote: RemoteEmbeddingAuthorizer | undefined,
   minimumSimilarity = 0.3,
+  abandoned?: () => boolean,
 ): Promise<{ documents: RetrievalDocument[]; epoch: EpochRow; truncated: boolean; filtered: number; reason: string | null }> {
   if (!provider) throw opFailure('unavailable', 'No semantic embedding provider is configured for this retrieval turn.')
   if (!validateProvider(provider)) throw opFailure('validation', 'The semantic embedding provider metadata is invalid.')
@@ -776,6 +807,8 @@ async function searchSemantic(
   if (!(await authorizeEmbeddingUse(session, provider, authorizeRemote, 'query_embedding', 1))) throw opFailure('unauthorized', 'Remote query embedding is disabled without current server-side authorization.')
   checkSignal(signal)
   const queryVectors = await provider.embed([queryText], signal)
+  // The retrieval answered without this branch; its vector scan would be read by nobody.
+  if (abandoned?.()) throw new RetrievalTimeoutError()
   const queryVector = queryVectors.length === 1 ? queryVectors[0] : null
   if (!queryVector || queryVector.length !== provider.dimensions || !queryVector.every(Number.isFinite)) throw opFailure('unavailable', 'The semantic provider returned an invalid versioned vector.')
   const vectorQuery: EmbeddingQuery = { modelId: provider.modelId, modelVersion: provider.modelVersion, dimension: provider.dimensions, vector: queryVector }
@@ -1168,6 +1201,27 @@ function emptyBranch(status: RetrievalBranchCoverage['status'], reason: string |
   return { status, documents: [], reason, candidates: 0, filtered: 0 }
 }
 
+/**
+ * A branch worth having only if it keeps up: once the others have all
+ * answered it has `graceMs` more, and then they go on without it.
+ */
+function keepingUpWith(work: Promise<BranchResult>, others: Promise<unknown>, graceMs: number | undefined, onLeftBehind: () => void): Promise<BranchResult> {
+  if (graceMs === undefined || graceMs < 0) return work
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const leftBehind = others.then(() => new Promise<BranchResult>((resolve) => {
+    if (settled) return
+    timer = setTimeout(() => {
+      if (!settled) onLeftBehind()
+      resolve(emptyBranch('timed_out', 'semantic_left_behind'))
+    }, graceMs)
+  }))
+  return Promise.race([work, leftBehind]).finally(() => {
+    settled = true
+    clearTimeout(timer)
+  })
+}
+
 async function captureBranch(work: () => Promise<BranchResult>, signal: AbortSignal): Promise<BranchResult> {
   try {
     checkSignal(signal)
@@ -1271,36 +1325,43 @@ export async function retrieveMemory(
     if (!retrievalRequestMatchesSession(request, session)) throw opFailure('unauthorized', 'The retrieval request identity does not match its authenticated server session.')
 
     const deep = await runBoundedDeepRecall(request, async ({ signal, limits }) => {
-      const initialEpoch = await currentAuthorityEpoch(session, request!, signal)
+      const initialEpoch = await openingEpoch(session as MemorySession<PostgresMemoryStore>, request!, signal)
+      let semanticAbandoned = false
+      const slowEmbedding = (options.embeddingProvider?.recentQueryMs?.() ?? 0) > SLOW_QUERY_EMBEDDING_MS
+      const semanticGraceMs = options.semanticGraceMs !== undefined && slowEmbedding ? 0 : options.semanticGraceMs
+      const exactBranch = captureBranch(async () => {
+        const result = await searchExactAndConstraints(session, request!, signal)
+        const truncated = result.truncatedExact || result.truncatedConstraints
+        return { status: truncated ? 'partial' : 'complete', documents: [...result.exact, ...result.constraints], reason: result.truncatedExact ? 'exact_branch_limit_reached' : result.truncatedConstraints ? 'constraint_index_limit_reached' : null, candidates: result.exact.length + result.constraints.length, filtered: 0 }
+      }, signal)
+      const lexicalBranch = captureBranch(async () => {
+        const result = await searchLexical(session, request!, signal)
+        return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'lexical_branch_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
+      }, signal)
+      const evidenceBranch = options.ablate?.sourceEvidence ? Promise.resolve(emptyBranch('not_configured', 'ablated_source_evidence')) : captureBranch(async () => {
+        const result = await searchSourceEvidence(session, request!, signal)
+        return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
+      }, signal)
+      const warmBranch = (async (): Promise<WarmResult> => {
+        if (options.ablate?.consolidation) return {status:'not_configured',snapshot:null,documents:[],reason:'ablated_consolidation',candidates:0}
+        try {
+          return await searchWarmSnapshot(session, request!, signal,options.compact===true)
+        } catch (error) {
+          const branch = await captureBranch(async () => { throw error }, signal)
+          return { ...branch, snapshot: null }
+        }
+      })()
       const [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw] = await Promise.all([
-        captureBranch(async () => {
-          const result = await searchExactAndConstraints(session, request!, signal)
-          const truncated = result.truncatedExact || result.truncatedConstraints
-          return { status: truncated ? 'partial' : 'complete', documents: [...result.exact, ...result.constraints], reason: result.truncatedExact ? 'exact_branch_limit_reached' : result.truncatedConstraints ? 'constraint_index_limit_reached' : null, candidates: result.exact.length + result.constraints.length, filtered: 0 }
-        }, signal),
-        captureBranch(async () => {
-          const result = await searchLexical(session, request!, signal)
-          return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'lexical_branch_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
-        }, signal),
+        exactBranch,
+        lexicalBranch,
         options.embeddingProvider
-          ? captureBranch(async () => {
-              const result = await searchSemantic(session, request!, signal, options.embeddingProvider, options.authorizeRemoteEmbedding, options.minimumSimilarity)
+          ? keepingUpWith(captureBranch(async () => {
+              const result = await searchSemantic(session, request!, signal, options.embeddingProvider, options.authorizeRemoteEmbedding, options.minimumSimilarity, () => semanticAbandoned)
               return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.reason, candidates: result.documents.length, filtered: result.filtered }
-            }, signal)
+            }, signal), Promise.all([exactBranch, lexicalBranch, evidenceBranch, warmBranch]), semanticGraceMs, () => { semanticAbandoned = true })
           : Promise.resolve(emptyBranch('not_configured', 'semantic_provider_not_configured')),
-        options.ablate?.sourceEvidence ? Promise.resolve(emptyBranch('not_configured', 'ablated_source_evidence')) : captureBranch(async () => {
-          const result = await searchSourceEvidence(session, request!, signal)
-          return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
-        }, signal),
-        (async (): Promise<WarmResult> => {
-          if (options.ablate?.consolidation) return {status:'not_configured',snapshot:null,documents:[],reason:'ablated_consolidation',candidates:0}
-          try {
-            return await searchWarmSnapshot(session, request!, signal,options.compact===true)
-          } catch (error) {
-            const branch = await captureBranch(async () => { throw error }, signal)
-            return { ...branch, snapshot: null }
-          }
-        })(),
+        evidenceBranch,
+        warmBranch,
       ])
 
       const exactDocuments = exactRaw.documents

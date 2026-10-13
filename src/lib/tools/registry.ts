@@ -33,6 +33,7 @@ import { cardFromMaterials, describeCard, mergeCards, portraitSubject } from '..
 import { SKILLS, describeSkill } from './skills'
 import { openMeteo, runWeather } from './weather'
 import { runMap, withCardMap } from './maps'
+import { runIllustration } from './illustration'
 import type { CoarseLocation } from '../location'
 import { fromLegacy } from '../cards/legacy'
 import type { Material } from '../cards/materials'
@@ -93,6 +94,12 @@ export interface MemoryToolRuntime {
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'draw_illustration',
+    description: describeSkill(SKILLS.draw_illustration),
+    parameters: { type: 'object', properties: { request: { type: 'string', description: 'The complete drawing request, subject, style and requested interaction. For a revision restate the subject and changes.' } }, required: ['request'] },
+    readOnly: true,
+  },
   {
     name: 'get_time',
     description: describeSkill(SKILLS.get_time),
@@ -729,6 +736,8 @@ export async function runServerTool(
     }
   }
   switch (name) {
+    case 'draw_illustration':
+      return runIllustration(args, context)
     case 'get_time':
       return describeTime(context.timezone)
     case 'remember':

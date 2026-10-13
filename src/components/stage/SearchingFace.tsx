@@ -1,6 +1,6 @@
 import { rise } from './stagger'
 
-export type SearchHint = 'web' | 'pictures'
+export type SearchHint = 'web' | 'pictures' | 'drawing'
 
 /** The pane shown while a search runs: the question, and something breathing where the answer will be. */
 export function SearchingFace({ query, hint }: { query: string; hint: SearchHint }) {
@@ -8,7 +8,7 @@ export function SearchingFace({ query, hint }: { query: string; hint: SearchHint
     <div className="card-searching" data-hint={hint}>
       <p className="card-kicker">
         <span className="search-pulse" aria-hidden="true" />
-        {hint === 'pictures' ? 'Finding pictures' : 'Searching the web'}
+        {hint === 'drawing' ? 'Drawing' : hint === 'pictures' ? 'Finding pictures' : 'Searching the web'}
       </p>
       <h2 className="card-query">{query || (hint === 'pictures' ? 'Pictures' : 'Looking that up')}</h2>
       {hint === 'pictures' ? (

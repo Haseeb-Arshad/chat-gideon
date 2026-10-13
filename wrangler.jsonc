@@ -4,9 +4,14 @@
   "compatibility_date": "2026-09-09",
   "compatibility_flags": ["nodejs_compat"],
   "main": "backend/worker/src/server.ts",
+  // Canonical memory uses many transactional reads against Supabase in Mumbai.
+  // Run compute near that database instead of paying a WAN round trip per query.
+  "placement": { "mode": "targeted", "region": "aws:ap-south-1" },
   "vars": {
     "GIDEON_ALLOWED_ORIGINS": "https://chatgideon.com,https://www.chatgideon.com",
     "OPENROUTER_SITE_URL": "https://chatgideon.com",
+    "OPENROUTER_VOICE_MODEL": "microsoft/mai-voice-2.1-flash",
+    "OPENROUTER_VOICE": "en-US-Harper:MAI-Voice-2.1-Flash",
     "GIDEON_AUDIT_ENABLED": "1",
     "GIDEON_AUDIT_REQUIRED": "1",
     "ENVIRONMENT": "production",
@@ -16,13 +21,29 @@
     "GIDEON_MEMORY_CAPTURE_ENABLED": "1",
     "GIDEON_MEMORY_COMMAND_WRITES_ENABLED": "1",
     "GIDEON_MEMORY_RECALL_ENABLED": "1",
-    "GIDEON_MEMORY_CONTROLS_ENABLED": "1"
+    "GIDEON_MEMORY_CONTROLS_ENABLED": "1",
+    "GIDEON_MEMORY_BACKGROUND_ENABLED": "1",
+    "GIDEON_MEMORY_CANONICAL_ONLY": "1",
+    "GIDEON_MEMORY_LEARNING_ENABLED": "1",
+    "GIDEON_MEMORY_EXTRACTOR": "model",
+    "GIDEON_MEMORY_EXTRACTOR_MODEL": "openai/gpt-6-luna",
+    "GIDEON_MEMORY_EXTRACTOR_REMOTE_ALLOWED": "1",
+    "GIDEON_MEMORY_EMBEDDINGS_REMOTE_ALLOWED": "1",
+    "GIDEON_MEMORY_EMBEDDING_MODEL": "openai/text-embedding-3-small",
+    "GIDEON_MEMORY_EMBEDDING_DIMENSIONS": "512",
+    "GIDEON_MEMORY_REFINEMENT_ENABLED": "1",
+    "GIDEON_MEMORY_REFINER_REMOTE_ALLOWED": "1"
   },
   // Accounts and account memory live in Supabase PostgreSQL, reached through
   // Hyperdrive. Create the config once, with the direct connection string, and
   // put its id here (see backend/worker/README.md). `npm run db:migrate` must
   // succeed before code depending on a migration is deployed.
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "d3b0f930e77044aebdd18a06ee11a736" }],
+  "triggers": { "crons": ["* * * * *"] },
+  "queues": {
+    "producers": [{ "binding": "MEMORY_MAINTENANCE", "queue": "gideon-memory-maintenance" }],
+    "consumers": [{ "queue": "gideon-memory-maintenance", "max_batch_size": 2, "max_batch_timeout": 5, "max_retries": 5, "dead_letter_queue": "gideon-memory-maintenance-dead", "max_concurrency": 2 }]
+  },
   "durable_objects": {
     "bindings": [
       {

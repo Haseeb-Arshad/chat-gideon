@@ -1,25 +1,11 @@
 export const CHAT_MODEL = 'openai/gpt-4.1-mini'
-export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
-/**
- * Fish S2.1 Pro, the paid tier rather than the free one. The free tier is the
- * same model behind a congested queue: on 10 September 2026 it took 6 to 9.6
- * seconds to start speaking, or timed out, where the paid tier started in 0.4
- * to 0.9 seconds with every voice tried.
- */
-export const VOICE_MODEL = 'fish-audio/s2.1-pro'
-/**
- * "Sarah" from the Fish voice library. Any 32-character Fish voice id works in
- * its place.
- *
- * Chosen by ear, over the alternatives, having listened to all of them. She is
- * a low voice: measured over one spoken line her median pitch is 162 Hz, where
- * Polo is 231, Jasphina 274 and E-girl 185, and 162 sits at the top of the
- * male range rather than in the middle of the female one. That is worth
- * knowing, because it is why she can be mistaken for a man on a small speaker,
- * and it is not a mistake in the configuration: she is the voice that was
- * wanted.
- */
-export const VOICE = '933563129e564b19a115bedd57b7406a'
+// Paid and from another provider than the main model, so one provider's rate
+// limit cannot take both out. The free model it replaces was limited often.
+export const CHAT_FALLBACK_MODEL = 'google/gemini-2.5-flash-lite'
+/** Microsoft Flash is the configured speech model for local and worker use. */
+export const VOICE_MODEL = 'microsoft/mai-voice-2.1-flash'
+/** Azure voice IDs include the model suffix; Fish IDs are incompatible. */
+export const VOICE = 'en-US-Harper:MAI-Voice-2.1-Flash'
 /**
  * Speech to text, chosen by measurement.
  *

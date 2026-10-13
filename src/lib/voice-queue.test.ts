@@ -15,8 +15,8 @@ describe('splitSpeakable', () => {
     expect(texts('The ocean is deep. And it is', { first: true })).toEqual(['The ocean is deep.'])
   })
   it('cuts the opening chunk at a clause so speech can start sooner', () => {
-    const [first] = texts('There is something genuinely strange about the deep ocean, and it took decades to understand why that is.', { first: true })
-    expect(first.length).toBeLessThanOrEqual(96)
+    const [first] = texts('There is something strange here, and it took decades to understand why that is.', { first: true })
+    expect(first.length).toBeLessThanOrEqual(48)
     expect(first.endsWith(',')).toBe(true)
   })
   it('gives later chunks a longer budget than the opening one', () => {

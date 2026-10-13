@@ -118,8 +118,8 @@ export function streamChat(
   })
 }
 
-export async function synthesizeVoice(text: string, signal: AbortSignal): Promise<Response> {
-  const result = await fetchVoice(text, signal)
+export async function synthesizeVoice(text: string, signal: AbortSignal, voiceChoice?: import('./voice-options').VoiceChoice): Promise<Response> {
+  const result = await fetchVoice(text, signal, voiceChoice)
 
   if (!result.ok || !result.body) {
     return Response.json(apiError(result.code, result.message, result.retryable), {
@@ -147,8 +147,9 @@ export async function transcribe(
   audio: ArrayBuffer,
   signal: AbortSignal,
   language?: string,
+  caption = false,
 ): Promise<Response> {
-  const result = await transcribeAudio(audio, signal, { language })
+  const result = await transcribeAudio(audio, signal, { language, caption })
 
   if (!result.ok) {
     return Response.json(apiError(result.code, result.message, result.retryable), {

@@ -46,8 +46,14 @@ export type ClientFrame =
       screen?: ScreenState
       /** Bounded, attributed continuity supplied for this turn. */
       conversationState?: ConversationState
+      /** Ask the server to synthesize the first phrase while streaming the answer. */
+      autoSpeech?: boolean
+      voiceChoice?: import('./voice-options').VoiceChoice
+      timing?: boolean
     }
-  | { t: 'speak'; id: string; seq: number; text: string; turnId?: string; responseId?: string; startChar?: number; endChar?: number }
+  | { t: 'speak'; id: string; seq: number; text: string; voiceChoice?: import('./voice-options').VoiceChoice; turnId?: string; responseId?: string; startChar?: number; endChar?: number }
+  /** `at` is the browser's clock when the recording was handed over, so the speech can be placed in time. */
+  | { t: 'transcribe'; id: string; audio: string; language?: string; caption?: boolean; timing?: boolean; at?: number }
   | {
       t: 'observation'
       id: string
@@ -57,6 +63,8 @@ export type ClientFrame =
       segmentId: string
       startChar: number
       endChar: number
+      /** The browser's clock when it observed this, in epoch milliseconds. */
+      at?: number
     }
   | {
       t: 'observation'
@@ -66,6 +74,7 @@ export type ClientFrame =
       kind: 'playback_interrupted'
       startChar: number
       endChar: number
+      at?: number
     }
   | {
       t: 'observation'
@@ -74,6 +83,30 @@ export type ClientFrame =
       kind: 'displayed'
       artifactId: string
       displayRevision: number
+      at?: number
+    }
+  /**
+   * What only the browser knows about a turn, sent once it knows it and never
+   * waited on: that a reply was used (a guess is otherwise never confirmed),
+   * the browser's own timeline once the reply has been heard, and what the
+   * user did with a card. `id` is the turn.
+   */
+  | {
+      t: 'telemetry'
+      id: string
+      kind: 'committed' | 'finished' | 'card'
+      at?: number
+      source?: 'voice' | 'typed' | 'card'
+      speculation?: 'none' | 'hit' | 'miss'
+      /** Milliseconds a speculative start saved, when it was used. */
+      savedMs?: number
+      interrupted?: boolean
+      /** The turn's marks (speech_end, first_token, first_sample, ...) in epoch milliseconds. */
+      marks?: Record<string, number>
+      /** For `card`: what was done (opened, tucked) and to which card. */
+      action?: string
+      card?: string
+      artifactId?: string
     }
   | { t: 'cancel'; id: string }
   /** Echo BOTH fields from tool_request: id is the original turn, call is its tool call. */
@@ -91,6 +124,9 @@ export type ServerFrame =
       sttModel: string
       /** Which tools this server can actually run, given its configuration. */
       tools: string[]
+      /** Optional capability so new clients safely fall back with older servers. */
+      transcriptionSocket?: boolean
+      autoSpeech?: boolean
     }
   /** The upstream request has been accepted; first token is imminent. */
   | { t: 'start'; id: string; responseId?: string }
@@ -100,6 +136,9 @@ export type ServerFrame =
   | { t: 'done'; id: string; text: string; responseId?: string }
   /** Header frame for audio; over WebSocket the binary frame follows immediately. */
   | { t: 'audio'; id: string; seq: number; mime: string; bytes: number; responseId?: string; segmentId?: string; startChar?: number; endChar?: number }
+  | { t: 'transcript_preview'; id: string; text: string; model: string }
+  | { t: 'transcript'; id: string; text: string; model: string }
+  | { t: 'timing'; id: string; stage: string; ms: number }
   /**
    * GIDEON did something. One line per action, for the ledger the user can
    * read back — an agent that acts has to be auditable.

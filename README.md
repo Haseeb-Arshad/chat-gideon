@@ -295,7 +295,7 @@ recogniser survives only as a fallback for a browser without it.
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | required | Server-only bearer token |
 | `OPENROUTER_CHAT_MODEL` | `openai/gpt-4.1-mini` | Must support tool calling for GIDEON to act |
-| `OPENROUTER_CHAT_FALLBACK_MODEL` | `minimax/minimax-m3:free` | Free fallback |
+| `OPENROUTER_CHAT_FALLBACK_MODEL` | `google/gemini-2.5-flash-lite` | Paid fallback from another provider |
 | `OPENROUTER_VOICE_MODEL` | `fish-audio/s2.1-pro` | Speech synthesis; the free tier is the same model, far slower to start |
 | `OPENROUTER_VOICE` | `933563129e564b19a115bedd57b7406a` | A Fish voice id; the default is "Sarah" |
 | `OPENROUTER_STT_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Transcription; fastest measured |

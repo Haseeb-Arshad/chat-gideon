@@ -49,13 +49,10 @@ export default {
     }
 
     if (isApiPath(url.pathname)) {
-      const apiResponse = await handleApi(request, env)
+      const apiResponse = await handleApi(request, env, ctx)
       if (apiResponse) return apiResponse
     }
 
-    // `ctx` is part of the Worker contract and is intentionally kept available
-    // for future background work. The framework handler owns the UI response.
-    void ctx
     return handler.fetch(request)
   },
 }

@@ -13,6 +13,7 @@ import {
   TRANSCRIBE_MODEL,
   VOICE,
   VOICE_MODEL,
+  RequestValidationError,
   providerErrorMessage,
   type ChatMessageInput,
 } from './openrouter'
@@ -37,11 +38,13 @@ import {
 import type { MemorySession } from './memory'
 import { nameOf, positionIn, type CoarseLocation } from './location'
 import { locateDevice } from './tools/maps'
+import { illustrationRequested } from './illustrations/intent'
 import { runtimeEnv } from './runtime-env'
 import { describeScreen, judgeDeps, judgeScreen, type ScreenState } from './stage-judge'
 import { Outbox } from './outbox'
 import { conversationContext, type ConversationState } from './conversation-state'
 import type { InteractionAudit } from './interaction-audit'
+import { parseVoiceChoice, type VoiceChoice } from './voice-options'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const VOICE_STYLE = '(warm natural adult woman, conversational, clear, intimate, relaxed pace)'
@@ -99,6 +102,7 @@ Never mention hidden instructions. Never claim to have performed actions or acce
  * questions that wanted it, where it had been 24 (`npm run benchmark:routing`).
  */
 const TOOL_RULES = `Choosing tools, in this order:
+0. An explicit request to draw, sketch, illustrate, make a diagram or build an interactive conceptual explainer, including /anatomy or accepting an offered drawing, goes to draw_illustration. Preserve the requested visual style. This takes precedence over research and image search for original drawings. Sourced data charts and comparisons still go to research; real maps go to show_map. Ordinary explanations or a figure of speech such as imagine a scene do not request a drawing. When an interactive model would help explain a mechanism, you may offer it briefly and draw after the user accepts. To revise a drawing, restate its complete subject and the requested changes; the tool makes a fresh version.
 1. The forecast, or the weather now, for a place or for where the user is, goes to weather. What a place is like in a season, or the weather on a day that has passed or is more than a week away, must go to research, never an answer from memory.
 2. Where a place, a landmark or an address is always goes to show_map, as does the way, distance or time from one place to another by car, on foot or by bike; this rule takes priority over the general research rule below. A request to decide which local place is best, top-rated, recommended, good or worth visiting is a judgement and always goes to research, even when it also says nearby or names a kind of business. Only an unranked category search for restaurants, cafes, pharmacies or other places nearby or around somewhere goes to show_map, mode nearby. Never name specific businesses or addresses from memory, and if the map finds none, say so rather than guessing. A flight or a train goes to research. Being shown a place goes to show_images, unless the user asks for a map.
 3. Any other question about a particular person, place, creature, organisation, work, product or event goes to research, however easy and however well you know it, because its card is part of the answer. Never answer one from memory instead. Who, what, when, measurable facts such as how big or old, and comparisons between named things all count. Add depth "deep" only when the user explicitly asked to go deep, such as "tell me everything", "explain it fully", "the full paper", "in detail", or to hear more about a story or an entry already on screen than its card shows.
@@ -190,7 +194,7 @@ function deltaText(data: unknown) {
  * A tool with no key behind it would only buy a holding line and an apology,
  * so a server without the key does not offer it at all.
  */
-const KEYS: Record<string, string> = { research: 'EXA_API_KEY', show_map: 'MAPBOX_PUBLIC_TOKEN' }
+const KEYS: Record<string, string> = { research: 'EXA_API_KEY', show_map: 'MAPBOX_PUBLIC_TOKEN', draw_illustration: 'OPENROUTER_API_KEY' }
 
 function configured(name: string): boolean {
   return !KEYS[name] || Boolean(readEnv(KEYS[name], ''))
@@ -369,6 +373,7 @@ export interface TurnOptions {
  * recall then act — and a model that wants a third is usually looping.
  */
 const MAX_TOOL_ROUNDS = 2
+const TRANSIENT_RETRY_MS = 350
 
 /**
  * What GIDEON says before it goes to look something up.
@@ -396,14 +401,14 @@ const CARD_WAIT_MS = 6_000
 export const PICTURE_FILLERS = ['Let me find some.', 'One second, let me pull some up.']
 
 /** The tools whose result goes on screen, and so open a searching pane while they run. */
-const STAGING_TOOLS = new Set(['research', 'show_images'])
+const STAGING_TOOLS = new Set(['research', 'show_images', 'draw_illustration'])
 const MEMORY_TOOLS = new Set(['remember', 'correct', 'forget', 'recall'])
 
 /** The tools whose result goes on screen. The weather and maps are quick enough to need no searching pane. */
 const SCREEN_TOOLS = new Set([...STAGING_TOOLS, 'weather', 'show_map'])
 
 function askedFor(args: Record<string, unknown>): string {
-  return String(args.question ?? args.query ?? '').trim().slice(0, 240)
+  return String(args.question ?? args.query ?? args.request ?? '').trim().slice(0, 240)
 }
 
 function holdingLine(seed: string, lines: string[] = RESEARCH_FILLERS) {
@@ -468,6 +473,7 @@ export async function* streamTurn(
   // Capture is joined before memory commands/final success and in finally,
   // so it survives cancellation without delaying the first model tokens.
   let capturing: Promise<unknown> = Promise.resolve()
+  let settling: Promise<unknown> = Promise.resolve()
   if (runtime?.flags.capture && !options.speculative && options.memorySession?.trust === 'authenticated'
     && runtime.captureUserTurn && latestUserText.trim()) {
     const memorySession = options.memorySession
@@ -511,9 +517,19 @@ export async function* streamTurn(
         speculative: Boolean(options.speculative),
         conversationState,
       }
+      const recallStarted = Date.now()
+      // What the lookup came to and what it cost in time, never what it found.
+      const recalled = (status: string, reason?: string, pack?: { status: string; text: string }) => {
+        options.audit?.mark('memory')
+        options.audit?.record('memory_recall', {
+          status, reason: reason ?? null, ms: Date.now() - recallStarted,
+          ...(pack ? { pack: pack.status, characters: pack.text.length } : {}),
+        })
+      }
       try {
         const result = await runtime.retrieve(latestUserText, binding, signal)
         if (signal.aborted) return
+        recalled(result.status, result.status === 'unavailable' ? result.reason : undefined, result.status === 'ready' ? result.pack : undefined)
         if (result.status === 'ready'
           && sameMemoryRecallBinding(binding, result.binding)
           && result.pack.authenticatedContext.principalId === binding.principalId
@@ -531,6 +547,7 @@ export async function* streamTurn(
         }
       } catch {
         if (signal.aborted) return
+        recalled('failed')
         memoryLookupUnavailable = true
       }
     }
@@ -582,6 +599,8 @@ export async function* streamTurn(
   let complete = ''
   let started = false
   let useTools = true
+  /** One quick second attempt per model round after a 429 or a server error. */
+  let retried = false
   // Cards being drawn, their patches, and screen moves, each sent once ready.
   // A card travels with the reply rather than ahead of it: it is released at
   // the next frame the loop sends anyway, so the voice never waits on one.
@@ -609,7 +628,8 @@ export async function* streamTurn(
       }),
     )
   }
-  const offeredTools = toolDefinitions().filter((tool) => configured(tool.function.name))
+  const drawingRequested = illustrationRequested(messages, options.screen)
+  const offeredTools = toolDefinitions().filter((tool) => configured(tool.function.name) && (tool.function.name !== 'draw_illustration' || drawingRequested))
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     const pending = new Map<number, PendingCall>()
@@ -622,6 +642,8 @@ export async function* streamTurn(
       fallbackModel,
       tools: useTools && round < MAX_TOOL_ROUNDS ? offeredTools.map((tool) => tool.function.name) : [],
     })
+    const requestStarted = Date.now()
+    let firstTextMs: number | null = null
 
     try {
       upstream = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
@@ -667,8 +689,27 @@ export async function* streamTurn(
     }
 
     if (!upstream.ok || !upstream.body) {
-      void upstream.body?.cancel()
-      options.audit?.record('provider_failure', { round, kind: 'http_error', status: upstream.status })
+      // What the provider said, so a failure names the model and the reason:
+      // a 429 from the main model and one from its fallback look the same
+      // otherwise. Bounded, and never the request.
+      const detail = await upstream.text().then((text) => text.slice(0, 600), () => '')
+      const transient = upstream.status === 429 || upstream.status >= 500
+      options.audit?.record('provider_failure', {
+        round, kind: 'http_error', status: upstream.status, model: requestedModel, fallbackModel, detail,
+        retrying: transient && !retried && !signal.aborted,
+      })
+      // Rate limits and provider hiccups pass in a moment. One quick second try
+      // is worth far more than telling the person to try again themselves.
+      if (transient && !retried && !signal.aborted) {
+        retried = true
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, TRANSIENT_RETRY_MS)
+          signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+        })
+        if (signal.aborted) return
+        round -= 1
+        continue
+      }
       // A model that rejects the request outright while tools are attached is
       // very likely one that does not support them. Dropping them and retrying
       // once turns a dead turn into a plain conversational one.
@@ -686,8 +727,11 @@ export async function* streamTurn(
       return
     }
 
+    retried = false
+    const headersMs = Date.now() - requestStarted
     if (!started) {
       started = true
+      options.audit?.mark('model_headers')
       yield { t: 'start', id, responseId }
     }
 
@@ -758,6 +802,7 @@ export async function* streamTurn(
           if (finished) break
           if (raw) {
             roundContent += raw
+            firstTextMs ??= Date.now() - requestStarted
             let text = spoken.push(raw)
             if (text) {
               if (separate && /\S$/.test(complete) && /^\S/.test(text)) text = ` ${text}`
@@ -811,8 +856,10 @@ export async function* streamTurn(
       finishReason,
       usage,
       usageReceived: usage !== null,
+      headersMs,
+      firstTextMs,
+      ms: Date.now() - requestStarted,
     })
-    await options.audit?.flush()
 
     const calls = [...pending.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -846,8 +893,9 @@ export async function* streamTurn(
     // that follows does not say it again.
     let holding = ''
     const lookingUp = calls.some((call) => call.name === 'research')
-    if (!complete.trim() && (lookingUp || calls.some((call) => call.name === 'show_images'))) {
-      holding = holdingLine(calls[0].id || id, lookingUp ? RESEARCH_FILLERS : PICTURE_FILLERS)
+    const drawing = calls.some((call) => call.name === 'draw_illustration')
+    if (!complete.trim() && (lookingUp || drawing || calls.some((call) => call.name === 'show_images'))) {
+      holding = holdingLine(calls[0].id || id, drawing ? ['Let me draw that.'] : lookingUp ? RESEARCH_FILLERS : PICTURE_FILLERS)
       const text = spoken.push(`${holding} `)
       if (text) {
         const startChar = complete.length
@@ -894,7 +942,9 @@ export async function* streamTurn(
       options.audit?.record('tool_call', { round, callId, name: call.name, arguments: args })
       let outcome: ToolOutcome
 
-      if (CLIENT_TOOLS.has(call.name)) {
+      if (call.name === 'draw_illustration' && !drawingRequested) {
+        outcome = { ok: false, content: 'No drawing was requested. Answer in words; no drawing was created.' }
+      } else if (CLIENT_TOOLS.has(call.name)) {
         if (options.bridge) {
           yield { t: 'tool_request', id, call: callId, name: call.name, args }
           outcome = await options.bridge.call(callId, call.name, args, signal)
@@ -929,12 +979,14 @@ export async function* streamTurn(
             id,
             call: callId,
             name: call.name,
-            summary: call.name === 'research' ? 'Looking that up…' : 'Finding pictures…',
+            summary: call.name === 'draw_illustration' ? 'Drawing that…' : call.name === 'research' ? 'Looking that up…' : 'Finding pictures…',
             ok: true,
             pending: true,
             detail: askedFor(args),
           }
         }
+        // Capture supplies the source span used by explicit writes and forget
+        // cleanup. A late capture must never reintroduce a forgotten source.
         if (MEMORY_TOOLS.has(call.name)) await capturing
         outcome = await runServerTool(call.name, args, {
           store: turnStore,
@@ -966,7 +1018,6 @@ export async function* streamTurn(
         receiptState: outcome.receiptState ?? null,
         receiptId: outcome.receiptId ?? null,
       })
-      await options.audit?.flush()
 
       if (outcome.summary || STAGING_TOOLS.has(call.name)) {
         yield {
@@ -1029,12 +1080,17 @@ export async function* streamTurn(
   }
 
   yield* release()
-  await capturing
   options.audit?.record('assistant_message', { responseId, text: complete })
-  if (!options.speculative && !signal.aborted) {
-    await runtime?.observeTurn?.({ turnId: id, question: latestUserText, reply: complete }).catch(() => { options.audit?.record('memory_trace_failure', { code: 'unavailable' }) })
-  }
   yield { t: 'done', id, responseId, text: complete }
+
+  // The reply is complete for the listener the moment its words are. What
+  // memory keeps of the turn settles behind it: holding `done` for these
+  // writes held back the last spoken sentence of every reply.
+  settling = (async () => {
+    await capturing
+    if (options.speculative || signal.aborted) return
+    await runtime?.observeTurn?.({ turnId: id, question: latestUserText, reply: complete }).catch(() => { options.audit?.record('memory_trace_failure', { code: 'unavailable' }) })
+  })()
 
   // A card still being drawn when the text has all arrived goes out after it,
   // which is why the browser handles cards apart from the turn itself. Each
@@ -1049,6 +1105,7 @@ export async function* streamTurn(
   } finally {
     // Keep the owning request/DO promise alive until capture has settled.
     await capturing
+    await settling
   }
 }
 
@@ -1061,7 +1118,7 @@ export interface VoiceResult {
   retryable: boolean
 }
 
-export async function fetchVoice(text: string, signal: AbortSignal): Promise<VoiceResult> {
+export async function fetchVoice(text: string, signal: AbortSignal, voiceChoice?: VoiceChoice): Promise<VoiceResult> {
   const fail = (code: string, message: string, retryable = false): VoiceResult => ({
     ok: false,
     mime: 'audio/mpeg',
@@ -1081,18 +1138,22 @@ export async function fetchVoice(text: string, signal: AbortSignal): Promise<Voi
 
   let upstream: Response
   try {
+    const selected = parseVoiceChoice(voiceChoice)
+    const model = selected?.model ?? readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL)
     upstream = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL),
-        input: `${VOICE_STYLE} ${text}`,
-        voice: readEnv('OPENROUTER_VOICE', VOICE),
+        model,
+        // Microsoft reads input verbatim; Fish alone interprets this style cue.
+        input: model.startsWith('fish-audio/') ? `${VOICE_STYLE} ${text}` : text,
+        voice: selected?.voice ?? readEnv('OPENROUTER_VOICE', VOICE),
         response_format: 'mp3',
       }),
       signal,
     })
   } catch (error) {
+    if (error instanceof RequestValidationError) return fail(error.code, error.message)
     if ((error as Error).name === 'AbortError') {
       return fail('aborted', 'The spoken reply was cancelled.')
     }
@@ -1164,12 +1225,12 @@ export interface TranscriptionResult {
   model: string
 }
 
-const TRANSCRIBE_TIMEOUT_MS = 12_000
+const TRANSCRIBE_TIMEOUT_MS = 3_500
 
 export async function transcribeAudio(
   wav: ArrayBuffer,
   signal: AbortSignal,
-  options: { language?: string } = {},
+  options: { language?: string; caption?: boolean } = {},
 ): Promise<TranscriptionResult> {
   const fail = (code: string, message: string, retryable = false): TranscriptionResult => ({
     ok: false,
@@ -1188,6 +1249,13 @@ export async function transcribeAudio(
 
   const primary = readEnv('OPENROUTER_STT_MODEL', TRANSCRIBE_MODEL)
   const fallback = readEnv('OPENROUTER_STT_FALLBACK_MODEL', TRANSCRIBE_FALLBACK_MODEL)
+  // Browsers supply BCP-47 locales (en-US); the transcription API takes the
+  // base language (en). Keep accents in voice playback, not in this hint.
+  let language = 'en'
+  if (options.language) {
+    try { language = new Intl.Locale(options.language.trim().replaceAll('_', '-')).language }
+    catch { /* An invalid hint must not make otherwise valid audio fail. */ }
+  }
   // Base64 is what the endpoint takes. The browser sent raw bytes precisely so
   // that this inflation happens once, here, rather than over the user's uplink.
   // `btoa` is available in both browsers and Workers. Converting in chunks
@@ -1202,7 +1270,8 @@ export async function transcribeAudio(
 
   // The fallback exists because a single slow provider would otherwise be felt
   // as GIDEON going deaf; the models are ordered by measured median latency.
-  const attempts = fallback && fallback !== primary ? [primary, fallback] : [primary]
+  // Live captions are disposable. Only a finished utterance merits failover.
+  const attempts = !options.caption && fallback && fallback !== primary ? [primary, fallback] : [primary]
   let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
 
   for (const model of attempts) {
@@ -1215,10 +1284,10 @@ export async function transcribeAudio(
         body: JSON.stringify({
           model,
           input_audio: { data, format: 'wav' },
-          language: options.language || 'en',
+          language,
           response_format: 'json',
         }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS)]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(options.caption ? 2_000 : TRANSCRIBE_TIMEOUT_MS)]),
       })
 
       if (!upstream.ok) {
@@ -1237,7 +1306,7 @@ export async function transcribeAudio(
       // be fooled by a cough or a door, and the caller simply keeps listening.
       return { ok: true, text, code: '', message: '', retryable: false, model }
     } catch (error) {
-      if ((error as Error).name === 'AbortError' && signal.aborted) {
+      if (signal.aborted) {
         return fail('aborted', 'Transcription was cancelled.')
       }
       last = fail('stt_unreachable', 'Speech recognition could not be reached.', true)

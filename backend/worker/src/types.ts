@@ -24,6 +24,7 @@ export interface Env {
   OPENROUTER_STT_MODEL?: string
   OPENROUTER_STT_FALLBACK_MODEL?: string
   OPENROUTER_RESEARCH_MODEL?: string
+  OPENROUTER_ILLUSTRATION_MODEL?: string
   OPENROUTER_RESEARCH_FALLBACK_MODEL?: string
   OPENROUTER_SITE_URL?: string
 
@@ -43,7 +44,6 @@ export interface Env {
   GIDEON_MEMORY_CONTROLS_ENABLED?: string
   GIDEON_MEMORY_CUTOVER_ENABLED?: string
   GIDEON_MEMORY_STAGE15_CUTOVER?: string
-  ENVIRONMENT?: string
   MEMORY_MAINTENANCE?: Queue<import('./memory-maintenance.ts').MemoryMaintenanceMessage>
   GIDEON_MEMORY_BACKGROUND_ENABLED?: string
   GIDEON_MEMORY_LEARNING_ENABLED?: string
@@ -53,9 +53,12 @@ export interface Env {
   GIDEON_MEMORY_EMBEDDINGS_REMOTE_ALLOWED?: string
   GIDEON_MEMORY_EMBEDDING_MODEL?: string
   GIDEON_MEMORY_EMBEDDING_DIMENSIONS?: string
+  /** How long a reply's memory lookup goes on waiting for the query embedding once its other branches have answered. */
+  GIDEON_MEMORY_SEMANTIC_GRACE_MS?: string
   GIDEON_MEMORY_REFINEMENT_ENABLED?: string
   GIDEON_MEMORY_CANONICAL_ONLY?: string
   GIDEON_MEMORY_REFINER_REMOTE_ALLOWED?: string
+  ENVIRONMENT?: string
 
   SUPABASE_URL?: string
   SUPABASE_SERVICE_ROLE_KEY?: string

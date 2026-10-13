@@ -16,6 +16,7 @@ import {
   parseVoiceBody,
 } from '../../../src/lib/openrouter'
 import { encodeFrame, type ServerFrame } from '../../../src/lib/protocol'
+import { parseVoiceChoice } from '../../../src/lib/voice-options'
 import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { readConversationState, type ConversationState } from '../../../src/lib/conversation-state'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
@@ -25,7 +26,22 @@ import type { InteractionAudit } from '../../../src/lib/interaction-audit'
 import { createWorkerInteractionAudit } from './audit'
 import { resolveWorkerMemoryForTurn, type WorkerMemoryContext } from './worker-memory'
 import { handleWorkerMemoryControls } from './worker-memory-controls'
-import type { Env } from './types'
+import { handleIllustrationRepair } from '../../../src/lib/tools/illustration-repair'
+import type { Env, WorkerContext } from './types'
+
+/**
+ * The audit writer for one HTTP request. It writes behind the response, so the
+ * Worker is asked to stay up until what was noted has reached the database.
+ */
+function auditFor(request: Request, env: Env, owner: string, ctx?: WorkerContext) {
+  return createWorkerInteractionAudit({
+    env,
+    owner,
+    sessionKey: request.headers.get('x-gideon-session'),
+    channel: 'http',
+    keepAlive: (work) => ctx?.waitUntil(work),
+  })
+}
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' }
 
@@ -93,6 +109,8 @@ function streamChat(
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       let status: 'completed' | 'failed' | 'cancelled' = 'failed'
+      let deltas = 0
+      let firstToken = false
       try {
         for await (const frame of streamTurn(id, messages, request.signal, {
           timezone,
@@ -106,16 +124,17 @@ function streamChat(
           location: locationFromCf((request as { cf?: unknown }).cf),
         })) {
           if (request.signal.aborted) { status = 'cancelled'; break }
+          // Noted for the background writer; nothing here waits on the database.
           if (frame.t === 'done') {
-            audit?.record('released_frame', { type: frame.t, turnId: frame.id, responseId: frame.responseId })
-            // Do not release a successful answer until its final text and token/tool evidence are durable.
-            await audit?.flush()
+            audit?.mark('done')
+            audit?.record('released_frame', { type: frame.t, turnId: frame.id, responseId: frame.responseId, deltas })
             status = 'completed'
+          } else if (frame.t === 'delta') {
+            if (!firstToken) audit?.mark('first_token')
+            firstToken = true
+            deltas += 1
           } else {
             audit?.record('released_frame', { type: frame.t, frame })
-            // Releasing text, cards or actions before their audit write commits
-            // would make a required audit incomplete if storage went away.
-            await audit?.flush()
           }
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))
         }
@@ -133,12 +152,7 @@ function streamChat(
           controller.enqueue(encoder.encode(`${encodeFrame(frame)}\n`))
         }
       } finally {
-        try {
-          await audit?.finish(status)
-        } catch {
-          // No content, user ID or database detail enters platform logs.
-          console.warn('[audit] turn persistence failed')
-        }
+        try { audit?.finish(status) } catch { /* The record is lost; the reply is not. */ }
         await memory.close().catch(() => undefined)
         controller.close()
       }
@@ -154,7 +168,7 @@ function streamChat(
   })
 }
 
-async function chat(request: Request, env: Env) {
+async function chat(request: Request, env: Env, ctx?: WorkerContext) {
   let body: unknown
   try {
     body = await request.json()
@@ -168,24 +182,17 @@ async function chat(request: Request, env: Env) {
     const id = typeof value.id === 'string' ? value.id : 'turn'
     const timezone = typeof value.timezone === 'string' ? value.timezone.slice(0, 64) : undefined
     const owner = await ownerOf(request, env)
-    const auditFactory = createWorkerInteractionAudit({
-      env,
-      owner,
-      sessionKey: request.headers.get('x-gideon-session'),
-      channel: 'http',
-    })
-    const audit = auditFactory
-      ? await auditFactory.startTurn({ clientTurnId: id, messages: parsed })
-      : null
+    const audit = auditFor(request, env, owner, ctx)?.startTurn({ clientTurnId: id, messages: parsed, speculative: value.speculative === true }) ?? null
     const legacyStore = memoryStoreForHttp(env, owner, env.GIDEON_SESSION)
     let memory: WorkerMemoryContext
     try {
       memory = await resolveWorkerMemoryForTurn({ env, owner, channel: 'worker_http', legacyStore })
     } catch (error) {
-      await audit?.record('worker_failure', { message: String((error as Error).message || 'memory_unavailable').slice(0, 500) })
-      await audit?.finish('failed').catch(() => undefined)
+      audit?.record('worker_failure', { message: 'turn_setup_failed' })
+      audit?.finish('failed')
       throw error
     }
+    audit?.mark('setup')
     return streamChat(
       request,
       id,
@@ -204,14 +211,11 @@ async function chat(request: Request, env: Env) {
     if (error instanceof OwnerUnavailable) {
       return json(apiError('account_unavailable', 'Account verification is temporarily unavailable.', true), request, 503)
     }
-    if (env.GIDEON_AUDIT_REQUIRED === '1') {
-      return json(apiError('audit_unavailable', 'The conversation could not be saved, so no reply was started.', true), request, 503)
-    }
     return json(apiError('memory_unavailable', 'Memory is temporarily unavailable.', true), request, 503)
   }
 }
 
-async function voice(request: Request, env: Env) {
+async function voice(request: Request, env: Env, ctx?: WorkerContext) {
   let body: unknown
   try {
     body = await request.json()
@@ -221,42 +225,31 @@ async function voice(request: Request, env: Env) {
 
   try {
     const text = parseVoiceBody(body)
+    const voiceChoice = parseVoiceChoice((body as { voiceChoice?: unknown }).voiceChoice)
     const value = body as { id?: unknown; turnId?: unknown; responseId?: unknown; segmentId?: unknown; seq?: unknown; startChar?: unknown; endChar?: unknown }
     const owner = await ownerOf(request, env)
-    const auditFactory = createWorkerInteractionAudit({ env, owner, sessionKey: request.headers.get('x-gideon-session'), channel: 'http' })
-    const clientTurnId = typeof value.turnId === 'string' ? value.turnId : typeof value.id === 'string' ? value.id : crypto.randomUUID()
-    const audit = auditFactory ? await auditFactory.startTurn({ clientTurnId, messages: [] }) : null
-    audit?.record('voice_generation_request', {
-      text,
-      responseId: typeof value.responseId === 'string' ? value.responseId.slice(0, 200) : null,
-      segmentId: typeof value.segmentId === 'string' ? value.segmentId.slice(0, 200) : null,
-      seq: Number.isSafeInteger(value.seq) ? value.seq : null,
-      startChar: Number.isSafeInteger(value.startChar) ? value.startChar : null,
-      endChar: Number.isSafeInteger(value.endChar) ? value.endChar : null,
-    })
-    await audit?.flush()
-    const result = await fetchVoice(text, request.signal)
+    const auditFactory = auditFor(request, env, owner, ctx)
+    const clientTurnId = (typeof value.turnId === 'string' ? value.turnId : typeof value.id === 'string' ? value.id.replace(/#\d+$/u, '') : crypto.randomUUID()).slice(0, 200)
+    const seq = Number.isSafeInteger(value.seq) ? value.seq as number : undefined
+    const synthesisStarted = Date.now()
+    const result = await fetchVoice(text, request.signal, voiceChoice)
     if (!result.ok || !result.body) {
-      audit?.record('voice_generation_failed', { code: result.code, retryable: result.retryable })
-      await audit?.finish('failed')
+      try {
+        auditFactory?.recordEvent({ clientTurnId, type: 'voice_generation_failed', payload: { seq: seq ?? null, code: result.code, retryable: result.retryable, ms: Date.now() - synthesisStarted } })
+      } catch { /* The record is lost; the error still reaches the caller. */ }
       return json(apiError(result.code, result.message, result.retryable), request, result.retryable ? 502 : 503)
     }
-    if (audit) {
-      await audit.saveAudio({
-        audio: result.body,
-        mime: result.mime,
-        source: 'assistant',
-        text,
+    // Filed under the turn it speaks for, after the audio is already on its way.
+    try {
+      auditFactory?.recordSpeech({
+        source: 'assistant', clientTurnId, audio: result.body, mime: result.mime, text, seq,
+        ...(Number.isSafeInteger(value.startChar) && Number.isSafeInteger(value.endChar) ? { startChar: value.startChar as number, endChar: value.endChar as number } : {}),
         metadata: {
           responseId: typeof value.responseId === 'string' ? value.responseId.slice(0, 200) : null,
-          segmentId: typeof value.segmentId === 'string' ? value.segmentId.slice(0, 200) : null,
-          seq: Number.isSafeInteger(value.seq) ? value.seq : null,
-          startChar: Number.isSafeInteger(value.startChar) ? value.startChar : null,
-          endChar: Number.isSafeInteger(value.endChar) ? value.endChar : null,
+          voice: voiceChoice ?? null, synthesisMs: Date.now() - synthesisStarted, synthesisedAt: synthesisStarted,
         },
       })
-    }
-    await audit?.finish('completed')
+    } catch { /* The record is lost; the audio is not. */ }
     return response(result.body, request, {
       status: 200,
       headers: { 'Content-Type': result.mime, 'Cache-Control': 'no-store' },
@@ -265,14 +258,11 @@ async function voice(request: Request, env: Env) {
     if (error instanceof RequestValidationError) {
       return json(apiError(error.code, error.message), request, 400)
     }
-    if (env.GIDEON_AUDIT_REQUIRED === '1') {
-      return json(apiError('audit_unavailable', 'The spoken reply could not be saved.', true), request, 503)
-    }
     return json(apiError('voice_failed', 'The spoken reply could not be completed.', true), request, 502)
   }
 }
 
-async function transcribe(request: Request, env: Env) {
+async function transcribe(request: Request, env: Env, ctx?: WorkerContext) {
   const declared = Number(request.headers.get('content-length') ?? '0')
   if (Number.isFinite(declared) && declared > MAX_AUDIO_BYTES) {
     return json(apiError('audio_too_large', 'That recording is too long.'), request, 413)
@@ -296,44 +286,81 @@ async function transcribe(request: Request, env: Env) {
   if (check) return check
 
   const language = request.headers.get('x-gideon-language') || undefined
-  const result = await transcribeAudio(audio, request.signal, { language })
+  const caption = request.headers.get('x-gideon-purpose') === 'caption'
+  // When the recording was handed over, by this clock: the body has arrived
+  // and recognition has not started, so the speech ends about here.
+  const receivedAt = Date.now()
+  const finish = async (signal: AbortSignal, preview?: (text: string, model: string) => void) => {
+  const result = await transcribeAudio(audio, signal, { language, caption })
+  const recognitionMs = Date.now() - receivedAt
 
-  // A caption is a read of speech that is still being spoken, asked for about
-  // every second. The utterance it belongs to is recorded when it finishes;
-  // recording each caption as well put several database round trips in front of
-  // every one of them, which made the transcript slow enough to lose a sentence.
-  if (request.headers.get('x-gideon-purpose') === 'caption') {
+  // A caption is a read of speech that is still being spoken, asked for
+  // periodically and thrown away. Only the finished utterance is kept.
+  if (caption) {
     return result.ok
       ? json({ text: result.text, model: result.model }, request, 200, { 'Cache-Control': 'no-store' })
       : json(apiError(result.code, result.message, result.retryable), request, result.retryable ? 502 : 503)
   }
 
-  // The recording and its transcript are saved together, after transcribing and
-  // before the result is returned, so nothing is released without its evidence.
+  if (result.ok) preview?.(result.text, result.model)
+
+  // The recording and its transcript are kept behind the reply. Saving them
+  // first put a transaction, and the whole recording, in front of every turn.
   try {
     const owner = await ownerOf(request, env)
-    await createWorkerInteractionAudit({ env, owner, sessionKey: request.headers.get('x-gideon-session'), channel: 'http' })
-      ?.recordVoice({
-        clientTurnId: crypto.randomUUID(),
-        audio,
-        mime: request.headers.get('content-type') || 'audio/wav',
-        source: 'user',
-        ...(result.ok ? { text: result.text } : {}),
-        metadata: {
-          language: language ?? null,
-          ...(result.ok
-            ? { transcriptionModel: result.model }
-            : { transcriptionFailed: result.code, retryable: result.retryable }),
-        },
-      })
-  } catch {
-    if (env.GIDEON_AUDIT_REQUIRED === '1') {
-      return json(apiError('audit_unavailable', 'The recording could not be saved.', true), request, 503)
-    }
-  }
+    auditFor(request, env, owner, ctx)?.recordSpeech({
+      audio,
+      mime: request.headers.get('content-type') || 'audio/wav',
+      source: 'user',
+      endedAt: receivedAt,
+      ...(result.ok ? { text: result.text } : {}),
+      metadata: {
+        language: language ?? null,
+        recognitionMs,
+        receivedAt,
+        ...(result.ok
+          ? { transcriptionModel: result.model }
+          : { transcriptionFailed: result.code, retryable: result.retryable }),
+      },
+    })
+  } catch { /* The record is lost; the transcript is not. */ }
 
   if (!result.ok) return json(apiError(result.code, result.message, result.retryable), request, result.retryable ? 502 : 503)
   return json({ text: result.text, model: result.model }, request, 200, { 'Cache-Control': 'no-store' })
+  }
+
+  if (caption || !request.headers.get('accept')?.includes('application/x-ndjson')) {
+    return finish(request.signal)
+  }
+  const cancel = new AbortController()
+  const signal = AbortSignal.any([request.signal, cancel.signal])
+  let closed = false
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const emit = (frame: Record<string, unknown>) => {
+        if (!closed) controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`))
+      }
+      emit({ t: 'start' })
+      void (async () => {
+        try {
+          const result = await finish(signal, (text, model) => emit({ t: 'preview', text, model }))
+          const body = await result.json() as Record<string, unknown>
+          emit({ t: result.ok ? 'done' : 'error', ...body })
+        } catch {
+          emit({ t: 'error', ...apiError('stt_unavailable', 'Speech recognition could not be completed.', true) })
+        } finally {
+          if (!closed) { closed = true; controller.close() }
+        }
+      })()
+    },
+    cancel() { closed = true; cancel.abort() },
+  })
+  return response(stream, request, { headers: {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-store, no-transform',
+    'X-Accel-Buffering': 'no',
+  } })
 }
 
 async function account(request: Request, env: Env) {
@@ -353,7 +380,7 @@ async function account(request: Request, env: Env) {
 }
 
 /** Handles API routes; the caller sends non-API requests to TanStack Start. */
-export async function handleApi(request: Request, env: Env): Promise<Response | null> {
+export async function handleApi(request: Request, env: Env, ctx?: WorkerContext): Promise<Response | null> {
   setRuntimeEnv(env)
   const url = new URL(request.url)
 
@@ -428,19 +455,39 @@ export async function handleApi(request: Request, env: Env): Promise<Response | 
     if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
     const check = denied(request, 'turn')
     if (check) return check
-    return chat(request, env)
+    return chat(request, env, ctx)
+  }
+
+  if (url.pathname === '/api/illustration-repair') {
+    if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
+    const check = denied(request, 'turn')
+    if (check) return check
+    let audit: InteractionAudit | null = null
+    try {
+      const owner = await ownerOf(request, env)
+      audit = auditFor(request, env, owner, ctx)?.startTurn({ clientTurnId: crypto.randomUUID(), messages: [{ role: 'user', content: 'Refine the drawing after a browser rendering error.' }] }) ?? null
+      const reply = await handleIllustrationRepair(request, name => {
+        const value = (env as unknown as Record<string, unknown>)[name]
+        return typeof value === 'string' ? value : undefined
+      }, audit)
+      audit?.finish(reply.ok ? 'completed' : 'failed')
+      return reply
+    } catch {
+      try { audit?.finish('failed') } catch { /* Already failing; the record is the lesser loss. */ }
+      return json(apiError('illustration_unavailable', 'The drawing could not be refined.', true), request, 503)
+    }
   }
 
   if (url.pathname === '/api/voice') {
     if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
     const check = denied(request, 'speak')
     if (check) return check
-    return voice(request, env)
+    return voice(request, env, ctx)
   }
 
   if (url.pathname === '/api/transcribe') {
     if (request.method !== 'POST') return methodNotAllowed(request, 'POST')
-    return transcribe(request, env)
+    return transcribe(request, env, ctx)
   }
 
   if (url.pathname.startsWith('/api/')) {

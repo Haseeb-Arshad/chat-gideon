@@ -65,10 +65,7 @@ export const DEFAULT_VAD: VadConfig = {
   onsetDb: 9,
   releaseDb: 5,
   onsetFrames: 3,
-  // Was 340, which sat inside the range of an ordinary pause for breath and so
-  // ended sentences their speaker had not finished. The cost of the extra wait
-  // is largely absorbed elsewhere: transcription now starts when silence
-  // begins, so it runs during this window rather than after it.
+  // A normal breath must not split a sentence or start another transcription.
   hangoverMs: 700,
   minSpeechMs: 140,
   minLowRatio: 0.32,
