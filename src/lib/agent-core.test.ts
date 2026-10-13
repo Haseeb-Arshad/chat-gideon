@@ -223,3 +223,55 @@ describe('turn memory boundary', () => {
     expect(requests[2]).not.toContain('Things you already know about this person')
   })
 })
+
+describe('a rate-limited model', () => {
+  const stop = event({ choices: [{ delta: {}, finish_reason: 'stop' }] })
+  const limited = () => new Response(JSON.stringify({ error: { message: 'Rate limit exceeded', metadata: { provider_name: 'OpenAI' } } }), { status: 429 })
+  const audit = () => ({ turnId: 't', record: vi.fn(), mark: vi.fn(), saveAudio: vi.fn(() => 's'), finish: vi.fn() })
+
+  it('is tried once more, and the person never sees the first refusal', async () => {
+    vi.stubEnv('OPENROUTER_CHAT_MODEL', 'openai/gpt-4.1-mini')
+    vi.stubEnv('OPENROUTER_CHAT_FALLBACK_MODEL', 'google/gemini-2.5-flash-lite')
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(limited())
+      .mockResolvedValueOnce(new Response(text + stop + 'data: [DONE]' + '\n\n'))
+    vi.stubGlobal('fetch', fetch)
+    const record = audit()
+    const frames = await collect({ audit: record })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(frames.map((frame) => frame.t)).toEqual(['start', 'delta', 'done'])
+    expect(record.record).toHaveBeenCalledWith('provider_failure', expect.objectContaining({ status: 429, retrying: true, model: 'openai/gpt-4.1-mini', fallbackModel: 'google/gemini-2.5-flash-lite' }))
+  })
+
+  it('fails after the second refusal, naming what the provider said', async () => {
+    const fetch = vi.fn(async () => limited())
+    vi.stubGlobal('fetch', fetch)
+    const record = audit()
+    const frames = await collect({ audit: record })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(frames).toEqual([expect.objectContaining({ t: 'error', code: 'provider_error', retryable: true })])
+    const failures = record.record.mock.calls.filter(([type]) => type === 'provider_failure').map(([, payload]) => payload)
+    expect(failures.map((payload) => payload.retrying)).toEqual([true, false])
+    expect(String(failures[1].detail)).toContain('Rate limit exceeded')
+  })
+
+  it('does not retry a request the provider rejected as malformed, or a key it refused', async () => {
+    const fetch = vi.fn(async () => new Response('{}', { status: 401 }))
+    vi.stubGlobal('fetch', fetch)
+    await collect()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops waiting the moment the person cancels', async () => {
+    const fetch = vi.fn(async () => limited())
+    vi.stubGlobal('fetch', fetch)
+    const controller = new AbortController()
+    const frames: ServerFrame[] = []
+    const running = (async () => { for await (const frame of streamTurn('cancel', [{ role: 'user', content: 'hi' }], controller.signal)) frames.push(frame) })()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    controller.abort()
+    await running
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(frames).toEqual([])
+  })
+})

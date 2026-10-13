@@ -1,5 +1,7 @@
 export const CHAT_MODEL = 'openai/gpt-4.1-mini'
-export const CHAT_FALLBACK_MODEL = 'minimax/minimax-m3:free'
+// Paid and from another provider than the main model, so one provider's rate
+// limit cannot take both out. The free model it replaces was limited often.
+export const CHAT_FALLBACK_MODEL = 'google/gemini-2.5-flash-lite'
 /** Microsoft Flash is the configured speech model for local and worker use. */
 export const VOICE_MODEL = 'microsoft/mai-voice-2.1-flash'
 /** Azure voice IDs include the model suffix; Fish IDs are incompatible. */

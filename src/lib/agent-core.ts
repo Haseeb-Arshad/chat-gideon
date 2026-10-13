@@ -373,6 +373,7 @@ export interface TurnOptions {
  * recall then act — and a model that wants a third is usually looping.
  */
 const MAX_TOOL_ROUNDS = 2
+const TRANSIENT_RETRY_MS = 350
 
 /**
  * What GIDEON says before it goes to look something up.
@@ -598,6 +599,8 @@ export async function* streamTurn(
   let complete = ''
   let started = false
   let useTools = true
+  /** One quick second attempt per model round after a 429 or a server error. */
+  let retried = false
   // Cards being drawn, their patches, and screen moves, each sent once ready.
   // A card travels with the reply rather than ahead of it: it is released at
   // the next frame the loop sends anyway, so the voice never waits on one.
@@ -686,8 +689,27 @@ export async function* streamTurn(
     }
 
     if (!upstream.ok || !upstream.body) {
-      void upstream.body?.cancel()
-      options.audit?.record('provider_failure', { round, kind: 'http_error', status: upstream.status })
+      // What the provider said, so a failure names the model and the reason:
+      // a 429 from the main model and one from its fallback look the same
+      // otherwise. Bounded, and never the request.
+      const detail = await upstream.text().then((text) => text.slice(0, 600), () => '')
+      const transient = upstream.status === 429 || upstream.status >= 500
+      options.audit?.record('provider_failure', {
+        round, kind: 'http_error', status: upstream.status, model: requestedModel, fallbackModel, detail,
+        retrying: transient && !retried && !signal.aborted,
+      })
+      // Rate limits and provider hiccups pass in a moment. One quick second try
+      // is worth far more than telling the person to try again themselves.
+      if (transient && !retried && !signal.aborted) {
+        retried = true
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, TRANSIENT_RETRY_MS)
+          signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+        })
+        if (signal.aborted) return
+        round -= 1
+        continue
+      }
       // A model that rejects the request outright while tools are attached is
       // very likely one that does not support them. Dropping them and retrying
       // once turns a dead turn into a plain conversational one.
@@ -705,6 +727,7 @@ export async function* streamTurn(
       return
     }
 
+    retried = false
     const headersMs = Date.now() - requestStarted
     if (!started) {
       started = true
