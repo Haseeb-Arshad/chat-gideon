@@ -27,7 +27,6 @@ const THOUGHTS: Record<string, Thought | null> = {
 function EyeLab() {
   const [phase, setPhase] = useState<EyePhase>('idle')
   const [thought, setThought] = useState('none')
-  const [docked, setDocked] = useState(false)
   // `?phase=thinking` opens on that phase, for a link or a screenshot. Read
   // after mounting, so the server and the first client render agree.
   useEffect(() => {
@@ -35,21 +34,8 @@ function EyeLab() {
     if (PHASES.includes(asked as EyePhase)) setPhase(asked as EyePhase)
     const thinking = new URLSearchParams(window.location.search).get('thought')
     if (thinking && thinking in THOUGHTS) setThought(thinking)
-    setDocked(new URLSearchParams(window.location.search).has('docked'))
   }, [])
   if (!import.meta.env.DEV) return null
-  // `?docked` shows one face the way it sits in the corner while a card is
-  // open, which is the only place the cloud goes beside the face, not above it.
-  if (docked) {
-    return (
-      <main className="agent-presence" data-stage="open" style={{ minHeight: '100vh', background: 'var(--space)' }}>
-        <div className="robot-presence" data-phase={phase} data-emotion="neutral" data-docked="true">
-          <GideonEyes phase={phase} emotion="neutral" />
-          <ThoughtCloud thought={THOUGHTS[thought]} />
-        </div>
-      </main>
-    )
-  }
   return (
     <main style={{ minHeight: '100vh', padding: 32, background: 'var(--space)', color: 'var(--steel)', fontFamily: 'var(--font-mono)' }}>
       <div style={{ display: 'flex', gap: 10, marginBottom: 28 }}>
