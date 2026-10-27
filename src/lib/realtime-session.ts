@@ -331,6 +331,11 @@ export function createRealtimeSession(
           // The words are kept once, whole, when the reply is; a row per token
           // told a reader nothing the finished text and its timings do not.
           deltas += 1
+        } else if (event.t === 'card_patch' && event.partial && event.blocks.some((block) => block.type === 'illustration')) {
+          // A drawing in progress is resent whole every half second; the
+          // finished one is recorded, and the stages in between would only
+          // fill the record with copies of it.
+          audit?.record('released_frame', { type: event.t, call: event.call, draft: true })
         } else {
           audit?.record('released_frame', { type: event.t, frame: event })
         }

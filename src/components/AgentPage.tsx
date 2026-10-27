@@ -893,6 +893,12 @@ export function AgentPage() {
     [cancelLater, focus, recordConversationEvent, setMode],
   )
 
+  /** A pane is found by its call as well as by the identity its card was given on arrival. */
+  const paneOf = useCallback(
+    (id: string) => stageEntriesRef.current.find((entry) => entry.id === id || entry.callKey === id)?.id ?? id,
+    [],
+  )
+
   /** A searching pane that came to nothing dissolves, and is let go once it has. */
   const dropCard = useCallback(
     (id: string) => {
@@ -957,7 +963,7 @@ export function AgentPage() {
     (id: string, card: CardV2 | null, metadata?: { artifactId?: string; displayRevision?: number }) => {
       cancelLater(`wait:${id}`)
       if (!card) {
-        dropCard(id)
+        dropCard(metadata?.artifactId || paneOf(id))
         return
       }
       const stableId = metadata?.artifactId || id
@@ -975,13 +981,14 @@ export function AgentPage() {
               .filter((entry) => !earlier(entry))
               .map((entry) =>
                 entry.id === id || entry.id === stableId
-                  ? { ...entry, id: stableId, artifactId: metadata?.artifactId || entry.artifactId, displayRevision: metadata?.displayRevision ?? entry.displayRevision, sourceTurnId: entry.sourceTurnId || id.split(':', 1)[0], card, query: card.query || entry.query }
+                  ? { ...entry, id: stableId, callKey: id, artifactId: metadata?.artifactId || entry.artifactId, displayRevision: metadata?.displayRevision ?? entry.displayRevision, sourceTurnId: entry.sourceTurnId || id.split(':', 1)[0], card, query: card.query || entry.query }
                   : entry,
               )
           : [
               ...current.filter((entry) => !earlier(entry)),
               {
                 id: stableId,
+                callKey: id,
                 artifactId: metadata?.artifactId,
                 displayRevision: metadata?.displayRevision,
                 sourceTurnId: id.split(':', 1)[0],
@@ -1002,7 +1009,7 @@ export function AgentPage() {
         ?? id.split(':', 1)[0]
       recordArtifactDisplay(sourceTurnId || id)
     },
-    [cancelLater, dropCard, openOn, recordArtifactDisplay, updateStage],
+    [cancelLater, dropCard, openOn, paneOf, recordArtifactDisplay, updateStage],
   )
 
   /**
@@ -1020,7 +1027,9 @@ export function AgentPage() {
             : entry,
         ),
       )
-      recordArtifactDisplay(id.split(':', 1)[0] || id)
+      // A drawing being written grows twice a second; the screen is recorded
+      // once it has finished, not at every stroke.
+      if (!(patch.partial && patch.blocks.some((block) => block.type === 'illustration'))) recordArtifactDisplay(id.split(':', 1)[0] || id)
     },
     [recordArtifactDisplay, updateStage],
   )
@@ -1312,12 +1321,12 @@ export function AgentPage() {
       if (action.pending) {
         openSearch(id, action.detail, action.name === 'draw_illustration' ? 'drawing' : action.name === 'show_images' ? 'pictures' : 'web')
       } else if (!action.ok) {
-        dropCard(id)
+        dropCard(paneOf(id))
       } else {
         waitForCard(id)
       }
     },
-    [dropCard, openSearch, record, recordActionOutcome, waitForCard],
+    [dropCard, openSearch, paneOf, record, recordActionOutcome, waitForCard],
   )
 
   // -- Browser-run tools ---------------------------------------------------

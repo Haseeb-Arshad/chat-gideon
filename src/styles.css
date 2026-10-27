@@ -2533,6 +2533,13 @@ button[data-refracting='true']:active {
 
 /* -- Searching ------------------------------------------------------------ */
 
+.card-failed {
+  margin: 0;
+  padding: 28px 64px 28px 24px;
+  font: 14px/1.6 var(--font-text);
+  color: rgba(226,232,241,.85);
+}
+
 .card-searching {
   position: relative;
   z-index: 2;

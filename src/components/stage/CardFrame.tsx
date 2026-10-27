@@ -141,7 +141,7 @@ export function CardFrame({ entry, slot, sideIndex, spoken, behind, quiet, onFoc
               <CompactFace entry={entry} />
             </CardBoundary>
           ) : card ? (
-            <CardBoundary resetKey={card}>
+            <CardBoundary resetKey={card} fallback={<p className="card-failed" role="alert">This could not be shown. Ask me to try again.</p>}>
               <CardFace
                 card={card}
                 media={media}

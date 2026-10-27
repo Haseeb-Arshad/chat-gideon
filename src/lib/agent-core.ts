@@ -941,6 +941,8 @@ export async function* streamTurn(
       const args = parseArgs(call.args)
       options.audit?.record('tool_call', { round, callId, name: call.name, arguments: args })
       let outcome: ToolOutcome
+      /** The drawing already on screen for this call, while it is still being written. */
+      let sketch: { artifactId: string; revision: number } | null = null
 
       if (call.name === 'draw_illustration' && !drawingRequested) {
         outcome = { ok: false, content: 'No drawing was requested. Answer in words; no drawing was created.' }
@@ -988,7 +990,27 @@ export async function* streamTurn(
         // Capture supplies the source span used by explicit writes and forget
         // cleanup. A late capture must never reintroduce a forgotten source.
         if (MEMORY_TOOLS.has(call.name)) await capturing
-        outcome = await runServerTool(call.name, args, {
+        const running = runServerTool(call.name, args, {
+          onDraft: call.name === 'draw_illustration' ? (draft) => {
+            if (signal.aborted) return
+            const block = {
+              id: 'drawing', slot: 'body' as const, type: 'illustration' as const,
+              title: draft.title || 'Drawing',
+              summary: 'Being drawn now. It comes alive when it is finished.',
+              html: draft.html,
+            }
+            if (!sketch) {
+              sketch = { artifactId: crypto.randomUUID(), revision: 1 }
+              outbox.push({
+                t: 'card', id, call: callId, artifactId: sketch.artifactId, displayRevision: 1,
+                card: { schema: 2, recipe: 'illustration', size: 'feature', query: askedFor(args), title: block.title, blocks: [block], sources: [], asOf: null, partial: true },
+              })
+            } else {
+              // The same revision on purpose: a draft is one display that is
+              // growing, and only the finished drawing is a new version of it.
+              outbox.push({ t: 'card_patch', id, call: callId, artifactId: sketch.artifactId, displayRevision: sketch.revision, blocks: [block], drop: [], partial: true })
+            }
+          } : undefined,
           store: turnStore,
           session: options.memorySession,
           memoryRuntime: runtime,
@@ -1005,6 +1027,19 @@ export async function* streamTurn(
           location: whereabouts,
           audit: options.audit,
         })
+        if (call.name === 'draw_illustration') {
+          // The tool takes as long as the drawing does. What it has drawn so far
+          // goes out as it appears, rather than after the last stroke.
+          let settled = false
+          const finished = () => { settled = true }
+          running.then(finished, finished)
+          outbox.track(running)
+          while (!settled && !signal.aborted) {
+            await outbox.next(5_000)
+            yield* release()
+          }
+        }
+        outcome = await running
       }
 
       options.audit?.record('tool_result', {
@@ -1041,15 +1076,22 @@ export async function* streamTurn(
 
       if (outcome.card) {
         const patches = outcome.cardPatches
+        const drawn = sketch as { artifactId: string; revision: number } | null
         outbox.track(
           outcome.card.then(async (card) => {
             if (signal.aborted) return
             options.audit?.record('card_result', { callId, card })
+            if (drawn && card) {
+              // The finished drawing takes the draft's place on the same card,
+              // so the stage never shows two.
+              outbox.push({ t: 'card_patch', id, call: callId, artifactId: drawn.artifactId, displayRevision: drawn.revision + 1, blocks: card.blocks, drop: [], partial: false })
+              return
+            }
             const artifactId = card ? crypto.randomUUID() : undefined
             let displayRevision = card ? 1 : undefined
             // A null card is sent too: it is what tells the searching pane
             // to dissolve now, rather than wait out a timer for nothing.
-            outbox.push({ t: 'card', id, call: callId, card, ...(artifactId ? { artifactId, displayRevision } : {}) })
+            outbox.push({ t: 'card', id, call: callId, card, ...(artifactId ? { artifactId, displayRevision } : drawn ? { artifactId: drawn.artifactId } : {}) })
             if (!card || !patches) return
             for await (const patch of patches) {
               if (signal.aborted) return
@@ -1059,6 +1101,10 @@ export async function* streamTurn(
             }
           }),
         )
+      } else if (sketch) {
+        // It began to appear and then failed: take it down, so a drawing that
+        // never finished is not left on screen looking like one that did.
+        outbox.push({ t: 'card', id, call: callId, card: null, artifactId: (sketch as { artifactId: string }).artifactId })
       }
 
       history.push({ role: 'tool', tool_call_id: callId, content: outcome.content })
