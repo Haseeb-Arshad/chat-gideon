@@ -2283,7 +2283,7 @@ export function AgentPage() {
     transcriberRef.current ??= new Transcriber({
       language: (navigator.language || 'en').slice(0, 5),
       onError: (message) => setNotice(message),
-      request: (audio, signal, caption, preview) => linkRef.current?.transcribe(audio, signal, caption, preview) ?? Promise.resolve(undefined),
+      request: (audio, signal, caption, preview) => linkRef.current?.transcribe(audio, signal, caption, preview, caption ? undefined : conversationStateRef.current) ?? Promise.resolve(undefined),
     })
 
     const capture = new MicCapture({

@@ -56,8 +56,12 @@ export type ClientFrame =
       timing?: boolean
     }
   | { t: 'speak'; id: string; seq: number; text: string; voiceChoice?: import('./voice-options').VoiceChoice; turnId?: string; responseId?: string; startChar?: number; endChar?: number }
-  /** `at` is the browser's clock when the recording was handed over, so the speech can be placed in time. */
-  | { t: 'transcribe'; id: string; audio: string; language?: string; caption?: boolean; timing?: boolean; at?: number }
+  /**
+   * `at` is the browser's clock when the recording was handed over, so the speech can be placed in time.
+   * `timezone` and `conversationState` are the page's as a finished utterance ended, so the memory lookup
+   * for its reply can start from the transcript instead of waiting for the turn.
+   */
+  | { t: 'transcribe'; id: string; audio: string; language?: string; caption?: boolean; timing?: boolean; at?: number; timezone?: string; conversationState?: ConversationState }
   | {
       t: 'observation'
       id: string

@@ -578,17 +578,18 @@ export async function* streamTurn(
       }
       const recallStarted = Date.now()
       // What the lookup came to and what it cost in time, never what it found.
-      const recalled = (status: string, reason?: string, pack?: { status: string; text: string }) => {
+      const recalled = (status: string, reason?: string, pack?: { status: string; text: string }, early?: boolean) => {
         options.audit?.mark('memory')
         options.audit?.record('memory_recall', {
           status, reason: reason ?? null, ms: Date.now() - recallStarted,
           ...(pack ? { pack: pack.status, characters: pack.text.length } : {}),
+          ...(early ? { early: true } : {}),
         })
       }
       try {
         const result = await runtime.retrieve(latestUserText, binding, signal)
         if (signal.aborted) return
-        recalled(result.status, result.status === 'unavailable' ? result.reason : undefined, result.status === 'ready' ? result.pack : undefined)
+        recalled(result.status, result.status === 'unavailable' ? result.reason : undefined, result.status === 'ready' ? result.pack : undefined, result.status === 'ready' && result.early)
         if (result.status === 'ready'
           && sameMemoryRecallBinding(binding, result.binding)
           && result.pack.authenticatedContext.principalId === binding.principalId

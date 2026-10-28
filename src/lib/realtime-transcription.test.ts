@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ServerFrame } from './protocol'
 import type { InteractionAuditFactory } from './interaction-audit'
+import type { MemoryTurnRuntime } from './memory/turn-runtime'
 const fixtures = vi.hoisted(() => ({ transcribe: vi.fn() }))
 vi.mock('./agent-core', () => ({ availableTools: () => [], fetchVoice: vi.fn(), streamTurn: vi.fn(), getPublicConfig: () => ({}), warmUpstream: vi.fn(), warmProviders: vi.fn(), transcribeAudio: fixtures.transcribe }))
 import { createRealtimeSession } from './realtime-session'
@@ -81,4 +82,43 @@ it.each([{ audio: '!' }, { audio: 'x'.repeat(1_365_337) }, { caption: 'true' }])
   await session.handleMessage(frame(extra))
   expect(fixtures.transcribe).not.toHaveBeenCalled()
   expect(frames.at(-1)).toMatchObject({ t: 'error', code: 'invalid_audio' })
+})
+function withMemory(prefetch: MemoryTurnRuntime['prefetch']) {
+  const frames: ServerFrame[] = []
+  const close = vi.fn(async () => undefined)
+  const memoryRuntime = { flags: {}, retrieve: vi.fn(), execute: vi.fn(), prefetch } as unknown as MemoryTurnRuntime
+  const resolveMemory = vi.fn(async () => ({ memoryStore: {}, memorySession: {}, memoryRuntime, close }) as never)
+  const session = createRealtimeSession({ sendText: data => frames.push(JSON.parse(data)), sendBinary: vi.fn() }, { resolveMemory })
+  fixtures.transcribe.mockResolvedValue({ ok: true, text: 'What is the weather?', model: 'primary' })
+  return { session, frames, close }
+}
+it('starts the reply\'s memory lookup once its words have gone, and nothing waits for it', async () => {
+  let sentBeforeLookup: ServerFrame[] | null = null
+  let settle!: () => void
+  const prefetch = vi.fn((_text: string, _context: unknown) => { sentBeforeLookup = [...frames]; return new Promise<void>(resolve => { settle = resolve }) })
+  const { session, frames, close } = withMemory(prefetch)
+  const state = { schemaVersion: 1, conversationId: 'conversation/one', sessionId: 'session/one', updatedAt: new Date().toISOString(), sourceSequence: 0, recentTurns: [] }
+  const handled = session.handleMessage(frame({ timezone: 'Asia/Karachi', conversationState: state }))
+  await vi.waitFor(() => expect(prefetch).toHaveBeenCalledOnce())
+  expect(sentBeforeLookup).toEqual([{ t: 'transcript', id: 'stt-test', text: 'What is the weather?', model: 'primary' }])
+  expect(prefetch.mock.calls[0][0]).toBe('What is the weather?')
+  expect(prefetch.mock.calls[0][1]).toMatchObject({ timezone: 'Asia/Karachi', conversationState: { conversationId: 'conversation/one' } })
+  // The connection's memory is lent for the lookup and handed back once it settles.
+  expect(close).not.toHaveBeenCalled()
+  settle(); await handled
+  expect(close).toHaveBeenCalledOnce()
+})
+it('looks nothing up for a caption, a failed recognition, or a lookup that fails', async () => {
+  const prefetch = vi.fn(async () => undefined)
+  const { session, frames } = withMemory(prefetch)
+  await session.handleMessage(frame({ caption: true }))
+  fixtures.transcribe.mockResolvedValueOnce({ ok: false, text: '', code: 'stt_unreachable', message: 'Unreachable.', retryable: true, model: '' })
+  await session.handleMessage(frame({ id: 'stt-failed' }))
+  expect(prefetch).not.toHaveBeenCalled()
+
+  const failing = withMemory(vi.fn(async () => { throw new Error('database') }))
+  await failing.session.handleMessage(frame())
+  expect(failing.frames).toEqual([{ t: 'transcript', id: 'stt-test', text: 'What is the weather?', model: 'primary' }])
+  expect(failing.close).toHaveBeenCalledOnce()
+  expect(frames.map(sent => sent.t)).toEqual(['transcript', 'error'])
 })

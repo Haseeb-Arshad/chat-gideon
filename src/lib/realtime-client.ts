@@ -531,8 +531,12 @@ export class RealtimeLink {
     }
   }
 
-  /** Reuse the warm socket: no new upload connection or browser preflight. */
-  async transcribe(audio: ArrayBuffer, signal: AbortSignal, caption: boolean, preview?: (text: string) => void) {
+  /**
+   * Reuse the warm socket: no new upload connection or browser preflight.
+   * A finished utterance carries the conversation as it stands, so the server
+   * can start the reply's memory lookup the moment the words are known.
+   */
+  async transcribe(audio: ArrayBuffer, signal: AbortSignal, caption: boolean, preview?: (text: string) => void, conversationState?: ConversationState) {
     if (signal.aborted || this.disposed) throw new DOMException('Aborted', 'AbortError')
     // A caption is a throwaway; only a finished utterance is worth holding for the socket.
     if (!caption && this.waitingForSocket(true)) {
@@ -553,7 +557,10 @@ export class RealtimeLink {
       }
       signal.addEventListener('abort', abort, { once: true })
       this.transcripts.set(id, { resolve, reject, preview, cleanup: () => signal.removeEventListener('abort', abort) })
-      this.send({ t: 'transcribe', id, audio: btoa(binary), caption, language: navigator.language, at: Date.now() })
+      this.send({
+        t: 'transcribe', id, audio: btoa(binary), caption, language: navigator.language, at: Date.now(),
+        ...(caption ? {} : { timezone: localTimezone(), ...(conversationState ? { conversationState } : {}) }),
+      })
     })
   }
 

@@ -379,6 +379,28 @@ export function createRealtimeSession(
     }
   }
 
+  /**
+   * The memory lookup a reply waits for, started the moment its words are
+   * known: the turn that asks for it is a network round trip behind them. It
+   * runs after the transcript has gone and nothing waits for it; the turn
+   * uses it only if its words are exactly these.
+   */
+  async function prefetchRecall(text: string, frame: Extract<ClientFrame, { t: 'transcribe' }>) {
+    let memoryContext: Awaited<ReturnType<NonNullable<SessionOptions['resolveMemory']>>> | null = null
+    try {
+      memoryContext = await options.resolveMemory?.() ?? null
+      const runtime = memoryContext?.memoryRuntime ?? options.memoryRuntime
+      await runtime?.prefetch?.(text, {
+        timezone: typeof frame.timezone === 'string' ? frame.timezone.slice(0, 64) : 'UTC',
+        conversationState: readConversationState(frame.conversationState),
+      })
+    } catch {
+      // The turn looks it up itself.
+    } finally {
+      await memoryContext?.close().catch(() => undefined)
+    }
+  }
+
   async function runTranscription(frame: Extract<ClientFrame, { t: 'transcribe' }>) {
     if (typeof frame.id !== 'string' || !/^stt-[\w-]{1,100}$/.test(frame.id) ||
       typeof frame.audio !== 'string' || !frame.audio.length || frame.audio.length > 1_365_336 ||
@@ -397,6 +419,7 @@ export function createRealtimeSession(
     const controller = controllerFor(frame.id)
     // Someone is speaking, so a turn is about to follow: have its memory ready.
     try { options.warm?.() } catch { /* Best effort. */ }
+    let released: string | null = null
     try {
       const recognitionStarted = Date.now()
       const language = typeof frame.language === 'string' ? frame.language.slice(0, 35) : undefined
@@ -409,6 +432,7 @@ export function createRealtimeSession(
       // and keeping it is the background writer's work, not this reply's.
       if (result.ok) send({ t: 'transcript', id: frame.id, text: result.text, model: result.model })
       else send({ t: 'error', id: frame.id, code: result.code, message: result.message, retryable: result.retryable })
+      if (result.ok && !frame.caption) released = result.text
       if (!frame.caption) {
         noted((factory) => factory.recordSpeech({
           source: 'user', mime: 'audio/wav', audio, endedAt: clientTime(frame.at),
@@ -420,6 +444,8 @@ export function createRealtimeSession(
         }))
       }
     } finally { if (turns.get(frame.id) === controller) turns.delete(frame.id) }
+    // A caption is a guess at speech still going on; only a finished utterance starts a reply.
+    if (released !== null && !closed) await prefetchRecall(released, frame)
   }
 
   async function runSpeak(frame: Extract<ClientFrame, { t: 'speak' }>) {
