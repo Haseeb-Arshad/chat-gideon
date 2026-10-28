@@ -1,6 +1,6 @@
 import handler from '@tanstack/react-start/server-entry'
 import { withLocation } from '../../../src/lib/location'
-import { REALTIME_PATH } from '../../../src/lib/protocol'
+import { REALTIME_PATH, SOCKET_PROTOCOL } from '../../../src/lib/protocol'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { gate } from '../../../src/lib/guard'
 import { accountForSocket, crossSitePage, ownerOf, withOwner, withSocketCredentials } from './accounts'
@@ -45,7 +45,10 @@ export default {
       try { owner = await ownerOf(credentialed, env) }
       catch { return new Response('Account verification is temporarily unavailable.', { status: 503 }) }
       let issued: string | null = null
-      if (!owner.startsWith('user/') && crossSitePage(credentialed) && gate(credentialed, 'account', Date.now(), 'cloudflare').ok) {
+      // Only a page that offers the subprotocol can keep a token; an older
+      // page would leave an orphaned account behind on every visit.
+      const keepsToken = (request.headers.get('sec-websocket-protocol') ?? '').split(',').some((value) => value.trim() === SOCKET_PROTOCOL)
+      if (!owner.startsWith('user/') && keepsToken && crossSitePage(credentialed) && gate(credentialed, 'account', Date.now(), 'cloudflare').ok) {
         const account = await accountForSocket(credentialed, env)
         if (account) ({ owner, token: issued } = account)
       }
