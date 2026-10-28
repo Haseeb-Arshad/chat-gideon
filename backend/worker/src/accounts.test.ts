@@ -1,12 +1,15 @@
 import { memoryAdapter } from 'better-auth/adapters/memory'
 import { describe, expect, it } from 'vitest'
 import type { Memory } from '../../../src/lib/tools/memory'
-import { OwnerUnavailable, ownerOf } from './accounts'
+import { accountForSocket, OwnerUnavailable, ownerOf, withOwner, withSocketCredentials, ISSUED_TOKEN_HEADER, OWNER_HEADER } from './accounts'
+import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { handleApi } from './api'
 import { adoption } from './memory'
 import type { Env } from './types'
 
 const ORIGIN = 'http://localhost'
+/** A page on another site in front of this backend, as chatgideon.com is. */
+const SITE = 'https://site.test'
 
 const cello: Memory = {
   id: 'memory-1',
@@ -139,6 +142,85 @@ describe('accounts', () => {
     const owner = await ownerOf(request({ 'X-Gideon-Session': 'browser-1' }), env)
     expect(owner.startsWith('ephemeral/')).toBe(true)
     expect(tables.user).toHaveLength(0)
+  })
+})
+
+describe('accounts for a page on another site', () => {
+  function crossSite(env: Env, headers: Record<string, string> = {}) {
+    // The Worker reads its allowed origins from its own bindings.
+    Object.assign(env, { GIDEON_ALLOWED_ORIGINS: SITE })
+    setRuntimeEnv(env)
+    return handleApi(
+      new Request(`${ORIGIN}/api/account`, { method: 'POST', headers: { Origin: SITE, ...headers } }),
+      env,
+    )
+  }
+
+  it('hands the page its token instead of a cookie it could not keep', async () => {
+    const { env, tables } = world()
+
+    const response = await crossSite(env)
+    const body = await response?.json() as { anonymous: boolean; token?: string }
+
+    expect(response?.status).toBe(200)
+    expect(response?.headers.getSetCookie()).toEqual([])
+    expect(body.anonymous).toBe(true)
+    expect(body.token).toMatch(/\./)
+    expect(await ownerOf(request({ Authorization: `Bearer ${body.token}` }), env)).toBe(`user/${tables.user[0]?.id}`)
+  })
+
+  it('recognises the token on the next visit instead of making another account', async () => {
+    const { env, tables } = world()
+    const { token } = await (await crossSite(env))?.json() as { token: string }
+
+    const again = await crossSite(env, { Authorization: `Bearer ${token}` })
+
+    expect(again?.status).toBe(200)
+    expect(tables.user).toHaveLength(1)
+  })
+
+  it('never serves a forged or unsigned token as an account', async () => {
+    const { env, tables } = world()
+    const { token } = await (await crossSite(env))?.json() as { token: string }
+    const [value] = token.split('.')
+
+    for (const forged of [value, `${value}.not-the-signature`, `user/${tables.user[0]?.id}`]) {
+      const owner = await ownerOf(request({ Authorization: `Bearer ${forged}` }), env)
+      expect(owner.startsWith('ephemeral/')).toBe(true)
+    }
+  })
+
+  it('reads the token a socket carries in its offered subprotocols', async () => {
+    const { env, tables } = world()
+    const { token } = await (await crossSite(env))?.json() as { token: string }
+    const encoded = btoa(token).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+
+    const socket = withSocketCredentials(new Request(`${ORIGIN}/api/realtime`, {
+      headers: { Upgrade: 'websocket', Origin: SITE, 'Sec-WebSocket-Protocol': `gideon, gideon-auth.${encoded}` },
+    }))
+
+    expect(await ownerOf(socket, env)).toBe(`user/${tables.user[0]?.id}`)
+  })
+
+  it('opens an account for a socket that arrives without one', async () => {
+    const { env, tables } = world()
+    Object.assign(env, { GIDEON_ALLOWED_ORIGINS: SITE })
+    setRuntimeEnv(env)
+
+    const issued = await accountForSocket(new Request(`${ORIGIN}/api/realtime`, { headers: { Origin: SITE } }), env)
+
+    expect(issued?.owner).toBe(`user/${tables.user[0]?.id}`)
+    expect(await ownerOf(request({ Authorization: `Bearer ${issued?.token}` }), env)).toBe(issued?.owner)
+  })
+
+  it('hands the session object only the owner and token the Worker set', () => {
+    const forwarded = withOwner(new Request(`${ORIGIN}/api/realtime`, {
+      headers: { [ISSUED_TOKEN_HEADER]: 'forged', [OWNER_HEADER]: 'user/someone-else', Authorization: 'Bearer secret' },
+    }), 'user/me')
+
+    expect(forwarded.headers.get(OWNER_HEADER)).toBe('user/me')
+    expect(forwarded.headers.get(ISSUED_TOKEN_HEADER)).toBeNull()
+    expect(forwarded.headers.get('authorization')).toBeNull()
   })
 })
 

@@ -141,7 +141,19 @@ Account verification outages return a retryable 503 rather than silently
 changing the owner. Requests without a verified account use isolated ephemeral
 memory, never a shared `anonymous` corpus or a client-selected persistent ID.
 
-Anonymous sessions last a year. Clearing the cookie loses access; cross-device
+A page served from another site, such as chatgideon.com on Vercel in front of
+this Worker, cannot use this host's cookies: they are third-party there. So it
+keeps the signed session token in its own storage instead. HTTP requests send
+it as `Authorization: Bearer`; the socket offers it as a second subprotocol,
+`gideon-auth.<base64url token>`, beside `gideon`, which the Worker echoes, so
+the token is never in a URL. A cross-site socket that arrives without a valid
+token gets an anonymous account as it opens, and the token comes back in an
+`account` frame before `ready`, so a first visit needs no separate request
+before GIDEON can listen. `POST /api/account` returns `token` in its body only
+to a cross-site page; a same-site page keeps its HttpOnly cookie. Tokens must
+carry Better Auth's signature (`bearer({ requireSignature: true })`).
+
+Anonymous sessions last a year. Clearing site data loses access; cross-device
 sign-in/account recovery is not implemented. Configure Hyperdrive and
 `BETTER_AUTH_SECRET` to enable durable account memory.
 

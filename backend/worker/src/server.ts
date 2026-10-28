@@ -2,7 +2,8 @@ import handler from '@tanstack/react-start/server-entry'
 import { withLocation } from '../../../src/lib/location'
 import { REALTIME_PATH } from '../../../src/lib/protocol'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
-import { ownerOf, withOwner } from './accounts'
+import { gate } from '../../../src/lib/guard'
+import { accountForSocket, crossSitePage, ownerOf, withOwner, withSocketCredentials } from './accounts'
 import { handleApi, isApiPath } from './api'
 import type { Env, WorkerContext } from './types'
 import { dispatchMemoryMaintenance, maintainMemoryScope, type MemoryMaintenanceMessage } from './memory-maintenance.ts'
@@ -39,13 +40,19 @@ export default {
         return new Response('The realtime Durable Object is not configured.', { status: 503 })
       }
       // One object per owner, so every tab and device on an account meets the same memory.
+      const credentialed = withSocketCredentials(request)
       let owner: string
-      try { owner = await ownerOf(request, env) }
+      try { owner = await ownerOf(credentialed, env) }
       catch { return new Response('Account verification is temporarily unavailable.', { status: 503 }) }
+      let issued: string | null = null
+      if (!owner.startsWith('user/') && crossSitePage(credentialed) && gate(credentialed, 'account', Date.now(), 'cloudflare').ok) {
+        const account = await accountForSocket(credentialed, env)
+        if (account) ({ owner, token: issued } = account)
+      }
       const id = env.GIDEON_SESSION.idFromName(owner)
       // The object cannot see Cloudflare's lookup of where the request came from, so it is handed over.
-      const located = withLocation(request, (request as { cf?: unknown }).cf)
-      return env.GIDEON_SESSION.get(id).fetch(withOwner(located, owner))
+      const located = withLocation(credentialed, (request as { cf?: unknown }).cf)
+      return env.GIDEON_SESSION.get(id).fetch(withOwner(located, owner, issued))
     }
 
     if (isApiPath(url.pathname)) {

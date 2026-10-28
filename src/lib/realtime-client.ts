@@ -18,7 +18,19 @@ import {
   type ClientFrame,
   type ServerFrame,
 } from './protocol'
-import { backendHeaders, backendUrl, backendWebSocketUrl, awaitAccount, ensureAccount, onAccountReady } from './backend'
+import {
+  accountToken,
+  awaitAccount,
+  backendHeaders,
+  backendUrl,
+  backendWebSocketProtocols,
+  backendWebSocketUrl,
+  ensureAccount,
+  expectSocketAccount,
+  externalBackend,
+  onAccountReady,
+  storeAccountToken,
+} from './backend'
 import type { VoiceChoice } from './voice-options'
 import { readPatch, type CardPatch } from './cards/patch'
 import { readCard } from './cards/read'
@@ -86,6 +98,13 @@ const FALLBACK_KEY = 'gideon-transport-fallback'
 // can exceed 1.6s; permanently downgrading then made every later turn slower.
 const OPEN_TIMEOUT_MS = 5_000
 const PING_INTERVAL_MS = 20_000
+/**
+ * How long a finished utterance, a turn or a voice request waits for a socket
+ * that is still opening. The HTTP fallback costs a preflight and a connection
+ * of its own per request and gets no automatic speech, so on a first visit,
+ * when the socket is a moment from ready, waiting is the quicker path.
+ */
+const SOCKET_WAIT_MS = 2_500
 
 /** Best-effort IANA zone, so the server can answer "what day is it". */
 function localTimezone(): string {
@@ -141,6 +160,12 @@ export class RealtimeLink {
   private reconnectDelay = 600
   private disposed = false
   private readonly lifetime = new AbortController()
+  /** The current socket has said `ready`, so its capabilities are known. */
+  private socketReady = false
+  /** Work waiting for the socket to be ready, or for the link to give up on it. */
+  private readonly readyWaiters = new Set<() => void>()
+  /** Releases HTTP requests waiting on an account this socket was to bring back. */
+  private socketAccountDone: (() => void) | null = null
 
   private readonly turns = new Map<string, TurnHandlers>()
   /**
@@ -213,6 +238,14 @@ export class RealtimeLink {
 
     this.setTransport('connecting')
 
+    // A backend on another site takes its identity from the socket itself:
+    // the token this browser kept, or a new account handed back as it opens.
+    // There is nothing to wait for first.
+    if (externalBackend()) {
+      this.open()
+      return
+    }
+
     // The socket's memory is chosen as it opens, so the account comes first —
     // but only for a bounded moment. A server that is slow to answer still
     // gets its socket, under the browser's id, and if the account lands
@@ -268,11 +301,13 @@ export class RealtimeLink {
     if (this.disposed || this.socket) return
     let socket: WebSocket
     try {
-      socket = new WebSocket(backendWebSocketUrl())
+      socket = new WebSocket(backendWebSocketUrl(), backendWebSocketProtocols())
     } catch {
       this.degrade()
       return
     }
+    this.socketReady = false
+    if (externalBackend() && !accountToken()) this.socketAccountDone ??= expectSocketAccount()
 
     socket.binaryType = 'arraybuffer'
     this.socket = socket
@@ -320,6 +355,7 @@ export class RealtimeLink {
       this.clearSocketTimers()
       this.socket = null
       this.abortSocketWork('The connection dropped mid-answer.')
+      this.releaseSocketAccount()
       if (this.disposed) return
       if (this.transport === 'connecting') {
         this.degrade()
@@ -335,6 +371,9 @@ export class RealtimeLink {
   dispose() {
     this.disposed = true
     this.lifetime.abort()
+    this.releaseSocketAccount()
+    // Disposed is never waiting, so every held request is let go.
+    this.wakeReadyWaiters()
     this.clearSocketTimers()
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
@@ -364,12 +403,72 @@ export class RealtimeLink {
     this.socket = null
   }
 
+  /**
+   * Whether the socket is still on its way, so a request is better held for it
+   * than sent over HTTP. Transcription also needs its `ready`, which is what
+   * says the server takes audio on the socket at all.
+   */
+  private waitingForSocket(needReady = false) {
+    return !this.disposed && (this.transport === 'connecting' || (needReady && this.transport === 'socket' && !this.socketReady))
+  }
+
+  /** Resolves once the socket is ready or given up on, or after `ms`, whichever is first. */
+  private socketSettled(ms: number, signal?: AbortSignal, needReady = false): Promise<void> {
+    if (!this.waitingForSocket(needReady) || signal?.aborted) return Promise.resolve()
+    return new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer)
+        this.readyWaiters.delete(check)
+        signal?.removeEventListener('abort', finish)
+        resolve()
+      }
+      // Woken on every change of state, and done only once it is the one it needs.
+      const check = () => { if (!this.waitingForSocket(needReady)) finish() }
+      const timer = setTimeout(finish, ms)
+      this.readyWaiters.add(check)
+      signal?.addEventListener('abort', finish, { once: true })
+    })
+  }
+
+  private wakeReadyWaiters() {
+    for (const check of [...this.readyWaiters]) check()
+  }
+
+  private releaseSocketAccount() {
+    this.socketAccountDone?.()
+    this.socketAccountDone = null
+  }
+
   /** Starts one assistant turn. Frames are delivered to `handlers` as they land. */
   startTurn(
     id: string,
     messages: ChatTurnMessage[],
     handlers: TurnHandlers,
     options: { speculative?: boolean; screen?: ScreenState; conversationState?: ConversationState; voiceChoice?: VoiceChoice } = {},
+  ): TurnHandle {
+    if (!this.waitingForSocket()) return this.beginTurn(id, messages, handlers, options)
+    // Held for the socket rather than sent down the slower fallback.
+    let handle: TurnHandle | null = null
+    let cancelled = false
+    const stop = new AbortController()
+    void this.socketSettled(SOCKET_WAIT_MS, stop.signal).then(() => {
+      if (!cancelled) handle = this.beginTurn(id, messages, handlers, options)
+    })
+    return {
+      id,
+      cancel: () => {
+        cancelled = true
+        stop.abort()
+        handle?.cancel()
+      },
+    }
+  }
+
+  private beginTurn(
+    id: string,
+    messages: ChatTurnMessage[],
+    handlers: TurnHandlers,
+    options: { speculative?: boolean; screen?: ScreenState; conversationState?: ConversationState; voiceChoice?: VoiceChoice },
   ): TurnHandle {
     if (this.disposed) {
       handlers.onError('The link closed.', false)
@@ -435,6 +534,11 @@ export class RealtimeLink {
   /** Reuse the warm socket: no new upload connection or browser preflight. */
   async transcribe(audio: ArrayBuffer, signal: AbortSignal, caption: boolean, preview?: (text: string) => void) {
     if (signal.aborted || this.disposed) throw new DOMException('Aborted', 'AbortError')
+    // A caption is a throwaway; only a finished utterance is worth holding for the socket.
+    if (!caption && this.waitingForSocket(true)) {
+      await this.socketSettled(SOCKET_WAIT_MS, signal, true)
+      if (signal.aborted || this.disposed) throw new DOMException('Aborted', 'AbortError')
+    }
     if (!this.transcriptionSocket || this.refreshPending || this.transport !== 'socket' || this.socket?.readyState !== WebSocket.OPEN || audio.byteLength > 1_024_000) return undefined
     const id = `stt-${crypto.randomUUID()}`
     const bytes = new Uint8Array(audio)
@@ -465,6 +569,10 @@ export class RealtimeLink {
     voiceChoice?: VoiceChoice,
   ): Promise<Blob> {
     if (this.disposed) throw new DOMException('Aborted', 'AbortError')
+    if (this.waitingForSocket()) {
+      await this.socketSettled(SOCKET_WAIT_MS, signal)
+      if (this.disposed || signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    }
     if (!this.refreshPending && this.transport === 'socket' && this.socket?.readyState === WebSocket.OPEN) {
       const key = `${turnId}#${seq}`
       return new Promise<Blob>((resolve, reject) => {
@@ -611,6 +719,7 @@ export class RealtimeLink {
     if (this.transport === next) return
     this.transport = next
     this.onTransportChange?.(next)
+    this.wakeReadyWaiters()
   }
 
   private degrade() {
@@ -620,6 +729,7 @@ export class RealtimeLink {
     try { old?.close() } catch { /* Already gone. */ }
     this.abortSocketWork('The connection dropped mid-answer.')
     rememberFallback()
+    this.releaseSocketAccount()
     this.setTransport('http')
   }
 
@@ -641,9 +751,16 @@ export class RealtimeLink {
 
   private dispatch(frame: ServerFrame) {
     switch (frame.t) {
+      case 'account':
+        // Kept by this browser, so the next visit is the same person.
+        if (typeof frame.token === 'string') storeAccountToken(frame.token)
+        this.releaseSocketAccount()
+        return
       case 'ready':
         this.transcriptionSocket = frame.transcriptionSocket === true
         this.automaticSpeech = frame.autoSpeech === true
+        this.socketReady = true
+        this.wakeReadyWaiters()
         this.onConfig?.({
           configured: frame.configured,
           chatModel: frame.chatModel,

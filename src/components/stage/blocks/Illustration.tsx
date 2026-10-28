@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { IllustrationBlock } from '../../../lib/cards/schema'
 import { draftDocument, illustrationDocument } from '../../../lib/illustrations/document'
 import { readBlocks } from '../../../lib/cards/read'
+import { backendHeaders, backendUrl } from '../../../lib/backend'
 import './illustration.css'
 
 /**
@@ -55,7 +56,7 @@ export function Illustration({ block, front, drafting = false, onAsk }: { block:
       if (repairTried.current === block.html) { setStatus('error'); return }
       repairTried.current = block.html
       setStatus('repairing')
-      fetch('/api/illustration-repair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', signal: controller.signal, body: JSON.stringify({ title: current.title, summary: current.summary, html: current.html, error: detail.slice(0, 300) || 'The drawing did not render.' }) }).then(async response => {
+      fetch(backendUrl('/api/illustration-repair'), { method: 'POST', headers: backendHeaders('application/json'), credentials: 'same-origin', signal: controller.signal, body: JSON.stringify({ title: current.title, summary: current.summary, html: current.html, error: detail.slice(0, 300) || 'The drawing did not render.' }) }).then(async response => {
         if (!response.ok) throw new Error('Repair unavailable')
         const data: unknown = await response.json()
         const repaired = readBlocks([(data as { block?: unknown } | null)?.block], 0)[0]

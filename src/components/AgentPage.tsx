@@ -505,7 +505,7 @@ export function AgentPage() {
   useEffect(() => {
     const controller = new AbortController()
     void ensureAccount(3_000, controller.signal)
-      .then(() => fetch('/api/memory?view=status', { credentials: 'same-origin', signal: controller.signal }))
+      .then(() => fetch(backendUrl('/api/memory?view=status'), { headers: backendHeaders(), credentials: 'same-origin', signal: controller.signal }))
       .then((response) => { if (response.ok) setMemoryControls(true) })
       .catch(() => undefined)
     return () => controller.abort()
@@ -1236,7 +1236,7 @@ export function AgentPage() {
       if (!memoryControls || Date.now() - remembered.current.at < MEMORY_FRESH_MS) return
       remembered.current.at = Date.now()
       try {
-        const response = await fetch('/api/memory?view=items&limit=24', { credentials: 'same-origin', signal: controller.signal })
+        const response = await fetch(backendUrl('/api/memory?view=items&limit=24'), { headers: backendHeaders(), credentials: 'same-origin', signal: controller.signal })
         if (!response.ok) return
         const body = (await response.json()) as { page?: { items?: { text?: unknown; status?: unknown; freshness?: unknown }[] } }
         remembered.current.texts = (body.page?.items ?? [])

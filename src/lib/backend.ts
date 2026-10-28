@@ -1,6 +1,12 @@
-import { REALTIME_PATH } from './protocol'
+import { REALTIME_PATH, SOCKET_AUTH_PREFIX, SOCKET_PROTOCOL } from './protocol'
 
 const SESSION_KEY = 'gideon-session'
+/**
+ * The account token, kept by a page whose backend is on another site. That
+ * backend's cookies would be third-party here, and browsers drop or partition
+ * those, so without this every visit met a GIDEON that remembered nothing.
+ */
+const TOKEN_KEY = 'gideon-account-token'
 
 function configuredHttpBase() {
   return (
@@ -30,10 +36,51 @@ export function sessionId() {
   }
 }
 
+/** Whether the backend is on another site, so identity travels as a token rather than a cookie. */
+export function externalBackend() {
+  return Boolean(configuredHttpBase() || configuredWebSocketBase())
+}
+
+export function accountToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
+}
+
+const tokenListeners = new Set<() => void>()
+
+/** Keeps a token the backend issued, so this browser is the same person next time. */
+export function storeAccountToken(token: string) {
+  if (!/^[!-~]{1,512}$/.test(token)) return
+  try { localStorage.setItem(TOKEN_KEY, token) } catch { /* Kept for this page only. */ }
+  memoryToken = token
+  account = Promise.resolve((accountState = 'ready'))
+  for (const listener of tokenListeners) listener()
+}
+
+/** Set if storage is blocked, so the token still lasts the life of the page. */
+let memoryToken: string | null = null
+function currentToken() {
+  return accountToken() ?? memoryToken
+}
+
 export type AccountState = 'pending' | 'ready' | 'unavailable' | 'error'
 let account: Promise<AccountState> | null = null
 let accountState: AccountState = 'pending'
 const accountListeners = new Set<() => void>()
+/** A socket that opened without a token is about to be handed one; HTTP waits for it rather than make a second account. */
+let socketIssuing: Promise<void> | null = null
+
+/** Marks a socket that may bring an account back; resolved when it does, or when it no longer can. */
+export function expectSocketAccount(): () => void {
+  let done = () => {}
+  const waiting = new Promise<void>((resolve) => {
+    const finish = () => { tokenListeners.delete(finish); resolve() }
+    tokenListeners.add(finish)
+    done = finish
+  })
+  socketIssuing = waiting
+  void waiting.then(() => { if (socketIssuing === waiting) socketIssuing = null })
+  return done
+}
 
 /** Success is a real identity transition, even after a caller stopped waiting. */
 export function onAccountReady(listener: () => void): () => void {
@@ -41,13 +88,38 @@ export function onAccountReady(listener: () => void): () => void {
   return () => { accountListeners.delete(listener) }
 }
 
+/** An account on a backend on another site: the token this browser keeps, or a new one. */
+async function externalAccount(): Promise<AccountState> {
+  if (currentToken()) return 'ready'
+  // A socket opening without a token is bringing one; a second account made
+  // here would split this visit's memory between the two.
+  if (socketIssuing) {
+    await Promise.race([socketIssuing, new Promise((resolve) => setTimeout(resolve, 4_000))])
+    if (currentToken()) return 'ready'
+  }
+  const response = await fetch(backendUrl('/api/account'), { method: 'POST', headers: backendHeaders() })
+  if (response.status === 404) return 'unavailable'
+  if (!response.ok) return 'error'
+  const body = await response.json().catch(() => null) as { token?: unknown } | null
+  if (typeof body?.token === 'string') storeAccountToken(body.token)
+  return currentToken() ? 'ready' : 'error'
+}
+
 function initializeAccount(): Promise<AccountState> {
   if (account && accountState !== 'error') return account
   accountState = 'pending'
-  // External backends do not participate in same-origin account cookies.
-  if (typeof window === 'undefined' || configuredHttpBase() || configuredWebSocketBase()) {
+  if (typeof window === 'undefined') {
     accountState = 'unavailable'
     return (account = Promise.resolve(accountState))
+  }
+  if (externalBackend()) {
+    if (currentToken()) return (account = Promise.resolve((accountState = 'ready')))
+    account = externalAccount().then((state) => {
+      accountState = state
+      if (state === 'ready') for (const listener of accountListeners) listener()
+      return state
+    }, () => (accountState = 'error'))
+    return account
   }
   account = Promise.resolve().then(() => fetch('/api/account', {
     method: 'POST', headers: backendHeaders(),
@@ -102,7 +174,22 @@ export function backendHeaders(contentType?: string): Record<string, string> {
     'X-Gideon-Session': sessionId(),
   }
   if (contentType) headers['Content-Type'] = contentType
+  const token = externalBackend() ? currentToken() : null
+  if (token) headers.Authorization = `Bearer ${token}`
   return headers
+}
+
+/**
+ * Subprotocols for the socket to a backend on another site: the one it
+ * answers with, and the account token, which a browser cannot send as a
+ * header on a WebSocket. Undefined for a same-site backend, which has cookies.
+ */
+export function backendWebSocketProtocols(): string[] | undefined {
+  if (!externalBackend()) return undefined
+  const token = currentToken()
+  if (!token) return [SOCKET_PROTOCOL]
+  const encoded = btoa(token).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+  return [SOCKET_PROTOCOL, `${SOCKET_AUTH_PREFIX}${encoded}`]
 }
 
 export function backendWebSocketUrl() {

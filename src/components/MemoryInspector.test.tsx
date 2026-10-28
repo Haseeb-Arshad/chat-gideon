@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InspectorItem, InspectorOverview } from '../lib/memory/controls'
 import { MemoryInspector } from './MemoryInspector'
 
-vi.mock('../lib/backend', () => ({ ensureAccount: vi.fn(async () => 'ready') }))
+vi.mock('../lib/backend', () => ({ ensureAccount: vi.fn(async () => 'ready'), backendUrl: (path: string) => path, backendHeaders: () => ({}) }))
 afterEach(cleanup)
 
 const settings = { revision: 1, learningEnabled: true, temporaryUntil: null, temporaryActive: false, evidenceRetentionDays: null }

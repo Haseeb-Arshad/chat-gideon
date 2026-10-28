@@ -1,6 +1,6 @@
 import { ArrowLeft, Check, ChevronDown, CircleAlert, Download, Loader2, Pencil, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
-import { ensureAccount } from '../lib/backend'
+import { backendHeaders, backendUrl, ensureAccount } from '../lib/backend'
 import {
   RETENTION_CHOICES,
   SETTING_EFFECTS,
@@ -27,7 +27,12 @@ type ApiResult<T> = { ok: true; value: T } | { ok: false; error: ApiError; statu
 
 async function api<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   try {
-    const response = await fetch(path, { credentials: 'same-origin', ...init })
+    // The memory lives with the backend, which may be on another site.
+    const response = await fetch(backendUrl(path), {
+      credentials: 'same-origin',
+      ...init,
+      headers: { ...backendHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+    })
     const body = await response.json().catch(() => null) as ({ ok?: boolean; error?: ApiError } & Record<string, unknown>) | null
     if (response.ok && body?.ok) return { ok: true, value: body as T }
     return { ok: false, status: response.status, error: body?.error ?? { code: 'unavailable', message: 'Memory is unavailable right now.', retryable: true } }
