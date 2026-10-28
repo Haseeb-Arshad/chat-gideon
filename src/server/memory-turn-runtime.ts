@@ -4,15 +4,15 @@ import { executeExplicitCommand, readCurrentAssertion, resolveExplicitTarget } f
 import { executeForgetCommand } from '../../backend/memory/src/deletion.ts'
 import { readMemoryMode } from '../../backend/memory/src/controls.ts'
 import type { PostgresMemoryStore } from '../../backend/memory/src/postgres.ts'
-import { retrieveMemory } from '../../backend/memory/src/retrieval.ts'
-import type { RetrieveMemoryOptions } from '../../backend/memory/src/retrieval.ts'
+import { prepareMemoryRetrieval, retrieveMemory } from '../../backend/memory/src/retrieval.ts'
+import type { PreparedMemoryRetrieval, RetrieveMemoryOptions } from '../../backend/memory/src/retrieval.ts'
 import { applyVerifiedOverlays, readVerifiedOverlays, recordMemoryTurn } from '../../backend/memory/src/turn-traces.ts'
 import type { ContextPack } from '../lib/memory/retrieval.ts'
 import type { ConversationState } from '../lib/conversation-state'
 import { correctShape, recallFieldsFromConversation, rememberShape } from '../lib/memory/recall-context'
 import { MEMORY_CONTRACT_VERSION, parsePublicMemoryCommand, type AssertionVersion, type ConsentId, type EventEnvelope, type MemorySession, type SourceSpan } from '../lib/memory/contracts'
 import { memoryFeatureFlags } from '../lib/memory/rollout'
-import type { MemoryCaptureTurnContext, MemoryRecallTurnContext, MemoryTurnRuntime } from '../lib/memory/turn-runtime'
+import type { MemoryCaptureTurnContext, MemoryPrefetchContext, MemoryRecallTurnContext, MemoryTurnRuntime } from '../lib/memory/turn-runtime'
 import type { ToolOutcome } from '../lib/tools/registry'
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex')
@@ -125,6 +125,12 @@ const AUTOMATIC_RECALL_DEADLINE_MS = 1_000
 const REQUESTED_RECALL_DEADLINE_MS = 4_000
 /** One read of the temporary-conversation setting serves the capture and the lookup of the same turn. */
 const MODE_FRESH_MS = 2_000
+/**
+ * How long a lookup started on a released transcript is good for the turn it
+ * starts. That turn normally arrives one network round trip later; a turn that
+ * comes later than this reads afresh rather than use what was read so long ago.
+ */
+const PREFETCH_FRESH_MS = 3_000
 
 export function createRecallInput(query: string, timezone: string, conversationState: ConversationState | null, latestUserText: string, depth?: 'deep', deadlineMs = 1_500) {
   return {
@@ -155,6 +161,30 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
     if (!modeRead || Date.now() - modeRead.at > MODE_FRESH_MS) modeRead = { at: Date.now(), value: readMemoryMode(session) }
     return (await modeRead.value)?.temporary === true
   }
+  // The query's embedding is the one thing that leaves the database, so it
+  // waits for the setting: nothing said in a temporary conversation is sent.
+  const authorize = retrievalOptions.authorizeRemoteEmbedding
+  const embeddingUnless = (off: Promise<boolean>) => authorize
+    ? { authorizeRemoteEmbedding: async (...args: Parameters<typeof authorize>) => !(await off) && authorize(...args) }
+    : {}
+  // Read beside the lookup too: which overlays apply depends on the pack, reading them does not.
+  const readOverlays = () => retrievalOptions.recordTraces ? readVerifiedOverlays(session).catch(() => null) : null
+  // The reading started for the last transcript released on this connection,
+  // kept for the turn those words start.
+  let prefetched: { text: string; at: number; prepared: PreparedMemoryRetrieval; overlays: ReturnType<typeof readOverlays> } | null = null
+  const prefetch = async (latestUserText: string, context: MemoryPrefetchContext) => {
+    if (!flags.recall || session.trust !== 'authenticated' || !latestUserText.trim()) return
+    const off = temporary()
+    const prepared = prepareMemoryRetrieval(
+      session,
+      createRecallInput(latestUserText, context.timezone, context.conversationState, latestUserText, undefined, AUTOMATIC_RECALL_DEADLINE_MS),
+      { ...retrievalOptions, ...embeddingUnless(off) },
+    )
+    if (!prepared) return
+    const entry = { text: latestUserText, at: Date.now(), prepared, overlays: readOverlays() }
+    prefetched = entry
+    await Promise.all([prepared.settled, off, entry.overlays])
+  }
   const retrieve = async (query: string, context: MemoryRecallTurnContext, signal: AbortSignal, requested = false) => {
     if (!flags.recall || session.trust !== 'authenticated') return { status: 'unavailable' as const, reason: 'unauthorized' as const }
     if (signal.aborted) return { status: 'unavailable' as const, reason: 'stale' as const }
@@ -162,12 +192,16 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
       return { status: 'unavailable' as const, reason: 'stale' as const }
     }
     // The setting is read beside the lookup rather than in front of it, and a
-    // lookup made in a temporary conversation is thrown away unread. The one
-    // thing that leaves the database, the query's embedding, still waits for it.
+    // lookup made in a temporary conversation is thrown away unread.
     const off = temporary()
-    const authorize = retrievalOptions.authorizeRemoteEmbedding
-    // Read beside the lookup too: which overlays apply depends on the pack, reading them does not.
-    const overlays = retrievalOptions.recordTraces ? readVerifiedOverlays(session).catch(() => null) : null
+    // Only the automatic lookup for exactly the words just released borrows
+    // their reading, and only while it is fresh. The pack is still composed
+    // for this turn's own request and binding, after a closing authority check.
+    // A reading is not kept once it is stale or its committed turn has used it.
+    const fresh = prefetched && Date.now() - prefetched.at <= PREFETCH_FRESH_MS ? prefetched : null
+    const early = !requested && !context.depth && fresh && fresh.text === context.latestUserText && query === context.latestUserText ? fresh : null
+    if (!fresh || (early && !context.speculative)) prefetched = null
+    const overlays = early ? early.overlays : readOverlays()
     const [isTemporary, result] = await Promise.all([
       off,
       retrieveMemory(
@@ -177,7 +211,8 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
           ...retrievalOptions,
           signal,
           ...(requested ? { semanticGraceMs: undefined } : {}),
-          ...(authorize ? { authorizeRemoteEmbedding: async (...args: Parameters<typeof authorize>) => !(await off) && authorize(...args) } : {}),
+          ...(early ? { prepared: early.prepared } : {}),
+          ...embeddingUnless(off),
         },
       ),
     ])
@@ -200,7 +235,7 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
       if (turnPacks.size >= 4) turnPacks.delete(turnPacks.keys().next().value!)
       turnPacks.set(context.turnId, pack)
     }
-    return { status: 'ready' as const, binding: context, pack }
+    return { status: 'ready' as const, binding: context, pack, ...(result.diagnostics.earlyReading ? { early: true } : {}) }
   }
 
   return {
@@ -222,6 +257,7 @@ export function createRuntime(session: MemorySession<PostgresMemoryStore>, flags
       return { status: receipt.failure.code === 'unavailable' ? 'unavailable' : 'failed', reason: receipt.failure.code }
     },
     retrieve,
+    prefetch,
     async execute(name, args, context) {
       if (context.signal.aborted || session.trust !== 'authenticated') return unavailableOutcome()
       const id = commandId(session.scope.id, context.turnId, context.callId)

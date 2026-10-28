@@ -26,6 +26,7 @@ import {
   selectApplicableConstraints,
   type CandidateBranch,
   type ContextPack,
+  type DeepRecallLimits,
   type EmbeddingQuery,
   type RetrievalBranchCoverage,
   type RetrievalDocument,
@@ -99,6 +100,11 @@ export interface RetrieveMemoryOptions {
    */
   semanticGraceMs?: number
   /**
+   * A reading started earlier by `prepareMemoryRetrieval`. It is used only
+   * for a request whose reading it would repeat exactly; any other reads afresh.
+   */
+  prepared?: PreparedMemoryRetrieval | null
+  /**
    * Stage 13 evaluation only: switch one mechanism off to measure what it
    * contributes. Never set by the application. Each switch removes a branch;
    * none can widen what is retrieved.
@@ -128,6 +134,8 @@ export interface RetrieveMemorySuccess {
     filteredCandidates: number
     expansionEdges: number
     evidenceFetches: number
+    /** The pack was composed from a reading started before this request (`options.prepared`). */
+    earlyReading?: true
   }
 }
 
@@ -1306,6 +1314,287 @@ function outputFailure(error: unknown, request: RetrievalRequest | null = null):
 }
 
 /**
+ * What a lookup has read once every branch has answered and been hydrated
+ * against current authority, before any of it is ranked or composed for a turn.
+ */
+interface GatheredMemory {
+  initialEpoch: EpochRow
+  exactRaw: BranchResult
+  lexicalRaw: BranchResult
+  semanticRaw: BranchResult
+  evidenceRaw: BranchResult
+  warmRaw: WarmResult
+  constraintDocuments: RetrievalDocument[]
+  assertionRefs: ExactVersionRef[]
+  hydratedAssertions: RetrievalDocument[]
+  hydratedMap: Map<string, RetrievalDocument>
+  exactHydrated: RetrievalDocument[]
+  lexicalHydrated: RetrievalDocument[]
+  semanticHydrated: RetrievalDocument[]
+  warmHydrated: RetrievalDocument[]
+  constraintsHydrated: RetrievalDocument[]
+  allEvidenceHydrated: RetrievalDocument[]
+  expansion: { references: ExactVersionRef[]; edges: number }
+  relatedDocuments: RetrievalDocument[]
+}
+
+/** The reading half of a lookup: the opening epochs, every branch, their hydration and the bounded expansion. */
+async function gatherMemory(
+  session: MemorySession<PostgresMemoryStore>,
+  request: RetrievalRequest,
+  options: RetrieveMemoryOptions,
+  signal: AbortSignal,
+  limits: DeepRecallLimits,
+): Promise<GatheredMemory> {
+  const initialEpoch = await openingEpoch(session, request, signal)
+  let semanticAbandoned = false
+  const slowEmbedding = (options.embeddingProvider?.recentQueryMs?.() ?? 0) > SLOW_QUERY_EMBEDDING_MS
+  const semanticGraceMs = options.semanticGraceMs !== undefined && slowEmbedding ? 0 : options.semanticGraceMs
+  const exactBranch = captureBranch(async () => {
+    const result = await searchExactAndConstraints(session, request, signal)
+    const truncated = result.truncatedExact || result.truncatedConstraints
+    return { status: truncated ? 'partial' : 'complete', documents: [...result.exact, ...result.constraints], reason: result.truncatedExact ? 'exact_branch_limit_reached' : result.truncatedConstraints ? 'constraint_index_limit_reached' : null, candidates: result.exact.length + result.constraints.length, filtered: 0 }
+  }, signal)
+  const lexicalBranch = captureBranch(async () => {
+    const result = await searchLexical(session, request, signal)
+    return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'lexical_branch_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
+  }, signal)
+  const evidenceBranch = options.ablate?.sourceEvidence ? Promise.resolve(emptyBranch('not_configured', 'ablated_source_evidence')) : captureBranch(async () => {
+    const result = await searchSourceEvidence(session, request, signal)
+    return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
+  }, signal)
+  const warmBranch = (async (): Promise<WarmResult> => {
+    if (options.ablate?.consolidation) return {status:'not_configured',snapshot:null,documents:[],reason:'ablated_consolidation',candidates:0}
+    try {
+      return await searchWarmSnapshot(session, request, signal,options.compact===true)
+    } catch (error) {
+      const branch = await captureBranch(async () => { throw error }, signal)
+      return { ...branch, snapshot: null }
+    }
+  })()
+  const [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw] = await Promise.all([
+    exactBranch,
+    lexicalBranch,
+    options.embeddingProvider
+      ? keepingUpWith(captureBranch(async () => {
+          const result = await searchSemantic(session, request, signal, options.embeddingProvider, options.authorizeRemoteEmbedding, options.minimumSimilarity, () => semanticAbandoned)
+          return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.reason, candidates: result.documents.length, filtered: result.filtered }
+        }, signal), Promise.all([exactBranch, lexicalBranch, evidenceBranch, warmBranch]), semanticGraceMs, () => { semanticAbandoned = true })
+      : Promise.resolve(emptyBranch('not_configured', 'semantic_provider_not_configured')),
+    evidenceBranch,
+    warmBranch,
+  ])
+
+  const exactDocuments = exactRaw.documents
+  const lexicalDocuments = lexicalRaw.documents
+  const semanticDocuments = semanticRaw.documents
+  const evidenceDocuments = evidenceRaw.documents
+  const warmDocuments = warmRaw.documents
+  const constraintDocuments = options.ablate?.applicability ? [] : exactDocuments.filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
+  const snapshotConstraintHints = warmRaw.snapshot && !options.ablate?.applicability
+    ? warmSnapshotDocuments(warmRaw.snapshot).filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
+    : []
+  const allInitial = [...exactDocuments, ...lexicalDocuments, ...semanticDocuments, ...warmDocuments, ...snapshotConstraintHints]
+  const assertionRefs = refsOf(allInitial)
+  const initialEvidenceEventIds = evidenceDocuments.flatMap((document) => document.sourceEventId ? [document.sourceEventId] : [])
+  const maxEvidenceFetches = Math.min(limits.maxEvidenceFetches, options.maxEvidenceFetches ?? limits.maxEvidenceFetches)
+  const [hydratedAssertions, hydratedEvidence] = await Promise.all([
+    hydrateAssertions(session, request, assertionRefs, signal),
+    hydrateSourceEvents(session, request, initialEvidenceEventIds, signal, maxEvidenceFetches),
+  ])
+  const hydratedMap = docsById(hydratedAssertions)
+  const evidenceMap = docsById(hydratedEvidence)
+  const exactHydrated = hydrateBranchDocuments(exactDocuments, hydratedMap)
+  const lexicalHydrated = hydrateBranchDocuments(lexicalDocuments, hydratedMap)
+  const semanticHydrated = hydrateBranchDocuments(semanticDocuments, hydratedMap)
+  const warmHydrated = hydrateBranchDocuments(warmDocuments, hydratedMap)
+  const constraintsHydrated = hydrateBranchDocuments([...constraintDocuments, ...snapshotConstraintHints], hydratedMap)
+  const sourceEvidenceHydrated = hydrateBranchDocuments(evidenceDocuments, evidenceMap)
+  const assertionEvidenceHydrated = hydrateBranchDocuments(hydratedEvidence, evidenceMap)
+  const evidenceById = docsById([...sourceEvidenceHydrated, ...assertionEvidenceHydrated])
+  const allEvidenceHydrated = [...evidenceById.values()].slice(0, maxEvidenceFetches)
+
+  const rankedSeeds = fuseRetrievalBranches([
+    { name: 'exact', documents: exactHydrated.filter((document) => !constraintDocuments.includes(document)), reason: 'exact_key_entity_or_active_decision' },
+    { name: 'lexical', documents: lexicalHydrated, reason: 'postgresql_full_text' },
+    { name: 'semantic', documents: semanticHydrated, reason: 'versioned_exact_vector' },
+    { name: 'warm_lexical', documents: warmHydrated, reason: 'fresh_warm_snapshot_hint' },
+  ], 16)
+  const expansion = await expandRelatedReferences(
+    session,
+    request,
+    rankedSeeds.map((candidate) => candidate.document).flatMap((document) => document.reference ? [document.reference] : []),
+    options.ablate?.relationships ? 0 : limits.maxExpansionEdges,
+    signal,
+  )
+  const relatedDocuments = await hydrateAssertions(session, request, expansion.references, signal)
+  return {
+    initialEpoch, exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw,
+    constraintDocuments, assertionRefs, hydratedAssertions, hydratedMap,
+    exactHydrated, lexicalHydrated, semanticHydrated, warmHydrated, constraintsHydrated, allEvidenceHydrated,
+    expansion, relatedDocuments,
+  }
+}
+
+/**
+ * The turn's half: ranks what was read for this request, checks that no
+ * deletion or policy change has happened since the reading began, and
+ * composes the pack. The closing check is a fresh authorized read, so it is
+ * as strict for a reading made a moment early as for one made just now.
+ */
+async function composeGathered(
+  session: MemorySession<PostgresMemoryStore>,
+  request: RetrievalRequest,
+  gathered: GatheredMemory,
+  options: RetrieveMemoryOptions,
+  signal: AbortSignal,
+): Promise<{ pack: ContextPack; diagnostics: RetrieveMemorySuccess['diagnostics'] }> {
+  const {
+    initialEpoch, exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw,
+    constraintDocuments, assertionRefs, hydratedAssertions, hydratedMap,
+    exactHydrated, lexicalHydrated, semanticHydrated, warmHydrated, constraintsHydrated, allEvidenceHydrated,
+    expansion, relatedDocuments,
+  } = gathered
+  const branchList: CandidateBranch[] = [
+    { name: 'exact', documents: exactHydrated.filter((document) => !constraintDocuments.some((constraint) => constraint.id === document.id)), reason: 'exact_key_entity_or_active_decision' },
+    { name: 'lexical', documents: lexicalHydrated, reason: 'postgresql_full_text' },
+    ...(semanticRaw.status === 'not_configured' ? [] : [{ name: 'semantic' as const, documents: semanticHydrated, reason: 'versioned_exact_vector' }]),
+    { name: 'warm_lexical', documents: warmHydrated, reason: 'fresh_warm_snapshot_hint' },
+    { name: 'relationship', documents: relatedDocuments, reason: 'bounded_dependency_edge_expansion' },
+    { name: 'evidence', documents: allEvidenceHydrated, reason: 'bounded_permitted_source_evidence' },
+    { name: 'relationship', documents: constraintsHydrated, reason: 'constraint_applicability_index_independent_of_overlap' },
+  ]
+  const candidates = fuseRetrievalBranches(branchList, MAX_RETRIEVAL_BRANCH_CANDIDATES)
+  const constraints = options.ablate?.applicability ? [] : selectApplicableConstraints(
+    request,
+    [...candidates.map((candidate) => candidate.document), ...constraintsHydrated],
+    (warmRaw.snapshot?.constraints ?? []).filter((entry) => hydratedMap.has(`assertion:${entry.assertion.assertionId}:${entry.assertion.revision}`)),
+  )
+  const finalEpoch = await currentAuthorityEpoch(session, request, signal)
+  if (Number(finalEpoch.policy_epoch) !== Number(initialEpoch.policy_epoch) || Number(finalEpoch.deletion_epoch) !== Number(initialEpoch.deletion_epoch)) {
+    throw opFailure('conflict', 'Memory changed during retrieval; stale candidates were withheld.', true)
+  }
+
+  const branches: RetrievalCoverageParts = {
+    exact: branchCoverage({ ...exactRaw, documents: exactHydrated }),
+    warm: branchCoverage(warmRaw),
+    lexical: branchCoverage(lexicalRaw),
+    semantic: branchCoverage(semanticRaw),
+    evidence: branchCoverage({ ...evidenceRaw, documents: allEvidenceHydrated, candidates: allEvidenceHydrated.length }),
+    freshness: warmRaw.snapshot ? 'warm' : warmRaw.status === 'unavailable' ? 'unavailable' : 'authoritative',
+  }
+  const anyTimedOut = Object.values(branches).some((branch) => typeof branch === 'object' && 'status' in branch && ['timed_out', 'cancelled'].includes(branch.status))
+  const anyUnavailable = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].some((branch) => branch.status === 'unavailable')
+  const anyPartial = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].some((branch) => branch.status === 'partial')
+  const allUnavailable = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw].every((branch) => ['unavailable', 'timed_out', 'cancelled'].includes(branch.status))
+  const outcome = allUnavailable ? 'unavailable' : anyTimedOut || anyUnavailable || anyPartial || semanticRaw.status === 'unavailable' ? 'partial' : 'complete'
+  const candidateCount = exactRaw.candidates + lexicalRaw.candidates + semanticRaw.candidates + warmRaw.candidates + evidenceRaw.candidates
+  const hydrationFiltered = Math.max(0, assertionRefs.length - hydratedAssertions.length)
+  const filtered = exactRaw.filtered + lexicalRaw.filtered + semanticRaw.filtered + evidenceRaw.filtered + hydrationFiltered
+  const coverage = toPackCoverage(
+    request,
+    branches,
+    finalEpoch,
+    outcome,
+    candidateCount,
+    filtered,
+    expansion.edges,
+    allEvidenceHydrated.length,
+    branches.freshness,
+    new Date().toISOString(),
+  )
+  const unavailableReason = allUnavailable
+    ? 'All authoritative retrieval branches were unavailable; no search result can establish absence.'
+    : [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].map((branch) => branch.reason).filter(Boolean).join('; ') || null
+  const pack = composeContextPack({ request, coverage, candidates, constraints, unavailableReason, compact: options.compact }, options.tokenizer)
+  return {
+    pack,
+    diagnostics: {
+      lexicalCandidates: lexicalRaw.candidates,
+      semanticCandidates: semanticRaw.candidates,
+      exactCandidates: exactRaw.candidates,
+      warmCandidates: warmRaw.candidates,
+      sourceEvidenceCandidates: evidenceRaw.candidates,
+      hydratedCandidates: hydratedAssertions.length + allEvidenceHydrated.length,
+      filteredCandidates: filtered,
+      expansionEdges: expansion.edges,
+      evidenceFetches: allEvidenceHydrated.length,
+    },
+  }
+}
+
+/**
+ * Everything a lookup's reading depends on, and nothing it does not: the
+ * owner, the query plan (the words, the topic and the recent turns it takes
+ * terms from), the exact references it was asked for, when it reads as of and
+ * whether it may use the warm snapshot. Two requests with the same signature
+ * read the same rows. The conversation state, budget, deadline and time zone
+ * only shape what is composed from them.
+ */
+function readingSignature(request: RetrievalRequest): string {
+  const plan = buildRetrievalQueryPlan(request)
+  return JSON.stringify([
+    request.authenticatedContext,
+    request.query,
+    plan.text,
+    plan.terms,
+    request.resolved,
+    request.activity,
+    request.taskOverrides.map((override) => override.supersedesAssertionIds),
+    request.requestedTime.mode,
+    request.requestedTime.instant,
+    request.consistency,
+  ])
+}
+
+/**
+ * A lookup's reading, started before the turn that will want it. What it read
+ * stays inside this module, so a handle can be neither read nor forged.
+ */
+export interface PreparedMemoryRetrieval {
+  /** Settles once the reading has finished, however it ended. Never rejects. */
+  readonly settled: Promise<void>
+}
+
+const preparedReadings = new WeakMap<PreparedMemoryRetrieval, {
+  session: MemorySession
+  signature: string
+  gathered: Promise<GatheredMemory | null>
+}>()
+
+/**
+ * Starts the reading half of a lookup ahead of its turn: the opening epochs,
+ * every branch (the query's embedding with it), their hydration and the
+ * bounded expansion, under the request's own deadline. Nothing is ranked,
+ * composed or shown. `retrieveMemory`, handed it back, uses the reading only
+ * for the same session and a request whose reading would be identical, and
+ * then still makes its own closing check of the epochs. Returns null when the
+ * request could not be read at all.
+ */
+export function prepareMemoryRetrieval(
+  session: MemorySession,
+  input: unknown,
+  options: RetrieveMemoryOptions = {},
+): PreparedMemoryRetrieval | null {
+  try {
+    requirePostgresSession(session)
+    const parsed = createRetrievalRequest(session, input, { now: options.now })
+    if (!parsed.ok || !retrievalRequestMatchesSession(parsed.request, session)) return null
+    const request = parsed.request
+    const gathered = runBoundedDeepRecall(request, ({ signal, limits }) => gatherMemory(session as MemorySession<PostgresMemoryStore>, request, options, signal, limits), {
+      signal: options.signal,
+      maxExpansionEdges: options.maxExpansionEdges,
+      maxEvidenceFetches: options.maxEvidenceFetches,
+    }).then((deep) => deep.status === 'complete' ? deep.value : null, () => null)
+    const handle: PreparedMemoryRetrieval = { settled: gathered.then(() => undefined) }
+    preparedReadings.set(handle, { session, signature: readingSignature(request), gathered })
+    return handle
+  } catch {
+    return null
+  }
+}
+
+/**
  * Executes exact/entity/decision, warm lexical, PostgreSQL lexical, semantic,
  * and original-source fallback branches under a shared deadline. No private
  * content is returned unless its exact current version/event survives an
@@ -1323,156 +1612,24 @@ export async function retrieveMemory(
     if (!parsed.ok) return { ok: false, request: null, pack: null, failure: { code: parsed.failure.code, message: parsed.failure.message, retryable: false } }
     request = parsed.request
     if (!retrievalRequestMatchesSession(request, session)) throw opFailure('unauthorized', 'The retrieval request identity does not match its authenticated server session.')
+    const bound = request
+    const postgresSession = session as MemorySession<PostgresMemoryStore>
+    const borrowed = options.prepared ? preparedReadings.get(options.prepared) : undefined
+    const early = borrowed && borrowed.session === session && borrowed.signature === readingSignature(bound) ? borrowed.gathered : null
 
-    const deep = await runBoundedDeepRecall(request, async ({ signal, limits }) => {
-      const initialEpoch = await openingEpoch(session as MemorySession<PostgresMemoryStore>, request!, signal)
-      let semanticAbandoned = false
-      const slowEmbedding = (options.embeddingProvider?.recentQueryMs?.() ?? 0) > SLOW_QUERY_EMBEDDING_MS
-      const semanticGraceMs = options.semanticGraceMs !== undefined && slowEmbedding ? 0 : options.semanticGraceMs
-      const exactBranch = captureBranch(async () => {
-        const result = await searchExactAndConstraints(session, request!, signal)
-        const truncated = result.truncatedExact || result.truncatedConstraints
-        return { status: truncated ? 'partial' : 'complete', documents: [...result.exact, ...result.constraints], reason: result.truncatedExact ? 'exact_branch_limit_reached' : result.truncatedConstraints ? 'constraint_index_limit_reached' : null, candidates: result.exact.length + result.constraints.length, filtered: 0 }
-      }, signal)
-      const lexicalBranch = captureBranch(async () => {
-        const result = await searchLexical(session, request!, signal)
-        return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'lexical_branch_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
-      }, signal)
-      const evidenceBranch = options.ablate?.sourceEvidence ? Promise.resolve(emptyBranch('not_configured', 'ablated_source_evidence')) : captureBranch(async () => {
-        const result = await searchSourceEvidence(session, request!, signal)
-        return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.truncated ? 'source_evidence_limit_reached' : null, candidates: result.documents.length, filtered: 0 }
-      }, signal)
-      const warmBranch = (async (): Promise<WarmResult> => {
-        if (options.ablate?.consolidation) return {status:'not_configured',snapshot:null,documents:[],reason:'ablated_consolidation',candidates:0}
+    const deep = await runBoundedDeepRecall(bound, async ({ signal, limits }) => {
+      const reading = early ? await early : null
+      if (reading) {
         try {
-          return await searchWarmSnapshot(session, request!, signal,options.compact===true)
+          const composed = await composeGathered(postgresSession, bound, reading, options, signal)
+          return { ...composed, diagnostics: { ...composed.diagnostics, earlyReading: true as const } }
         } catch (error) {
-          const branch = await captureBranch(async () => { throw error }, signal)
-          return { ...branch, snapshot: null }
+          // Something was forgotten, or the policy changed, after the early
+          // reading began: what it read may be gone, so it is read again.
+          if (!(error instanceof PostgresMemoryOperationError && error.failure.code === 'conflict')) throw error
         }
-      })()
-      const [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw] = await Promise.all([
-        exactBranch,
-        lexicalBranch,
-        options.embeddingProvider
-          ? keepingUpWith(captureBranch(async () => {
-              const result = await searchSemantic(session, request!, signal, options.embeddingProvider, options.authorizeRemoteEmbedding, options.minimumSimilarity, () => semanticAbandoned)
-              return { status: result.truncated ? 'partial' : 'complete', documents: result.documents, reason: result.reason, candidates: result.documents.length, filtered: result.filtered }
-            }, signal), Promise.all([exactBranch, lexicalBranch, evidenceBranch, warmBranch]), semanticGraceMs, () => { semanticAbandoned = true })
-          : Promise.resolve(emptyBranch('not_configured', 'semantic_provider_not_configured')),
-        evidenceBranch,
-        warmBranch,
-      ])
-
-      const exactDocuments = exactRaw.documents
-      const lexicalDocuments = lexicalRaw.documents
-      const semanticDocuments = semanticRaw.documents
-      const evidenceDocuments = evidenceRaw.documents
-      const warmDocuments = warmRaw.documents
-      const constraintDocuments = options.ablate?.applicability ? [] : exactDocuments.filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
-      const snapshotConstraintHints = warmRaw.snapshot && !options.ablate?.applicability
-        ? warmSnapshotDocuments(warmRaw.snapshot).filter((document) => document.kind === 'constraint' || (document.kind === 'preference' && document.temporalRelation === 'temporary_exception'))
-        : []
-      const allInitial = [...exactDocuments, ...lexicalDocuments, ...semanticDocuments, ...warmDocuments, ...snapshotConstraintHints]
-      const assertionRefs = refsOf(allInitial)
-      const initialEvidenceEventIds = evidenceDocuments.flatMap((document) => document.sourceEventId ? [document.sourceEventId] : [])
-      const maxEvidenceFetches = Math.min(limits.maxEvidenceFetches, options.maxEvidenceFetches ?? limits.maxEvidenceFetches)
-      const [hydratedAssertions, hydratedEvidence] = await Promise.all([
-        hydrateAssertions(session as MemorySession<PostgresMemoryStore>, request!, assertionRefs, signal),
-        hydrateSourceEvents(session as MemorySession<PostgresMemoryStore>, request!, initialEvidenceEventIds, signal, maxEvidenceFetches),
-      ])
-      const hydratedMap = docsById(hydratedAssertions)
-      const evidenceMap = docsById(hydratedEvidence)
-      const exactHydrated = hydrateBranchDocuments(exactDocuments, hydratedMap)
-      const lexicalHydrated = hydrateBranchDocuments(lexicalDocuments, hydratedMap)
-      const semanticHydrated = hydrateBranchDocuments(semanticDocuments, hydratedMap)
-      const warmHydrated = hydrateBranchDocuments(warmDocuments, hydratedMap)
-      const constraintsHydrated = hydrateBranchDocuments([...constraintDocuments, ...snapshotConstraintHints], hydratedMap)
-      const sourceEvidenceHydrated = hydrateBranchDocuments(evidenceDocuments, evidenceMap)
-      const assertionEvidenceHydrated = hydrateBranchDocuments(hydratedEvidence, evidenceMap)
-      const evidenceById = docsById([...sourceEvidenceHydrated, ...assertionEvidenceHydrated])
-      const allEvidenceHydrated = [...evidenceById.values()].slice(0, maxEvidenceFetches)
-
-      const rankedSeeds = fuseRetrievalBranches([
-        { name: 'exact', documents: exactHydrated.filter((document) => !constraintDocuments.includes(document)), reason: 'exact_key_entity_or_active_decision' },
-        { name: 'lexical', documents: lexicalHydrated, reason: 'postgresql_full_text' },
-        { name: 'semantic', documents: semanticHydrated, reason: 'versioned_exact_vector' },
-        { name: 'warm_lexical', documents: warmHydrated, reason: 'fresh_warm_snapshot_hint' },
-      ], 16)
-      const expansion = await expandRelatedReferences(
-        session as MemorySession<PostgresMemoryStore>,
-        request!,
-        rankedSeeds.map((candidate) => candidate.document).flatMap((document) => document.reference ? [document.reference] : []),
-        options.ablate?.relationships ? 0 : limits.maxExpansionEdges,
-        signal,
-      )
-      const relatedDocuments = await hydrateAssertions(session as MemorySession<PostgresMemoryStore>, request!, expansion.references, signal)
-      const branchList: CandidateBranch[] = [
-        { name: 'exact', documents: exactHydrated.filter((document) => !constraintDocuments.some((constraint) => constraint.id === document.id)), reason: 'exact_key_entity_or_active_decision' },
-        { name: 'lexical', documents: lexicalHydrated, reason: 'postgresql_full_text' },
-        ...(semanticRaw.status === 'not_configured' ? [] : [{ name: 'semantic' as const, documents: semanticHydrated, reason: 'versioned_exact_vector' }]),
-        { name: 'warm_lexical', documents: warmHydrated, reason: 'fresh_warm_snapshot_hint' },
-        { name: 'relationship', documents: relatedDocuments, reason: 'bounded_dependency_edge_expansion' },
-        { name: 'evidence', documents: allEvidenceHydrated, reason: 'bounded_permitted_source_evidence' },
-        { name: 'relationship', documents: constraintsHydrated, reason: 'constraint_applicability_index_independent_of_overlap' },
-      ]
-      const candidates = fuseRetrievalBranches(branchList, MAX_RETRIEVAL_BRANCH_CANDIDATES)
-      const constraints = options.ablate?.applicability ? [] : selectApplicableConstraints(
-        request!,
-        [...candidates.map((candidate) => candidate.document), ...constraintsHydrated],
-        (warmRaw.snapshot?.constraints ?? []).filter((entry) => hydratedMap.has(`assertion:${entry.assertion.assertionId}:${entry.assertion.revision}`)),
-      )
-      const finalEpoch = await currentAuthorityEpoch(session as MemorySession<PostgresMemoryStore>, request!, signal)
-      if (Number(finalEpoch.policy_epoch) !== Number(initialEpoch.policy_epoch) || Number(finalEpoch.deletion_epoch) !== Number(initialEpoch.deletion_epoch)) {
-        throw opFailure('conflict', 'Memory changed during retrieval; stale candidates were withheld.', true)
       }
-
-      const branches: RetrievalCoverageParts = {
-        exact: branchCoverage({ ...exactRaw, documents: exactHydrated }),
-        warm: branchCoverage(warmRaw),
-        lexical: branchCoverage(lexicalRaw),
-        semantic: branchCoverage(semanticRaw),
-        evidence: branchCoverage({ ...evidenceRaw, documents: allEvidenceHydrated, candidates: allEvidenceHydrated.length }),
-        freshness: warmRaw.snapshot ? 'warm' : warmRaw.status === 'unavailable' ? 'unavailable' : 'authoritative',
-      }
-      const anyTimedOut = Object.values(branches).some((branch) => typeof branch === 'object' && 'status' in branch && ['timed_out', 'cancelled'].includes(branch.status))
-      const anyUnavailable = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].some((branch) => branch.status === 'unavailable')
-      const anyPartial = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].some((branch) => branch.status === 'partial')
-      const allUnavailable = [exactRaw, lexicalRaw, semanticRaw, evidenceRaw].every((branch) => ['unavailable', 'timed_out', 'cancelled'].includes(branch.status))
-      const outcome = allUnavailable ? 'unavailable' : anyTimedOut || anyUnavailable || anyPartial || semanticRaw.status === 'unavailable' ? 'partial' : 'complete'
-      const candidateCount = exactRaw.candidates + lexicalRaw.candidates + semanticRaw.candidates + warmRaw.candidates + evidenceRaw.candidates
-      const hydrationFiltered = Math.max(0, assertionRefs.length - hydratedAssertions.length)
-      const filtered = exactRaw.filtered + lexicalRaw.filtered + semanticRaw.filtered + evidenceRaw.filtered + hydrationFiltered
-      const coverage = toPackCoverage(
-        request!,
-        branches,
-        finalEpoch,
-        outcome,
-        candidateCount,
-        filtered,
-        expansion.edges,
-        allEvidenceHydrated.length,
-        branches.freshness,
-        new Date().toISOString(),
-      )
-      const unavailableReason = allUnavailable
-        ? 'All authoritative retrieval branches were unavailable; no search result can establish absence.'
-        : [exactRaw, lexicalRaw, semanticRaw, evidenceRaw, warmRaw].map((branch) => branch.reason).filter(Boolean).join('; ') || null
-      const pack = composeContextPack({ request: request!, coverage, candidates, constraints, unavailableReason, compact: options.compact }, options.tokenizer)
-      return {
-        pack,
-        diagnostics: {
-          lexicalCandidates: lexicalRaw.candidates,
-          semanticCandidates: semanticRaw.candidates,
-          exactCandidates: exactRaw.candidates,
-          warmCandidates: warmRaw.candidates,
-          sourceEvidenceCandidates: evidenceRaw.candidates,
-          hydratedCandidates: hydratedAssertions.length + allEvidenceHydrated.length,
-          filteredCandidates: filtered,
-          expansionEdges: expansion.edges,
-          evidenceFetches: allEvidenceHydrated.length,
-        },
-      }
+      return composeGathered(postgresSession, bound, await gatherMemory(postgresSession, bound, options, signal, limits), options, signal)
     }, {
       signal: options.signal,
       maxExpansionEdges: options.maxExpansionEdges,

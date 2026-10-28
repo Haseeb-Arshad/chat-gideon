@@ -61,14 +61,16 @@ interface BodyBlockProps {
   shared: boolean
   /** What GIDEON has said so far, read for what it mentions on this card. */
   heard: Heard
+  /** More is still being written, as with a drawing that is part way through. */
+  drafting: boolean
   onAsk?: (text: string) => void
 }
 
-function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, onAsk, sources, sourceTable }: BodyBlockProps) {
+function BodyBlock({ block, start: planned, spoken, front, size, shared, heard, drafting, onAsk, sources, sourceTable }: BodyBlockProps) {
   const start = useFirst(planned)
   switch (block.type) {
     case 'illustration':
-      return <Suspense fallback={<p role="status">Opening the drawing…</p>}><Illustration block={block} front={front} onAsk={onAsk} /></Suspense>
+      return <Suspense fallback={<p role="status">Opening the drawing…</p>}><Illustration block={block} front={front} drafting={drafting} onAsk={onAsk} /></Suspense>
     case 'headline':
       return <Headline block={block} start={start} />
     case 'stat':
@@ -125,6 +127,7 @@ function ClassicLayout({ card, media, spoken, front, onShape, onMediaError, onAs
       sources={card.sources}
       sourceTable={card.blocks.find((item): item is TableBlock => item.type === 'table' && item.id === (block.id.startsWith('view') && block.id.includes(':') ? `${block.id.split(':')[0]}:source-table` : 'source-table'))}
       heard={heard}
+      drafting={card.partial}
       onAsk={onAsk}
     />
   )

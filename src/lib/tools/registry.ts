@@ -686,6 +686,11 @@ export interface ToolContext {
   location?: CoarseLocation | null
   /** Optional persistence for nested research model and web-search evidence. */
   audit?: InteractionAudit
+  /**
+   * A drawing as far as it has been written, called as it grows. The host puts
+   * it on screen so the user watches it being made rather than waits for it.
+   */
+  onDraft?: (draft: { title: string; html: string; characters: number }) => void
 }
 
 /** Runs one server-side tool. Client tools never reach this. */

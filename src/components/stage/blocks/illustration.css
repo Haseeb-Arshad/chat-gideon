@@ -9,3 +9,7 @@
 .illustration-caption,.illustration-status,.illustration-error { margin: 0; padding: 16px 22px; font: 13px/1.6 var(--font-text); }
 .illustration-caption { border-top: 1px solid rgba(255,255,255,.12); color: rgba(226,232,241,.8); }
 .illustration-error { min-height: 180px; }
+
+.illustration-pulse { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #7fd6b2; vertical-align: 1px; animation: illustration-pulse 1.2s ease-in-out infinite; }
+@keyframes illustration-pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .illustration-pulse { animation: none; } }

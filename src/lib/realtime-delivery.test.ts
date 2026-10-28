@@ -7,7 +7,7 @@ vi.mock('./agent-core', () => ({
   availableTools: () => [],
   fetchVoice: harness.voice,
   getPublicConfig: () => ({ configured: true, chatModel: 'fixture', voiceModel: 'fixture', sttModel: 'fixture' }),
-  warmUpstream: vi.fn(),
+  warmUpstream: vi.fn(), warmProviders: vi.fn(),
   streamTurn: async function* (id: string) {
     const responseId = 'server-response-1'
     yield { t: 'start', id, responseId }

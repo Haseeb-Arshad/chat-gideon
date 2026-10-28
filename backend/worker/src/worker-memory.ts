@@ -153,6 +153,8 @@ function guardedRuntime(runtime: MemoryTurnRuntime, store: PostgresMemoryStore, 
       const [isActive, result] = await Promise.all([active(), runtime.retrieve(query, context, signal)])
       return isActive ? result : { status: 'unavailable', reason: 'stale' }
     },
+    // Only a reading: the lookup that uses it checks the authority beside itself, as above.
+    ...(runtime.prefetch ? { prefetch: runtime.prefetch.bind(runtime) } : {}),
     async execute(name, args, context) {
       if (name === 'recall') return (await active()) ? runtime.execute(name, args, context) : PAUSED
       try { return await guard(() => runtime.execute(name, args, context)) }

@@ -20,7 +20,7 @@ import { parseVoiceChoice } from '../../../src/lib/voice-options'
 import { readScreen, type ScreenState } from '../../../src/lib/stage-judge'
 import { readConversationState, type ConversationState } from '../../../src/lib/conversation-state'
 import { setRuntimeEnv } from '../../../src/lib/runtime-env'
-import { ensureAccount, ownerOf, OwnerUnavailable } from './accounts'
+import { crossSitePage, ensureAccount, ownerOf, OwnerUnavailable } from './accounts'
 import { memoryStoreForHttp } from './memory'
 import type { InteractionAudit } from '../../../src/lib/interaction-audit'
 import { createWorkerInteractionAudit } from './audit'
@@ -65,6 +65,13 @@ function response(
   const cors = corsHeaders(request)
   cors.forEach((value, key) => headers.set(key, value))
   return new Response(body, { ...init, headers })
+}
+
+/** CORS for a response another module built, so a page on another site can read it. */
+function shared(reply: Response, request: Request): Response {
+  const headers = new Headers(reply.headers)
+  corsHeaders(request).forEach((value, key) => headers.set(key, value))
+  return new Response(reply.body, { status: reply.status, statusText: reply.statusText, headers })
 }
 
 function json(value: unknown, request: Request, status = 200, headers?: HeadersInit) {
@@ -369,6 +376,12 @@ async function account(request: Request, env: Env) {
     if (!result) {
       return json(apiError('accounts_off', 'Accounts are not set up on this deployment.'), request, 404)
     }
+    // A page on another site cannot use this host's cookies, so it is given
+    // the token to keep and present as a bearer. A same-site page never sees
+    // it: its cookie stays HttpOnly.
+    if (crossSitePage(request)) {
+      return json({ anonymous: result.anonymous, ...(result.token ? { token: result.token } : {}) }, request, 200, { 'Cache-Control': 'no-store' })
+    }
     const reply = json({ anonymous: result.anonymous }, request, 200, { 'Cache-Control': 'no-store' })
     // Appended one by one: Better Auth sends more than one cookie, and
     // setting the header would keep only the last.
@@ -398,7 +411,7 @@ export async function handleApi(request: Request, env: Env, ctx?: WorkerContext)
       status: 204,
       headers: {
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Gideon-Language, X-Gideon-Purpose, X-Gideon-Session',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Gideon-Language, X-Gideon-Purpose, X-Gideon-Session',
         'Access-Control-Max-Age': '600',
       },
     })
@@ -448,7 +461,7 @@ export async function handleApi(request: Request, env: Env, ctx?: WorkerContext)
   }
 
   if (url.pathname === '/api/memory') {
-    return handleWorkerMemoryControls(request, env)
+    return shared(await handleWorkerMemoryControls(request, env), request)
   }
 
   if (url.pathname === '/api/chat') {
@@ -471,7 +484,7 @@ export async function handleApi(request: Request, env: Env, ctx?: WorkerContext)
         return typeof value === 'string' ? value : undefined
       }, audit)
       audit?.finish(reply.ok ? 'completed' : 'failed')
-      return reply
+      return shared(reply, request)
     } catch {
       try { audit?.finish('failed') } catch { /* Already failing; the record is the lesser loss. */ }
       return json(apiError('illustration_unavailable', 'The drawing could not be refined.', true), request, 503)

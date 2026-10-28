@@ -7,7 +7,8 @@ import { setRuntimeEnv } from '../../../src/lib/runtime-env'
 import { createRealtimeSession, type RealtimeSession } from '../../../src/lib/realtime-session'
 import type { Memory } from '../../../src/lib/tools/memory'
 import { VersionedMemoryAuthority } from '../../../src/server/memory-authority'
-import { OWNER_HEADER } from './accounts'
+import { ISSUED_TOKEN_HEADER, OWNER_HEADER } from './accounts'
+import { SOCKET_PROTOCOL } from '../../../src/lib/protocol'
 import { callerFromRequest } from './identity'
 import { createServerMemorySession } from '../../../src/server/memory-session'
 import {
@@ -32,6 +33,8 @@ interface SessionAttachment {
   location: CoarseLocation | null
   /** Untrusted, used only after hashing to group audit entries from this browser. */
   auditSessionKey: string | null
+  /** An account token opened for this socket, handed to the browser with its first reply. */
+  issued?: string
 }
 
 function attachmentOf(socket: WebSocket): SessionAttachment | null {
@@ -50,6 +53,7 @@ function attachmentOf(socket: WebSocket): SessionAttachment | null {
     host: typeof candidate.host === 'string' ? candidate.host : null,
     location: readLocation(candidate.location),
     auditSessionKey: typeof candidate.auditSessionKey === 'string' ? candidate.auditSessionKey.slice(0, 256) : null,
+    ...(typeof candidate.issued === 'string' ? { issued: candidate.issued } : {}),
   }
 }
 
@@ -192,11 +196,17 @@ export class GideonSession extends DurableObject<Env> {
       // Set by the Worker in front of this object, which removes any a client sent.
       location: decodeLocation(request.headers.get(LOCATION_HEADER)),
       auditSessionKey: new URL(request.url).searchParams.get('session')?.slice(0, 256) ?? null,
+      // Set only by the Worker, which removes any copy a client sent.
+      ...(request.headers.get(ISSUED_TOKEN_HEADER) ? { issued: request.headers.get(ISSUED_TOKEN_HEADER)! } : {}),
     }
     server.serializeAttachment(attachment)
     this.sessions.set(server, this.createSession(server, attachment))
 
-    return new Response(null, { status: 101, webSocket: client })
+    // A page that offered subprotocols must be answered with one of them, or
+    // the browser drops the socket; the other one only carried its token.
+    const offered = (request.headers.get('sec-websocket-protocol') ?? '').split(',').map((value) => value.trim())
+    const headers = offered.includes(SOCKET_PROTOCOL) ? { 'Sec-WebSocket-Protocol': SOCKET_PROTOCOL } : undefined
+    return new Response(null, { status: 101, webSocket: client, headers })
   }
 
   /**
@@ -215,6 +225,12 @@ export class GideonSession extends DurableObject<Env> {
 
     const session = this.sessions.get(socket)?.session
     if (!session) return
+    if (attachment.issued) {
+      // Sent once, in answer to the page's first frame, then forgotten here.
+      const { issued, ...rest } = attachment
+      socket.serializeAttachment(rest)
+      try { socket.send(JSON.stringify({ t: 'account', token: issued })) } catch { /* The page asks again next visit. */ }
+    }
     this.ctx.waitUntil(
       session.handleMessage(message).catch(() => {
         try {

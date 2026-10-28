@@ -32,9 +32,16 @@ export type MemoryCaptureOutcome =
   | { status: 'unavailable' | 'failed'; reason: string }
 
 export type MemoryRecallOutcome =
-  | { status: 'ready'; binding: MemoryRecallTurnContext; pack: ContextPack }
+  /** `early`: composed from the reading started when the transcript was released. */
+  | { status: 'ready'; binding: MemoryRecallTurnContext; pack: ContextPack; early?: boolean }
   /** `temporary`: the owner turned on a temporary conversation; memory is neither read nor written. */
   | { status: 'unavailable'; reason: 'not_configured' | 'unauthorized' | 'timeout' | 'stale' | 'failure' | 'temporary' }
+
+/** What is known about a turn when its words are, before the turn itself arrives. */
+export interface MemoryPrefetchContext {
+  timezone: string
+  conversationState: ConversationState | null
+}
 
 export interface MemoryTurnRuntime extends MemoryToolRuntime {
   observeTurn?(turn: { turnId: string; question: string; reply: string }): Promise<void>
@@ -47,6 +54,15 @@ export interface MemoryTurnRuntime extends MemoryToolRuntime {
     context: MemoryRecallTurnContext,
     signal: AbortSignal,
   ): Promise<MemoryRecallOutcome>
+  /**
+   * Starts the part of the automatic lookup that no turn is needed for (the
+   * database reads, the query's embedding, the temporary-mode and overlay
+   * reads) as soon as a final transcript is released. Only a turn whose words
+   * are exactly these, arriving soon after, uses it; it still gets its own
+   * binding and its own closing authority check. Settles when the reading has;
+   * never rejects.
+   */
+  prefetch?(latestUserText: string, context: MemoryPrefetchContext): Promise<void>
 }
 
 /** SHA-256 binds speculative retrieval to the exact committed transcript. */

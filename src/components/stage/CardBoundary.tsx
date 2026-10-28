@@ -3,6 +3,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 interface CardBoundaryProps {
   /** A different card starts with a clean slate. */
   resetKey: unknown
+  /** What stands in for a card that could not be drawn; nothing, by default. */
+  fallback?: ReactNode
   children: ReactNode
 }
 
@@ -11,8 +13,9 @@ interface CardBoundaryProps {
  *
  * Without it, a block that throws while rendering unmounts everything above
  * it, which on this page is the whole conversation: the face, the transcript,
- * the controls. A card that cannot be drawn is simply not drawn, and the talk
- * carries on around it.
+ * the controls. A card that cannot be drawn is not drawn, and the talk carries
+ * on around it. Where it stands alone in front, it says so rather than leave a
+ * blank pane that looks like GIDEON showed something that is not there.
  */
 export class CardBoundary extends Component<CardBoundaryProps, { failed: boolean }> {
   state = { failed: false }
@@ -30,6 +33,6 @@ export class CardBoundary extends Component<CardBoundaryProps, { failed: boolean
   }
 
   render() {
-    return this.state.failed ? null : this.props.children
+    return this.state.failed ? (this.props.fallback ?? null) : this.props.children
   }
 }

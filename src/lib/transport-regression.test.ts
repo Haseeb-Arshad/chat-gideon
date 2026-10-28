@@ -11,7 +11,8 @@ class Socket {
   onerror: (() => void) | null = null
   onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null
   sent: Array<Record<string, unknown>> = []
-  constructor(_url: string) { Socket.instances.push(this) }
+  protocols: string[] | undefined
+  constructor(_url: string, protocols?: string[]) { this.protocols = protocols; Socket.instances.push(this) }
   send(data: string) { this.sent.push(JSON.parse(data)) }
   open() { this.readyState = 1; this.onopen?.() }
   close() { this.readyState = 3; this.onclose?.() }
@@ -166,11 +167,41 @@ describe('transport ownership and lifecycle', () => {
     const socket = Socket.instances[0]
     socket.onerror?.()
     socket.close()
+    // The turn was held for the socket; its failure sends the turn over HTTP.
+    await tick()
     stream.enqueue(new TextEncoder().encode('{"t":"done","id":"http","text":"healthy"}\n'))
     stream.close()
     await tick()
     expect(events.onError).not.toHaveBeenCalled()
     expect(events.onDone).toHaveBeenCalledWith('healthy')
+  })
+
+  it('holds a turn for a socket that is still opening instead of sending it over HTTP', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 404 }))
+    const client = await link()
+    client.connect()
+    await tick()
+    const events = handlers()
+    client.startTurn('held', [{ role: 'user', content: 'hello' }], events)
+    await tick()
+    const socket = Socket.instances[0]
+    expect(socket.sent.some((frame) => frame.t === 'turn')).toBe(false)
+    socket.open()
+    await tick()
+    expect(socket.sent.find((frame) => frame.t === 'turn')).toMatchObject({ id: 'held' })
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/api/chat'))).toBe(false)
+  })
+
+  it('cancels a held turn before it is sent', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 404 }))
+    const client = await link()
+    client.connect()
+    await tick()
+    client.startTurn('dropped', [{ role: 'user', content: 'hello' }], handlers()).cancel()
+    const socket = Socket.instances[0]
+    socket.open()
+    await tick()
+    expect(socket.sent.some((frame) => frame.t === 'turn')).toBe(false)
   })
 
   it('waits for account before sending HTTP, and cancels bootstrap wait on disposal', async () => {
@@ -276,5 +307,62 @@ describe('transport ownership and lifecycle', () => {
     expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
     controller.abort()
     expect(socket.sent.some((frame) => frame.t === 'cancel')).toBe(false)
+  })
+})
+
+describe('backend on another site', () => {
+  let stored: Record<string, string>
+  beforeEach(() => {
+    stored = { 'gideon-session': 'browser' }
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored[key] ?? null, setItem: (key: string, value: string) => { stored[key] = value } })
+    vi.stubEnv('VITE_GIDEON_BACKEND_URL', 'https://edge.gideon.test')
+  })
+
+  it('opens the socket at once and keeps the account it is handed', async () => {
+    const client = await link()
+    client.connect()
+    expect(Socket.instances).toHaveLength(1)
+    expect(Socket.instances[0].protocols).toEqual(['gideon'])
+    Socket.instances[0].open()
+    Socket.instances[0].frame({ t: 'account', token: 'token.signature+/=' })
+    expect(stored['gideon-account-token']).toBe('token.signature+/=')
+    const { backendHeaders } = await import('./backend')
+    expect(backendHeaders().Authorization).toBe('Bearer token.signature+/=')
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/api/account'))).toBe(false)
+  })
+
+  it('presents a kept token on the socket without putting it in the URL', async () => {
+    stored['gideon-account-token'] = 'token.signature+/='
+    const client = await link()
+    client.connect()
+    const [, auth] = Socket.instances[0].protocols ?? []
+    expect(auth).toMatch(/^gideon-auth\.[A-Za-z0-9_-]+$/)
+    expect(atob(auth.slice('gideon-auth.'.length).replaceAll('-', '+').replaceAll('_', '/'))).toBe('token.signature+/=')
+  })
+
+  it('makes no second account over HTTP while the socket is bringing one', async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ anonymous: true, token: 'http.token' }))
+    const client = await link()
+    client.connect()
+    const { awaitAccount } = await import('./backend')
+    const waiting = awaitAccount()
+    await tick()
+    Socket.instances[0].open()
+    Socket.instances[0].frame({ t: 'account', token: 'socket.token' })
+    await waiting
+    expect(stored['gideon-account-token']).toBe('socket.token')
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/api/account'))).toBe(false)
+  })
+
+  it('asks for an account over HTTP once the socket cannot bring one', async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ anonymous: true, token: 'http.token' }))
+    const client = await link()
+    client.connect()
+    const { awaitAccount } = await import('./backend')
+    const waiting = awaitAccount()
+    await tick()
+    Socket.instances[0].onerror?.()
+    await waiting
+    expect(stored['gideon-account-token']).toBe('http.token')
   })
 })

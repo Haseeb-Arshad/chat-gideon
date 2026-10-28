@@ -18,6 +18,10 @@ import type { ScreenState } from './stage-judge'
 import type { ConversationState } from './conversation-state'
 
 export const REALTIME_PATH = '/api/realtime'
+/** The subprotocol a socket from another site offers, which the server echoes. */
+export const SOCKET_PROTOCOL = 'gideon'
+/** Prefix of a second offered subprotocol carrying the account token, base64url encoded. */
+export const SOCKET_AUTH_PREFIX = 'gideon-auth.'
 /** 4: cards are sent as blocks, grow by `card_patch`, and carry provenance. */
 export const REALTIME_PROTOCOL_VERSION = 4
 
@@ -52,8 +56,12 @@ export type ClientFrame =
       timing?: boolean
     }
   | { t: 'speak'; id: string; seq: number; text: string; voiceChoice?: import('./voice-options').VoiceChoice; turnId?: string; responseId?: string; startChar?: number; endChar?: number }
-  /** `at` is the browser's clock when the recording was handed over, so the speech can be placed in time. */
-  | { t: 'transcribe'; id: string; audio: string; language?: string; caption?: boolean; timing?: boolean; at?: number }
+  /**
+   * `at` is the browser's clock when the recording was handed over, so the speech can be placed in time.
+   * `timezone` and `conversationState` are the page's as a finished utterance ended, so the memory lookup
+   * for its reply can start from the transcript instead of waiting for the turn.
+   */
+  | { t: 'transcribe'; id: string; audio: string; language?: string; caption?: boolean; timing?: boolean; at?: number; timezone?: string; conversationState?: ConversationState }
   | {
       t: 'observation'
       id: string
@@ -128,6 +136,11 @@ export type ServerFrame =
       transcriptionSocket?: boolean
       autoSpeech?: boolean
     }
+  /**
+   * An account was opened for this socket. A page on another site keeps the
+   * token and presents it from then on, so its memory is the same next time.
+   */
+  | { t: 'account'; token: string }
   /** The upstream request has been accepted; first token is imminent. */
   | { t: 'start'; id: string; responseId?: string }
   /** An incremental piece of assistant text. */

@@ -32,8 +32,15 @@ import {
  *    the way an eyelid actually moves;
  *  - the pair is treated as two points on a turning head, so looking sideways
  *    foreshortens the far eye instead of sliding both the same distance;
- *  - and every few seconds the face performs a small deliberate gesture chosen
- *    to match what it is feeling and doing.
+ *  - and now and then the face makes a small deliberate gesture chosen to
+ *    match what it is feeling and doing.
+ *
+ * Restraint is the rule. A face that answers every word with a move reads as
+ * a toy: it used to throb taller on each syllable of its own voice, swap
+ * expressions on every partial transcript and gesture every four seconds. Now
+ * a feeling has to last before the face takes it up and is held once taken,
+ * the voice moves the eyes only with the swell of a phrase, gestures are rare
+ * and mostly a change of lid rather than a jump, and the gaze rests longer.
  *
  * The loop writes straight to the DOM. React never re-renders for motion.
  */
@@ -68,13 +75,18 @@ interface Dynamics {
 }
 
 const DYNAMICS: Record<EyeEmotion, Dynamics> = {
-  neutral: { frequency: 1.5, damping: 0.95, blink: 4.2, gesture: 6.5, vergence: 0 },
-  curious: { frequency: 2.05, damping: 0.7, blink: 3.4, gesture: 4.4, vergence: 1.5 },
-  focused: { frequency: 2.4, damping: 1, blink: 6.4, gesture: 5.4, vergence: 3.4 },
-  happy: { frequency: 2.7, damping: 0.52, blink: 3, gesture: 3.8, vergence: -1 },
-  concerned: { frequency: 1.05, damping: 1.12, blink: 5.4, gesture: 5.8, vergence: 1.8 },
-  surprised: { frequency: 3.5, damping: 0.42, blink: 7.5, gesture: 6.2, vergence: -3 },
+  neutral: { frequency: 1.3, damping: 1, blink: 4.2, gesture: 14, vergence: 0 },
+  curious: { frequency: 1.6, damping: 0.88, blink: 3.6, gesture: 12, vergence: 1 },
+  focused: { frequency: 1.7, damping: 1, blink: 6, gesture: 13, vergence: 2.2 },
+  happy: { frequency: 1.9, damping: 0.78, blink: 3.4, gesture: 10, vergence: -0.6 },
+  concerned: { frequency: 1, damping: 1.12, blink: 5.4, gesture: 14, vergence: 1.2 },
+  surprised: { frequency: 2.4, damping: 0.7, blink: 7, gesture: 12, vergence: -1.6 },
 }
+
+/** A new feeling must hold this long before the face takes it up. */
+const EMOTION_SETTLE_S = 0.8
+/** And once taken up, it is kept at least this long, so the face is not a meter. */
+const EMOTION_HOLD_S = 3
 
 /** How much of the pointer the eyes actually give you, per phase. */
 const FOLLOW: Record<EyePhase, number> = {
@@ -119,61 +131,55 @@ interface Gesture {
   beats?: number
 }
 
+// Mostly the lids at work, the way a real face changes: a smile gathers, a
+// look narrows, the brows draw up. Movement of the whole eye is small and
+// slow, and nothing repeats in beats or winks.
 const GESTURES: Record<EyeEmotion, Gesture[]> = {
   neutral: [
-    { duration: 1.5, rise: 0.35, hold: 0.25, gazeX: 0.42, roll: 2 },
-    { duration: 1.9, rise: 0.4, hold: 0.3, gazeY: 0.3, lift: 2, open: 0.94 },
+    { duration: 2.4, rise: 0.4, hold: 0.25, gazeX: 0.22, roll: 1 },
+    { duration: 2.6, rise: 0.4, hold: 0.3, open: 0.95, squint: 0.12 },
     // A small private smile, there and gone.
-    { duration: 2.2, rise: 0.35, hold: 0.3, smile: 0.4, lift: -1.5 },
+    { duration: 2.8, rise: 0.4, hold: 0.3, smile: 0.3 },
   ],
   curious: [
-    // The peer: head cocks over and the gaze goes with it.
-    { duration: 2.1, rise: 0.3, hold: 0.42, roll: 7.5, gazeX: 0.34, open: 1.05 },
-    // The double take: out fast, back fast, twice.
-    { duration: 0.9, rise: 0.28, hold: 0.06, gazeX: -0.55, beats: 2, open: 1.06 },
-    // The sceptic: one eye narrows while the other stays wide.
-    { duration: 1.8, rise: 0.3, hold: 0.42, wink: 0.5, roll: 4, gazeX: 0.2 },
+    // The peer: the head tips a little and one lid lifts.
+    { duration: 2.6, rise: 0.35, hold: 0.4, roll: 3, gazeX: 0.16, open: 1.04 },
+    { duration: 2.4, rise: 0.35, hold: 0.35, squint: 0.18, slant: 3 },
   ],
   focused: [
-    { duration: 1.7, rise: 0.45, hold: 0.1, gazeX: 0.5, open: 0.9 },
-    { duration: 1.1, rise: 0.3, hold: 0.3, open: 0.82, lift: 1.5 },
-    // Bearing down on it: the slant deepens and the lids close in.
-    { duration: 1.5, rise: 0.3, hold: 0.4, slant: 8, squint: 0.55, round: 1 },
+    { duration: 2.4, rise: 0.4, hold: 0.3, open: 0.92, squint: 0.2 },
+    // Bearing down on it: the slant deepens and the lids close in a little.
+    { duration: 2.6, rise: 0.35, hold: 0.4, slant: 4, squint: 0.3 },
   ],
   happy: [
-    // Bounce up; the underdamped spring on `lift` does the landing wobble.
-    { duration: 1, rise: 0.34, hold: 0.05, lift: -6, spread: 3, beats: 2 },
-    { duration: 1.4, rise: 0.3, hold: 0.25, roll: -4, open: 0.9, spread: 4 },
-    // The full smile: the crescents thin and lift.
-    { duration: 1.9, rise: 0.25, hold: 0.45, smile: 1, lift: -3, spread: 3 },
-    // A wink, with the head tipped into it.
-    { duration: 0.95, rise: 0.3, hold: 0.22, wink: 1, roll: 5, smile: 0.4 },
+    // The smile: the crescents thin and lift.
+    { duration: 2.6, rise: 0.35, hold: 0.4, smile: 0.7, lift: -1 },
+    { duration: 2.2, rise: 0.35, hold: 0.3, open: 0.94, spread: 1.5, smile: 0.3 },
   ],
   concerned: [
     // Aversion: down and away, slowly, and slow to come back.
-    { duration: 2.6, rise: 0.42, hold: 0.34, gazeY: 0.52, gazeX: -0.36, lift: 3, open: 0.88 },
+    { duration: 3, rise: 0.42, hold: 0.34, gazeY: 0.24, gazeX: -0.16, open: 0.92 },
     // The brows draw up further in the middle, and hold.
-    { duration: 2.3, rise: 0.4, hold: 0.36, slant: -9, squint: 0.2, lift: 2 },
+    { duration: 2.8, rise: 0.4, hold: 0.36, slant: -5, squint: 0.15 },
   ],
   surprised: [
-    { duration: 0.8, rise: 0.16, hold: 0.2, lift: -4, open: 1.12, spread: 4 },
-    { duration: 0.7, rise: 0.14, hold: 0.1, gazeX: 0.7, beats: 2 },
-    // Popping fully round for a moment.
-    { duration: 0.9, rise: 0.15, hold: 0.3, round: -0.9, open: 1.1, spread: 3 },
+    { duration: 1.4, rise: 0.25, hold: 0.25, open: 1.06, spread: 2 },
+    // Rounding out for a moment.
+    { duration: 1.6, rise: 0.25, hold: 0.3, round: -0.5, open: 1.05 },
   ],
 }
 
 /** Gestures fired by an event rather than by the idle timer. */
 const REACTIONS: Record<string, Gesture> = {
-  // Acknowledgement when the microphone opens: a small nod.
-  listening: { duration: 0.85, rise: 0.3, hold: 0.05, lift: 3.5, gazeY: 0.22, beats: 2, round: -0.5 },
-  // Turning inward to think: look up and away, and hold it.
-  thinking: { duration: 2.4, rise: 0.3, hold: 0.45, gazeX: -0.6, gazeY: -0.5, roll: 3, open: 0.9, squint: 0.35 },
+  // Acknowledgement when the microphone opens: the eyes open a touch.
+  listening: { duration: 1, rise: 0.35, hold: 0.2, open: 1.04, round: -0.3 },
+  // Turning inward to think: a glance up and away, and the lids narrow.
+  thinking: { duration: 2.4, rise: 0.35, hold: 0.4, gazeX: -0.24, gazeY: -0.2, open: 0.94, squint: 0.2 },
   // Settling in to talk.
-  speaking: { duration: 0.7, rise: 0.35, hold: 0.1, lift: -2.5, open: 1.05, smile: 0.25 },
-  paused: { duration: 1.2, rise: 0.5, hold: 0.2, lift: 3, open: 0.86, gazeY: 0.3 },
-  // Something to look at has appeared: a small lift and a widening.
-  attend: { duration: 0.9, rise: 0.3, hold: 0.2, lift: -3, open: 1.08, spread: 2 },
+  speaking: { duration: 1, rise: 0.4, hold: 0.15, open: 1.02, smile: 0.15 },
+  paused: { duration: 1.4, rise: 0.5, hold: 0.2, open: 0.9, gazeY: 0.15 },
+  // Something to look at has appeared: a small widening.
+  attend: { duration: 1.1, rise: 0.35, hold: 0.2, open: 1.05, spread: 1 },
 }
 
 /** Out-and-back envelope with a hold at the peak, minimum-jerk on both legs. */
@@ -321,9 +327,15 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
     let blink = 1
 
     let gesture: ActiveGesture | null = null
-    let gestureIn = exponentialInterval(5)
+    let gestureIn = 4 + exponentialInterval(8)
     let lastPhase = input.current.phase
     let attending = false
+    // The feeling on the face, which follows the one asked for only once it
+    // has lasted, and stays a while once it has changed.
+    let shown = input.current.emotion
+    let candidate = shown
+    let candidateFor = 0
+    let shownFor = EMOTION_HOLD_S
 
     let amplitude = 0
     let elapsed = 0
@@ -339,8 +351,19 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
       previous = now
       elapsed += dt
 
-      const { phase: p, emotion: e } = input.current
+      const { phase: p, emotion: wanted } = input.current
       const rm = reducedMotion
+      if (wanted !== candidate) {
+        candidate = wanted
+        candidateFor = 0
+      }
+      candidateFor += dt
+      shownFor += dt
+      if (candidate !== shown && (rm || (candidateFor >= EMOTION_SETTLE_S && shownFor >= EMOTION_HOLD_S))) {
+        shown = candidate
+        shownFor = 0
+      }
+      const e = shown
       const level = levelRef?.current ?? 0
       const dynamics = DYNAMICS[e] ?? DYNAMICS.neutral
       const target = targetPose(p, e)
@@ -350,7 +373,7 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         const reaction = REACTIONS[p]
         if (reaction && !rm) fire(reaction)
         lastPhase = p
-        gestureIn = Math.max(gestureIn, 1.6)
+        gestureIn = Math.max(gestureIn, 5)
       }
 
       // -- Pose --------------------------------------------------------------
@@ -384,9 +407,11 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         gestureIn -= dt
         if (gestureIn <= 0) {
           const pool = GESTURES[e] ?? GESTURES.neutral
-          if (!gesture && pool.length) fire(pool[Math.floor(Math.random() * pool.length)])
-          const busy = p === 'thinking' ? 0.55 : p === 'listening' ? 1.25 : 1
-          gestureIn = exponentialInterval(dynamics.gesture * busy)
+          if (!gesture && pool.length && p !== 'listening') fire(pool[Math.floor(Math.random() * pool.length)])
+          // Never while someone is talking to it: a face that keeps moving
+          // while you speak looks like it is not listening.
+          const busy = p === 'thinking' ? 0.7 : p === 'listening' ? 2 : 1
+          gestureIn = 3 + exponentialInterval(dynamics.gesture * busy)
         }
         if (gesture) {
           gesture.elapsed += dt
@@ -427,8 +452,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         attending = attention !== null
         if (attending && !rm) fire(REACTIONS.attend)
       }
-      follow.x.frequency = attention ? 2.6 : 1.5
-      follow.y.frequency = attention ? 2.6 : 1.5
+      follow.x.frequency = attention ? 2.2 : 1.1
+      follow.y.frequency = attention ? 2.2 : 1.1
       const followAmount = FOLLOW[p] ?? 0.8
       const fx = follow.x.step(
         attention ? clamp(attention.x, -1.2, 1.2) : pointer.x * followAmount,
@@ -441,8 +466,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
 
       if (!rm) {
         // Ocular drift: a random walk that is always being pulled back home.
-        drift.x = ornstein(drift.x, dt, 2.4, 0.22)
-        drift.y = ornstein(drift.y, dt, 2.6, 0.15)
+        drift.x = ornstein(drift.x, dt, 2.4, 0.12)
+        drift.y = ornstein(drift.y, dt, 2.6, 0.08)
 
         // Saccades: a jump on the main sequence, then a fixation.
         saccade.t += dt
@@ -451,10 +476,10 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
           saccade.y = saccade.toY
           saccade.wait -= dt
           if (saccade.wait <= 0) {
-            // Mostly small refixations, occasionally a real look elsewhere.
-            const big = Math.random() < 0.22
-            const spanX = big ? 0.62 : 0.2
-            const spanY = big ? 0.34 : 0.13
+            // Mostly small refixations, now and then a real look elsewhere.
+            const big = Math.random() < 0.08
+            const spanX = big ? 0.42 : 0.12
+            const spanY = big ? 0.22 : 0.08
             saccade.fromX = saccade.x
             saccade.fromY = saccade.y
             saccade.toX = clamp((Math.random() - 0.5) * 2 * spanX, -0.7, 0.7)
@@ -463,8 +488,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
             saccade.duration = saccadeDuration(amp)
             saccade.t = 0
             // Fixations run long while thinking and short while listening.
-            const dwell = p === 'thinking' ? 0.55 : p === 'listening' ? 1.5 : 1
-            saccade.wait = 0.28 + exponentialInterval(1.15 * dwell)
+            const dwell = p === 'thinking' ? 0.7 : p === 'listening' ? 1.6 : 1
+            saccade.wait = 0.7 + exponentialInterval(2.2 * dwell)
           }
         } else {
           const k = minimumJerk(saccade.t / saccade.duration)
@@ -535,15 +560,17 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
       }
 
       // -- Breath and voice --------------------------------------------------
-      amplitude += (((p === 'speaking' ? level : 0) - amplitude) * Math.min(1, dt * 26))
+      // The swell of a phrase, not each syllable: followed over about a third
+      // of a second, so the eyes brighten as he speaks rather than pulse.
+      amplitude += (((p === 'speaking' ? level : 0) - amplitude) * Math.min(1, dt * 3))
       // Breathing slows when calm and quickens when activated.
       const breathRate = p === 'thinking' ? 0.17 : p === 'listening' ? 0.22 : 0.19
       const breathing = rm ? 0 : breath(elapsed * breathRate)
-      const idleFloat = rm ? 0 : fbm(elapsed * 0.31, 3) * 2.4
+      const idleFloat = rm ? 0 : fbm(elapsed * 0.31, 3) * 1.4
 
       const headRoll = roll.step(rm ? 0 : gRoll + gazeX * 1.6 + fbm(elapsed * 0.24 + 9, 2) * 1.1, dt)
       const headLift = lift.step(
-        rm ? 0 : gLift + breathing * 1.5 + idleFloat + amplitude * -1.6,
+        rm ? 0 : gLift + breathing * 1.2 + idleFloat + amplitude * -0.5,
         dt,
       )
 
@@ -562,7 +589,7 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
         // Far eye foreshortens; near eye barely changes.
         const far = sign * yaw < 0
         const squeeze = 1 - Math.abs(yaw) * (far ? 0.17 : 0.04)
-        const speech = 1 + amplitude * 0.17
+        const speech = 1 + amplitude * 0.04
         // Lids travel with the gaze, as real ones do: down with a look down,
         // and the lower one up a little with a look up.
         const lookDown = Math.max(0, gazeY)
@@ -575,8 +602,8 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
           upperLid: clamp(shape.upperLid + gSquint * 0.2 + lookDown * 0.14, 0, 0.85),
           upperAngle: shape.upperAngle + gSlant,
           lowerLid: clamp(shape.lowerLid + gSquint * 0.16 + gSmile * 0.24 + lookUp * 0.09, 0, 0.8),
-          // Talking lifts the lower lids a touch on each syllable.
-          lowerBend: clamp(shape.lowerBend + gSmile * 0.8 + amplitude * 0.16, -1, 1),
+          // Talking lifts the lower lids a touch, with the phrase.
+          lowerBend: clamp(shape.lowerBend + gSmile * 0.8 + amplitude * 0.06, -1, 1),
         })
         const lid = sign === winkSide ? blink * (1 - gWink * 0.95) : blink
         // The near side of a turned head is the taller one.
@@ -612,16 +639,16 @@ export function GideonEyes({ phase, emotion, levelRef, attentionRef }: GideonEye
       write(leftNodes.current, current.left, -1)
       write(rightNodes.current, current.right, 1)
 
-      const glow = current.glow + amplitude * 0.3
+      const glow = current.glow + amplitude * 0.18
       auraRef.current?.setAttribute('opacity', Math.min(1, 0.3 + glow * 0.7).toFixed(3))
       if (haloRef.current) {
         const pulse = rm ? 0 : (breathing + 1) / 2
         haloRef.current.setAttribute('opacity', (0.06 + glow * 0.2 + pulse * 0.07).toFixed(3))
-        haloRef.current.setAttribute('rx', (108 + glow * 12 + pulse * 7 + amplitude * 14).toFixed(2))
-        haloRef.current.setAttribute('ry', (68 + glow * 8 + pulse * 5 + amplitude * 9).toFixed(2))
+        haloRef.current.setAttribute('rx', (108 + glow * 12 + pulse * 7 + amplitude * 6).toFixed(2))
+        haloRef.current.setAttribute('ry', (68 + glow * 8 + pulse * 5 + amplitude * 4).toFixed(2))
       }
       // The page reads this to keep its glow in step with the face.
-      rootRef.current?.style.setProperty('--eye-glow', (glow + amplitude * 0.4).toFixed(3))
+      rootRef.current?.style.setProperty('--eye-glow', (glow + amplitude * 0.2).toFixed(3))
 
       frame = requestAnimationFrame(render)
     }

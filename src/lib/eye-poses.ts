@@ -40,13 +40,14 @@ function both(shape: Partial<EyeShape>, glow = 0.4, spread = 0): Pose {
  */
 export const EMOTIONS: Record<EyeEmotion, Pose> = {
   neutral: both({}, 0.4),
-  // One brow up, one down: the raised eye rounder and taller, the other
-  // narrowed under a level lid.
+  // One brow a little up: the raised eye a touch rounder and taller, the
+  // other slightly narrowed. Kept small, because a lopsided face held for a
+  // whole sentence stops reading as interest and starts reading as a glitch.
   curious: pose(
-    { h: 80, w: 50, n: 2.7, dy: -9, tilt: -7, taper: 0.1 },
-    { h: 66, upperLid: 0.2, upperAngle: 5, lowerLid: 0.06, dy: 4, tilt: 4 },
-    0.55,
-    2,
+    { h: 75, w: 51, n: 2.8, dy: -4, tilt: -3, taper: 0.06 },
+    { h: 69, upperLid: 0.12, upperAngle: 3, lowerLid: 0.04, dy: 1.5, tilt: 1.5 },
+    0.52,
+    1,
   ),
   // Squared and slanted in: the look of someone working something out.
   focused: both({ h: 62, w: 54, n: 4.6, upperLid: 0.2, upperAngle: 11, lowerLid: 0.1, taper: 0.1 }, 0.5, -4),
@@ -72,7 +73,7 @@ export const PHASES: Record<EyePhase, PhaseShift> = {
   // Open and a touch rounder: all attention.
   listening: { hScale: 1.08, w: 1, n: -0.5, glow: 0.22 },
   // Narrowed from below and looking up and away.
-  thinking: { hScale: 0.9, upperLid: 0.08, lowerLid: 0.17, lowerBend: 0.07, glow: 0.1, gazeY: -0.55 },
+  thinking: { hScale: 0.92, upperLid: 0.06, lowerLid: 0.14, lowerBend: 0.06, glow: 0.1, gazeY: -0.3 },
   speaking: { glow: 0.24 },
   // Heavy-lidded, not shut: resting, and easy to wake.
   paused: { hScale: 0.86, upperLid: 0.44, upperBend: 0.14, glow: -0.22 },

@@ -6,7 +6,7 @@ import type { InteractionAuditFactory } from './interaction-audit'
 
 const captured = vi.hoisted(() => ({ signals: [] as AbortSignal[], outcomes: [] as string[] }))
 vi.mock('./agent-core', () => ({
-  availableTools: () => [], fetchVoice: vi.fn(), getPublicConfig: () => ({}), warmUpstream: vi.fn(),
+  availableTools: () => [], fetchVoice: vi.fn(), getPublicConfig: () => ({}), warmUpstream: vi.fn(), warmProviders: vi.fn(),
   streamTurn: async function* (id: string, _messages: unknown, signal: AbortSignal, options: { bridge: ClientToolBridge }) {
     captured.signals.push(signal)
     const result = options.bridge.call('reused-call', 'test_tool', {}, signal)

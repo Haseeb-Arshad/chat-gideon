@@ -10,7 +10,15 @@ import type { ServerFrame } from '../protocol'
 
 const drawing = { title: 'Spring balance', summary: 'An illustrative spring stretches with load. Values are a conceptual model.', html: '<main><svg viewBox="0 0 600 380" role="img" aria-label="Spring balance"><circle cx="100" cy="100" r="30" /></svg><button>Reset</button></main>' }
 const response = (value: unknown, reason = 'stop') => Response.json({ choices: [{ finish_reason: reason, message: { content: JSON.stringify(value) } }] })
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+/** A streamed completion, cut into the given number of pieces. */
+const sse =(value: unknown, pieces = 6, reason = 'stop') => {
+  const text = JSON.stringify(value)
+  const size = Math.ceil(text.length / pieces)
+  const events = Array.from({ length: pieces }, (_, index) => `data: ${JSON.stringify({ choices: [{ delta: { content: text.slice(index * size, (index + 1) * size) } }] })}\n\n`)
+  events.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] })}\n\ndata: [DONE]\n\n`)
+  return new Response(new ReadableStream({ start(controller) { for (const event of events) controller.enqueue(new TextEncoder().encode(event)); controller.close() } }))
+}
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('drawing generation', () => {
   it('accepts a provider JSON envelope wrapped in a code fence', async () => {
@@ -23,7 +31,7 @@ describe('drawing generation', () => {
     let rounds = 0
     vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))
-      if (!body.stream) return response(drawing)
+      if (body.response_format) return body.stream ? sse(drawing) : response(drawing)
       const delta = rounds++ === 0 ? { tool_calls: [{ index: 0, id: 'draw-call', function: { name: 'draw_illustration', arguments: JSON.stringify({ request: 'Draw a spring balance' }) } }] } : { content: 'Try the load slider.' }
       return new Response(event({ choices: [{ delta }] }) + 'data: [DONE]\n\n')
     }))

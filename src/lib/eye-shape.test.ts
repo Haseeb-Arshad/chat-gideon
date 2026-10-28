@@ -207,9 +207,10 @@ describe('the poses', () => {
     expect(Math.abs(slope('neutral'))).toBeLessThan(0.5)
   })
 
-  it('keep curiosity lopsided: one eye raised and round, the other narrowed', () => {
+  it('show curiosity as one eye a little raised and rounder, not a lopsided glitch', () => {
     const { left, right, pose } = silhouette('curious')
-    expect(area(left.d)).toBeGreaterThan(area(right.d) * 1.25)
+    expect(area(left.d)).toBeGreaterThan(area(right.d) * 1.05)
+    expect(area(left.d)).toBeLessThan(area(right.d) * 1.25)
     expect(pose.left.dy).toBeLessThan(pose.right.dy)
   })
 

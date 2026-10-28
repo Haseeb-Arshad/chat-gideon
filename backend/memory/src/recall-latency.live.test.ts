@@ -4,11 +4,13 @@ import { EphemeralMemoryStore } from '../../../src/lib/tools/memory.ts'
 import { createServerMemorySession } from '../../../src/server/memory-session.ts'
 import { createRecallInput, createRuntime } from '../../../src/server/memory-turn-runtime.ts'
 import { memoryFeatureFlags } from '../../../src/lib/memory/rollout.ts'
+import { createConversationState } from '../../../src/lib/conversation-state.ts'
 import { executeExplicitCommand } from './commands.ts'
 import { updateMemorySettings } from './controls.ts'
+import { executeForgetCommand } from './deletion.ts'
 import { applyMigrations } from './migrations.ts'
 import { PostgresMemoryStore } from './postgres.ts'
-import { retrieveMemory, type RetrievalEmbeddingProvider } from './retrieval.ts'
+import { prepareMemoryRetrieval, retrieveMemory, type RetrievalEmbeddingProvider } from './retrieval.ts'
 
 /**
  * The lookup in front of every reply, on real PostgreSQL: what it waits for
@@ -64,13 +66,26 @@ describe.skipIf(!enabled)('recall in front of a reply', () => {
     await store.close()
   })
 
-  async function owner(tag: string) {
+  async function remembering(tag: string, text = 'The dog is called Bruno') {
     const session = createServerMemorySession({ owner: `user/${run}-${tag}`, store: new EphemeralMemoryStore(), channel: 'test', authority: 'worker_auth_session' })
     await store.provisionTrustedContext(session)
     const bound = { ...session, store }
-    const saved = await executeExplicitCommand(bound, { schemaVersion: 1, commandId: `command/${run}/${tag}/${(counter += 1)}`, kind: 'remember', text: 'The dog is called Bruno', assertionKind: 'fact', conditions: [] })
+    const saved = await executeExplicitCommand(bound, { schemaVersion: 1, commandId: `command/${run}/${tag}/${(counter += 1)}`, kind: 'remember', text, assertionKind: 'fact', conditions: [] })
     expect(saved).toMatchObject({ ok: true })
-    return bound
+    return { bound, saved }
+  }
+
+  async function owner(tag: string) {
+    return (await remembering(tag)).bound
+  }
+
+  /** Statements a lookup spends, counted once the commits it does not wait for have landed. */
+  async function spent<T>(work: () => Promise<T>): Promise<{ result: T; statements: number }> {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    statements = 0
+    const result = await work()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    return { result, statements }
   }
 
   it('answers from its other branches rather than wait for a slow embedding', async () => {
@@ -141,6 +156,53 @@ describe.skipIf(!enabled)('recall in front of a reply', () => {
     } finally {
       await small.end()
     }
+  })
+
+  it('lets a turn borrow the reading started on its transcript, leaving it only the closing check and the composing', async () => {
+    const bound = await owner('ahead')
+    const fresh = await retrieveMemory(bound, input('what is the dog called'))
+    const prepared = prepareMemoryRetrieval(bound, input('what is the dog called'))
+    expect(prepared).not.toBeNull()
+    await prepared!.settled
+    const { result, statements: borrowedStatements } = await spent(() => retrieveMemory(bound, input('what is the dog called'), { prepared }))
+    if (!fresh.ok || !result.ok) throw new Error('expected both lookups to answer')
+    expect(result.pack.text).toContain('Bruno')
+    expect(result.pack.sections.relevantFacts.map((fact) => fact.document.id)).toEqual(fresh.pack.sections.relevantFacts.map((fact) => fact.document.id))
+    // One authorized read of the epochs, against every branch read again.
+    const { statements: freshStatements } = await spent(() => retrieveMemory(bound, input('what is the dog called')))
+    expect(borrowedStatements).toBeLessThanOrEqual(8)
+    expect(freshStatements).toBeGreaterThan(borrowedStatements * 2)
+  })
+
+  it('reads afresh for other words, another conversation or another owner', async () => {
+    const bound = await owner('elsewhere')
+    const other = (await remembering('other', 'The cat is called Mittens')).bound
+    const prepared = prepareMemoryRetrieval(bound, input('what is the dog called'))
+    await prepared!.settled
+    const topical = createConversationState({ conversationId: 'conversation/pets', now: new Date().toISOString() })
+    topical.activeTopic = { topicId: 'topic/pets', label: 'pets', sourceTurnId: 'turn/1', sourceSequence: 1, status: 'active', expiresAt: null }
+
+    const reworded = await spent(() => retrieveMemory(bound, input('what is the dog called?'), { prepared }))
+    const elsewhere = await spent(() => retrieveMemory(bound, { ...createRecallInput('what is the dog called', 'UTC', topical, 'what is the dog called', undefined, 10_000), consistency: 'authoritative' }, { prepared }))
+    const stranger = await spent(() => retrieveMemory(other, input('what is the dog called'), { prepared }))
+    for (const lookup of [reworded, elsewhere, stranger]) expect(lookup.statements).toBeGreaterThan(8)
+    expect(reworded.result.ok && reworded.result.pack.text).toContain('Bruno')
+    // Another owner's lookup is its own: nothing read for this one reaches it.
+    if (!stranger.result.ok) throw new Error(stranger.result.failure.message)
+    expect(stranger.result.pack.text).not.toContain('Bruno')
+    expect(stranger.result.pack.authenticatedContext.scopeId).toBe(other.scope.id)
+  })
+
+  it('reads again when something is forgotten after the early reading began', async () => {
+    const { bound, saved } = await remembering('forgotten')
+    if (!saved.ok) throw new Error('expected the memory to be saved')
+    const prepared = prepareMemoryRetrieval(bound, input('what is the dog called'))
+    await prepared!.settled
+    const forgotten = await executeForgetCommand(bound, { schemaVersion: 1, commandId: `command/${run}/forget/${(counter += 1)}`, kind: 'forget', targetAssertionId: saved.assertion.id, targetRevision: saved.assertion.revision, query: null })
+    expect(forgotten).toMatchObject({ ok: true })
+    const result = await retrieveMemory(bound, input('what is the dog called'), { prepared })
+    if (!result.ok) throw new Error(result.failure.message)
+    expect(result.pack.text).not.toContain('Bruno')
   })
 
   it('reads the temporary setting beside the lookup, and neither returns nor embeds anything while it is on', async () => {

@@ -165,6 +165,65 @@ export function warmUpstream() {
     })
 }
 
+/** A quarter of a second of near silence, 16 kHz mono: the smallest thing worth transcribing. */
+function silentWav(): string {
+  const samples = 4_000
+  const view = new DataView(new ArrayBuffer(44 + samples * 2))
+  const text = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)) }
+  text(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); text(8, 'WAVE')
+  text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+  view.setUint32(24, 16_000, true); view.setUint32(28, 32_000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+  text(36, 'data'); view.setUint32(40, samples * 2, true)
+  for (let i = 0; i < samples; i++) view.setInt16(44 + i * 2, ((i * 7919) % 17) - 8, true)
+  let binary = ''
+  for (const byte of new Uint8Array(view.buffer)) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/**
+ * Wakes the three models a voice turn passes through, once somebody opens a
+ * socket and before they have said anything.
+ *
+ * The first turn after a quiet spell was measured paying for every cold path at
+ * once: 11.4 s to a transcript where a warm one took 2.2, and first tokens over
+ * three seconds where a warm one took one. A connection to OpenRouter alone
+ * does not reach the providers behind it, so each model is asked for the
+ * smallest real thing it does: a quarter second of silence, one word of
+ * speech, one token of text. Together that costs well under a tenth of a cent,
+ * at most once every few minutes per server, and nothing waits on it.
+ */
+let lastProvidersWarmAt = 0
+const PROVIDERS_WARM_EVERY_MS = 4 * 60_000
+export function warmProviders() {
+  const headers = serverHeaders()
+  if (!headers) return
+  const now = Date.now()
+  if (now - lastProvidersWarmAt < PROVIDERS_WARM_EVERY_MS) return
+  lastProvidersWarmAt = now
+  const quietly = (path: string, body: Record<string, unknown>) => {
+    void fetch(`${OPENROUTER_BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) })
+      .then((response) => response.body?.cancel())
+      .catch(() => undefined)
+  }
+  quietly('/audio/transcriptions', {
+    model: readEnv('OPENROUTER_STT_MODEL', TRANSCRIBE_MODEL),
+    input_audio: { data: silentWav(), format: 'wav' },
+    language: 'en',
+    response_format: 'json',
+  })
+  quietly('/audio/speech', {
+    model: readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL),
+    input: 'Hi.',
+    voice: readEnv('OPENROUTER_VOICE', VOICE),
+    response_format: 'mp3',
+  })
+  quietly('/chat/completions', {
+    model: readEnv('OPENROUTER_CHAT_MODEL', CHAT_MODEL),
+    messages: [{ role: 'user', content: 'Hi' }],
+    max_tokens: 1,
+  })
+}
+
 function errorFrame(
   id: string | null,
   code: string,
@@ -519,17 +578,18 @@ export async function* streamTurn(
       }
       const recallStarted = Date.now()
       // What the lookup came to and what it cost in time, never what it found.
-      const recalled = (status: string, reason?: string, pack?: { status: string; text: string }) => {
+      const recalled = (status: string, reason?: string, pack?: { status: string; text: string }, early?: boolean) => {
         options.audit?.mark('memory')
         options.audit?.record('memory_recall', {
           status, reason: reason ?? null, ms: Date.now() - recallStarted,
           ...(pack ? { pack: pack.status, characters: pack.text.length } : {}),
+          ...(early ? { early: true } : {}),
         })
       }
       try {
         const result = await runtime.retrieve(latestUserText, binding, signal)
         if (signal.aborted) return
-        recalled(result.status, result.status === 'unavailable' ? result.reason : undefined, result.status === 'ready' ? result.pack : undefined)
+        recalled(result.status, result.status === 'unavailable' ? result.reason : undefined, result.status === 'ready' ? result.pack : undefined, result.status === 'ready' && result.early)
         if (result.status === 'ready'
           && sameMemoryRecallBinding(binding, result.binding)
           && result.pack.authenticatedContext.principalId === binding.principalId
@@ -941,6 +1001,8 @@ export async function* streamTurn(
       const args = parseArgs(call.args)
       options.audit?.record('tool_call', { round, callId, name: call.name, arguments: args })
       let outcome: ToolOutcome
+      /** The drawing already on screen for this call, while it is still being written. */
+      let sketch: { artifactId: string; revision: number } | null = null
 
       if (call.name === 'draw_illustration' && !drawingRequested) {
         outcome = { ok: false, content: 'No drawing was requested. Answer in words; no drawing was created.' }
@@ -988,7 +1050,27 @@ export async function* streamTurn(
         // Capture supplies the source span used by explicit writes and forget
         // cleanup. A late capture must never reintroduce a forgotten source.
         if (MEMORY_TOOLS.has(call.name)) await capturing
-        outcome = await runServerTool(call.name, args, {
+        const running = runServerTool(call.name, args, {
+          onDraft: call.name === 'draw_illustration' ? (draft) => {
+            if (signal.aborted) return
+            const block = {
+              id: 'drawing', slot: 'body' as const, type: 'illustration' as const,
+              title: draft.title || 'Drawing',
+              summary: 'Being drawn now. It comes alive when it is finished.',
+              html: draft.html,
+            }
+            if (!sketch) {
+              sketch = { artifactId: crypto.randomUUID(), revision: 1 }
+              outbox.push({
+                t: 'card', id, call: callId, artifactId: sketch.artifactId, displayRevision: 1,
+                card: { schema: 2, recipe: 'illustration', size: 'feature', query: askedFor(args), title: block.title, blocks: [block], sources: [], asOf: null, partial: true },
+              })
+            } else {
+              // The same revision on purpose: a draft is one display that is
+              // growing, and only the finished drawing is a new version of it.
+              outbox.push({ t: 'card_patch', id, call: callId, artifactId: sketch.artifactId, displayRevision: sketch.revision, blocks: [block], drop: [], partial: true })
+            }
+          } : undefined,
           store: turnStore,
           session: options.memorySession,
           memoryRuntime: runtime,
@@ -1005,6 +1087,19 @@ export async function* streamTurn(
           location: whereabouts,
           audit: options.audit,
         })
+        if (call.name === 'draw_illustration') {
+          // The tool takes as long as the drawing does. What it has drawn so far
+          // goes out as it appears, rather than after the last stroke.
+          let settled = false
+          const finished = () => { settled = true }
+          running.then(finished, finished)
+          outbox.track(running)
+          while (!settled && !signal.aborted) {
+            await outbox.next(5_000)
+            yield* release()
+          }
+        }
+        outcome = await running
       }
 
       options.audit?.record('tool_result', {
@@ -1041,15 +1136,22 @@ export async function* streamTurn(
 
       if (outcome.card) {
         const patches = outcome.cardPatches
+        const drawn = sketch as { artifactId: string; revision: number } | null
         outbox.track(
           outcome.card.then(async (card) => {
             if (signal.aborted) return
             options.audit?.record('card_result', { callId, card })
+            if (drawn && card) {
+              // The finished drawing takes the draft's place on the same card,
+              // so the stage never shows two.
+              outbox.push({ t: 'card_patch', id, call: callId, artifactId: drawn.artifactId, displayRevision: drawn.revision + 1, blocks: card.blocks, drop: [], partial: false })
+              return
+            }
             const artifactId = card ? crypto.randomUUID() : undefined
             let displayRevision = card ? 1 : undefined
             // A null card is sent too: it is what tells the searching pane
             // to dissolve now, rather than wait out a timer for nothing.
-            outbox.push({ t: 'card', id, call: callId, card, ...(artifactId ? { artifactId, displayRevision } : {}) })
+            outbox.push({ t: 'card', id, call: callId, card, ...(artifactId ? { artifactId, displayRevision } : drawn ? { artifactId: drawn.artifactId } : {}) })
             if (!card || !patches) return
             for await (const patch of patches) {
               if (signal.aborted) return
@@ -1059,6 +1161,10 @@ export async function* streamTurn(
             }
           }),
         )
+      } else if (sketch) {
+        // It began to appear and then failed: take it down, so a drawing that
+        // never finished is not left on screen looking like one that did.
+        outbox.push({ t: 'card', id, call: callId, card: null, artifactId: (sketch as { artifactId: string }).artifactId })
       }
 
       history.push({ role: 'tool', tool_call_id: callId, content: outcome.content })
@@ -1226,6 +1332,14 @@ export interface TranscriptionResult {
 }
 
 const TRANSCRIBE_TIMEOUT_MS = 3_500
+/**
+ * A finished utterance that the first model has not answered by now is asked
+ * of the second as well, and whichever answers first is used. A warm
+ * recognition takes about 1.1 to 1.5 s on the server, so this rarely fires; when
+ * it does, it is a cold or stuck provider, and waiting out the whole timeout
+ * before trying the other one was dead air.
+ */
+const TRANSCRIBE_HEDGE_MS = 2_000
 
 export async function transcribeAudio(
   wav: ArrayBuffer,
@@ -1268,15 +1382,8 @@ export async function transcribeAudio(
   }
   const data = btoa(binary)
 
-  // The fallback exists because a single slow provider would otherwise be felt
-  // as GIDEON going deaf; the models are ordered by measured median latency.
-  // Live captions are disposable. Only a finished utterance merits failover.
-  const attempts = !options.caption && fallback && fallback !== primary ? [primary, fallback] : [primary]
-  let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
-
-  for (const model of attempts) {
-    if (signal.aborted) return fail('aborted', 'Transcription was cancelled.')
-
+  const attempt = async (model: string, attemptSignal: AbortSignal): Promise<TranscriptionResult> => {
+    if (attemptSignal.aborted) return fail('aborted', 'Transcription was cancelled.')
     try {
       const upstream = await fetch(`${OPENROUTER_BASE_URL}/audio/transcriptions`, {
         method: 'POST',
@@ -1287,17 +1394,16 @@ export async function transcribeAudio(
           language,
           response_format: 'json',
         }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(options.caption ? 2_000 : TRANSCRIBE_TIMEOUT_MS)]),
+        signal: AbortSignal.any([attemptSignal, AbortSignal.timeout(options.caption ? 2_000 : TRANSCRIBE_TIMEOUT_MS)]),
       })
 
       if (!upstream.ok) {
         void upstream.body?.cancel()
-        last = fail(
+        return fail(
           'stt_provider_error',
           providerErrorMessage(upstream.status),
           upstream.status === 429 || upstream.status >= 500,
         )
-        continue
       }
 
       const body = (await upstream.json()) as { text?: unknown }
@@ -1305,13 +1411,52 @@ export async function transcribeAudio(
       // An empty transcript is a normal outcome, not an error: the detector can
       // be fooled by a cough or a door, and the caller simply keeps listening.
       return { ok: true, text, code: '', message: '', retryable: false, model }
-    } catch (error) {
-      if (signal.aborted) {
-        return fail('aborted', 'Transcription was cancelled.')
-      }
-      last = fail('stt_unreachable', 'Speech recognition could not be reached.', true)
+    } catch {
+      if (attemptSignal.aborted) return fail('aborted', 'Transcription was cancelled.')
+      return fail('stt_unreachable', 'Speech recognition could not be reached.', true)
     }
   }
 
-  return last
+  // The fallback exists because a single slow provider would otherwise be felt
+  // as GIDEON going deaf; the models are ordered by measured median latency.
+  // Live captions are disposable. Only a finished utterance merits failover.
+  if (options.caption || !fallback || fallback === primary) return attempt(primary, signal)
+
+  // The second model starts when the first fails, or when it is slow to
+  // answer; the first good answer wins and the other is called off.
+  return new Promise<TranscriptionResult>((resolve) => {
+    const primaryStop = new AbortController()
+    const fallbackStop = new AbortController()
+    let settled = false
+    let fallbackStarted = false
+    let running = 0
+    let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
+    const settle = (result: TranscriptionResult) => {
+      if (settled) return
+      settled = true
+      clearTimeout(hedge)
+      primaryStop.abort()
+      fallbackStop.abort()
+      resolve(signal.aborted ? fail('aborted', 'Transcription was cancelled.') : result)
+    }
+    const run = (model: string, stop: AbortController) => {
+      running += 1
+      void attempt(model, AbortSignal.any([signal, stop.signal])).then((result) => {
+        running -= 1
+        if (settled) return
+        if (result.ok || signal.aborted) return settle(result)
+        last = result
+        if (!fallbackStarted) startFallback()
+        else if (running === 0) settle(last)
+      })
+    }
+    const startFallback = () => {
+      if (fallbackStarted || settled) return
+      fallbackStarted = true
+      clearTimeout(hedge)
+      run(fallback, fallbackStop)
+    }
+    const hedge = setTimeout(startFallback, TRANSCRIBE_HEDGE_MS)
+    run(primary, primaryStop)
+  })
 }
