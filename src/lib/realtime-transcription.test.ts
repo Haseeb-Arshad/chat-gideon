@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ServerFrame } from './protocol'
 import type { InteractionAuditFactory } from './interaction-audit'
 const fixtures = vi.hoisted(() => ({ transcribe: vi.fn() }))
-vi.mock('./agent-core', () => ({ availableTools: () => [], fetchVoice: vi.fn(), streamTurn: vi.fn(), getPublicConfig: () => ({}), warmUpstream: vi.fn(), transcribeAudio: fixtures.transcribe }))
+vi.mock('./agent-core', () => ({ availableTools: () => [], fetchVoice: vi.fn(), streamTurn: vi.fn(), getPublicConfig: () => ({}), warmUpstream: vi.fn(), warmProviders: vi.fn(), transcribeAudio: fixtures.transcribe }))
 import { createRealtimeSession } from './realtime-session'
 afterEach(() => vi.clearAllMocks())
 const frame = (extra = {}) => JSON.stringify({ t: 'transcribe', id: 'stt-test', audio: btoa('RIFFfixture-audio'), ...extra })

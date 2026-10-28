@@ -18,6 +18,7 @@ import {
   getPublicConfig,
   streamTurn,
   transcribeAudio,
+  warmProviders,
   warmUpstream,
   type ClientToolBridge,
 } from './agent-core'
@@ -609,6 +610,8 @@ export function createRealtimeSession(
       switch (frame.t) {
         case 'hello': {
           warmUpstream()
+          // Someone has just opened GIDEON and is about to speak.
+          warmProviders()
           try { options.warm?.() } catch { /* Warming is best effort; the first turn does it itself otherwise. */ }
           const config = getPublicConfig()
           send({

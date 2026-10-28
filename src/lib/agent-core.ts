@@ -165,6 +165,65 @@ export function warmUpstream() {
     })
 }
 
+/** A quarter of a second of near silence, 16 kHz mono: the smallest thing worth transcribing. */
+function silentWav(): string {
+  const samples = 4_000
+  const view = new DataView(new ArrayBuffer(44 + samples * 2))
+  const text = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)) }
+  text(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); text(8, 'WAVE')
+  text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+  view.setUint32(24, 16_000, true); view.setUint32(28, 32_000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+  text(36, 'data'); view.setUint32(40, samples * 2, true)
+  for (let i = 0; i < samples; i++) view.setInt16(44 + i * 2, ((i * 7919) % 17) - 8, true)
+  let binary = ''
+  for (const byte of new Uint8Array(view.buffer)) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/**
+ * Wakes the three models a voice turn passes through, once somebody opens a
+ * socket and before they have said anything.
+ *
+ * The first turn after a quiet spell was measured paying for every cold path at
+ * once: 11.4 s to a transcript where a warm one took 2.2, and first tokens over
+ * three seconds where a warm one took one. A connection to OpenRouter alone
+ * does not reach the providers behind it, so each model is asked for the
+ * smallest real thing it does: a quarter second of silence, one word of
+ * speech, one token of text. Together that costs well under a tenth of a cent,
+ * at most once every few minutes per server, and nothing waits on it.
+ */
+let lastProvidersWarmAt = 0
+const PROVIDERS_WARM_EVERY_MS = 4 * 60_000
+export function warmProviders() {
+  const headers = serverHeaders()
+  if (!headers) return
+  const now = Date.now()
+  if (now - lastProvidersWarmAt < PROVIDERS_WARM_EVERY_MS) return
+  lastProvidersWarmAt = now
+  const quietly = (path: string, body: Record<string, unknown>) => {
+    void fetch(`${OPENROUTER_BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) })
+      .then((response) => response.body?.cancel())
+      .catch(() => undefined)
+  }
+  quietly('/audio/transcriptions', {
+    model: readEnv('OPENROUTER_STT_MODEL', TRANSCRIBE_MODEL),
+    input_audio: { data: silentWav(), format: 'wav' },
+    language: 'en',
+    response_format: 'json',
+  })
+  quietly('/audio/speech', {
+    model: readEnv('OPENROUTER_VOICE_MODEL', VOICE_MODEL),
+    input: 'Hi.',
+    voice: readEnv('OPENROUTER_VOICE', VOICE),
+    response_format: 'mp3',
+  })
+  quietly('/chat/completions', {
+    model: readEnv('OPENROUTER_CHAT_MODEL', CHAT_MODEL),
+    messages: [{ role: 'user', content: 'Hi' }],
+    max_tokens: 1,
+  })
+}
+
 function errorFrame(
   id: string | null,
   code: string,
@@ -1272,6 +1331,14 @@ export interface TranscriptionResult {
 }
 
 const TRANSCRIBE_TIMEOUT_MS = 3_500
+/**
+ * A finished utterance that the first model has not answered by now is asked
+ * of the second as well, and whichever answers first is used. A warm
+ * recognition takes about 1.1 to 1.5 s on the server, so this rarely fires; when
+ * it does, it is a cold or stuck provider, and waiting out the whole timeout
+ * before trying the other one was dead air.
+ */
+const TRANSCRIBE_HEDGE_MS = 2_000
 
 export async function transcribeAudio(
   wav: ArrayBuffer,
@@ -1314,15 +1381,8 @@ export async function transcribeAudio(
   }
   const data = btoa(binary)
 
-  // The fallback exists because a single slow provider would otherwise be felt
-  // as GIDEON going deaf; the models are ordered by measured median latency.
-  // Live captions are disposable. Only a finished utterance merits failover.
-  const attempts = !options.caption && fallback && fallback !== primary ? [primary, fallback] : [primary]
-  let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
-
-  for (const model of attempts) {
-    if (signal.aborted) return fail('aborted', 'Transcription was cancelled.')
-
+  const attempt = async (model: string, attemptSignal: AbortSignal): Promise<TranscriptionResult> => {
+    if (attemptSignal.aborted) return fail('aborted', 'Transcription was cancelled.')
     try {
       const upstream = await fetch(`${OPENROUTER_BASE_URL}/audio/transcriptions`, {
         method: 'POST',
@@ -1333,17 +1393,16 @@ export async function transcribeAudio(
           language,
           response_format: 'json',
         }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(options.caption ? 2_000 : TRANSCRIBE_TIMEOUT_MS)]),
+        signal: AbortSignal.any([attemptSignal, AbortSignal.timeout(options.caption ? 2_000 : TRANSCRIBE_TIMEOUT_MS)]),
       })
 
       if (!upstream.ok) {
         void upstream.body?.cancel()
-        last = fail(
+        return fail(
           'stt_provider_error',
           providerErrorMessage(upstream.status),
           upstream.status === 429 || upstream.status >= 500,
         )
-        continue
       }
 
       const body = (await upstream.json()) as { text?: unknown }
@@ -1351,13 +1410,52 @@ export async function transcribeAudio(
       // An empty transcript is a normal outcome, not an error: the detector can
       // be fooled by a cough or a door, and the caller simply keeps listening.
       return { ok: true, text, code: '', message: '', retryable: false, model }
-    } catch (error) {
-      if (signal.aborted) {
-        return fail('aborted', 'Transcription was cancelled.')
-      }
-      last = fail('stt_unreachable', 'Speech recognition could not be reached.', true)
+    } catch {
+      if (attemptSignal.aborted) return fail('aborted', 'Transcription was cancelled.')
+      return fail('stt_unreachable', 'Speech recognition could not be reached.', true)
     }
   }
 
-  return last
+  // The fallback exists because a single slow provider would otherwise be felt
+  // as GIDEON going deaf; the models are ordered by measured median latency.
+  // Live captions are disposable. Only a finished utterance merits failover.
+  if (options.caption || !fallback || fallback === primary) return attempt(primary, signal)
+
+  // The second model starts when the first fails, or when it is slow to
+  // answer; the first good answer wins and the other is called off.
+  return new Promise<TranscriptionResult>((resolve) => {
+    const primaryStop = new AbortController()
+    const fallbackStop = new AbortController()
+    let settled = false
+    let fallbackStarted = false
+    let running = 0
+    let last: TranscriptionResult = fail('stt_unavailable', 'Speech could not be transcribed.', true)
+    const settle = (result: TranscriptionResult) => {
+      if (settled) return
+      settled = true
+      clearTimeout(hedge)
+      primaryStop.abort()
+      fallbackStop.abort()
+      resolve(signal.aborted ? fail('aborted', 'Transcription was cancelled.') : result)
+    }
+    const run = (model: string, stop: AbortController) => {
+      running += 1
+      void attempt(model, AbortSignal.any([signal, stop.signal])).then((result) => {
+        running -= 1
+        if (settled) return
+        if (result.ok || signal.aborted) return settle(result)
+        last = result
+        if (!fallbackStarted) startFallback()
+        else if (running === 0) settle(last)
+      })
+    }
+    const startFallback = () => {
+      if (fallbackStarted || settled) return
+      fallbackStarted = true
+      clearTimeout(hedge)
+      run(fallback, fallbackStop)
+    }
+    const hedge = setTimeout(startFallback, TRANSCRIBE_HEDGE_MS)
+    run(primary, primaryStop)
+  })
 }
