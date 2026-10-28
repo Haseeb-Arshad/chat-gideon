@@ -2166,7 +2166,6 @@ export function AgentPage() {
       partialRef.current = { text, changedAt: Date.now() }
     }
     setLiveTranscript(text)
-    if (deriveEmotion(result.text) === 'happy') setEmotion('happy')
 
     // Patience where it is needed. Someone whose last word was "and" has not
     // finished, so the detector is told to wait considerably longer before
@@ -2432,12 +2431,8 @@ export function AgentPage() {
       if (listenerRef.current?.active) return
 
       const listener = listenerRef.current ?? new Listener({
-        onInterim: (value) => {
-          setLiveTranscript(value)
-          if (phaseRef.current === 'listening') {
-            setEmotion(deriveEmotion(value) === 'happy' ? 'happy' : 'curious')
-          }
-        },
+        // The face listens; it does not react to each word as it arrives.
+        onInterim: (value) => setLiveTranscript(value),
         onStable: (value, stableMs) => considerSpeculation(value, stableMs),
         onCommit: (value) => {
           listenerRef.current = null
